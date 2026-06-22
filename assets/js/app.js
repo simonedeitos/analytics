@@ -21,8 +21,8 @@
     const GEOCODE_MAX_ATTEMPTS = 2;
     const MAP_CLUSTER_RADIUS_PIXELS = 50;
     const MAP_PREPARE_DELAY_MS = 500;
-    const WFS_SECONDS_PER_TILE = 0.6;
-    const WFS_STREAM_TIMEOUT_MS = 180000;
+    const WFS_SECONDS_PER_TILE = 0.6; // Used for WFS tile ETA in scan progress
+    const WFS_STREAM_TIMEOUT_MS = 180000; // Max SSE wait (3 minutes) for WFS stream completion
     const COLUMN_SURNAME = 'Nome';
     const COLUMN_GIVEN_NAME = 'Nome1';
     let mapInstance = null;
@@ -940,7 +940,8 @@
         const percent = totalTiles > 0 ? Math.round((tilesQueried / totalTiles) * 100) : 0;
         const eta = totalTiles > 0 ? Math.ceil((totalTiles - tilesQueried) * WFS_SECONDS_PER_TILE) : 1;
         document.getElementById('scan-comune-name').textContent = comune;
-        document.getElementById('scan-points').textContent = `${tilesQueried}/${totalTiles} tiles`;
+        const tileLabel = totalTiles === 1 ? 'tile' : 'tiles';
+        document.getElementById('scan-points').textContent = `${tilesQueried}/${totalTiles} ${tileLabel}`;
         document.getElementById('scan-found').textContent = found;
         document.getElementById('scan-eta').textContent = eta > 0 ? `~${eta} sec` : 'Quasi fatto!';
         document.getElementById('scan-progress-bar').style.width = `${percent}%`;

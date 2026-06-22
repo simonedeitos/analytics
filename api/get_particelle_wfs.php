@@ -14,6 +14,8 @@ define('WFS_TIMEOUT', 30);
 define('TILE_DELAY_US', 500000); // 0.5 sec
 define('METERS_PER_DEGREE', 111000);
 define('WFS_SRS_NAME', 'urn:ogc:def:crs:OGC:1.3:CRS84'); // lon/lat order
+define('MIN_POLYGON_VERTICES', 3);
+define('AREA_TOLERANCE', 1e-12);
 
 const PROVINCE_MAP = [
     'AGRIGENTO' => 'AG', 'ALESSANDRIA' => 'AL', 'ANCONA' => 'AN', 'AOSTA' => 'AO',
@@ -331,7 +333,7 @@ function parseFeatureMember(DOMXPath $xpath, DOMNode $member): ?array {
     }
 
     // A valid polygon requires at least 3 vertices.
-    if (count($coords) < 3) return null;
+    if (count($coords) < MIN_POLYGON_VERTICES) return null;
     $centroid = calculateCentroid($coords);
 
     return [
@@ -359,7 +361,7 @@ function calculateCentroid(array $coords): array {
         $sumLat += ($coords[$i][1] + $coords[$j][1]) * $cross;
     }
 
-    if (abs($area2) < 1e-12) {
+    if (abs($area2) < AREA_TOLERANCE) {
         $avgLat = 0.0;
         $avgLng = 0.0;
         foreach ($coords as $coord) {
