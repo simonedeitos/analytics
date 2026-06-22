@@ -21,6 +21,7 @@
     const GEOCODE_MAX_ATTEMPTS = 2;
     const MAP_CLUSTER_RADIUS_PIXELS = 50;
     const MAP_PREPARE_DELAY_MS = 500;
+    const WFS_SECONDS_PER_TILE = 0.6;
     const COLUMN_SURNAME = 'Nome';
     const COLUMN_GIVEN_NAME = 'Nome1';
     let mapInstance = null;
@@ -936,7 +937,7 @@
         if (!progressDiv) return;
         progressDiv.classList.remove('d-none');
         const percent = totalTiles > 0 ? Math.round((tilesQueried / totalTiles) * 100) : 0;
-        const eta = totalTiles > 0 ? Math.ceil((totalTiles - tilesQueried) * 0.6) : 1;
+        const eta = totalTiles > 0 ? Math.ceil((totalTiles - tilesQueried) * WFS_SECONDS_PER_TILE) : 1;
         document.getElementById('scan-comune-name').textContent = comune;
         document.getElementById('scan-points').textContent = `${tilesQueried}/${totalTiles} tile`;
         document.getElementById('scan-found').textContent = found;

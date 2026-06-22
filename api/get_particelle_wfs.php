@@ -11,7 +11,8 @@ define('WFS_ENDPOINT', 'https://wfs.cartografia.agenziaentrate.gov.it/inspire/wf
 define('BBOX_RADIUS', 0.03); // ~3km
 define('TILE_SIZE', 0.01);   // ~1km
 define('WFS_TIMEOUT', 30);
-define('TILE_DELAY_US', 500000); // 0.5s
+define('TILE_DELAY_US', 500000); // 0.5 sec
+define('METERS_PER_DEGREE', 111000);
 
 const PROVINCE_MAP = [
     'AGRIGENTO' => 'AG', 'ALESSANDRIA' => 'AL', 'ANCONA' => 'AN', 'AOSTA' => 'AO',
@@ -362,8 +363,7 @@ function calculateArea(array $coords): float {
         $area -= $coords[$j][0] * $coords[$i][1];
     }
     $area = abs($area) / 2;
-    $metersPerDegree = 111000;
-    return $area * $metersPerDegree * $metersPerDegree;
+    return $area * METERS_PER_DEGREE * METERS_PER_DEGREE;
 }
 
 function geocodeComune(string $comune, string $provincia): ?array {
