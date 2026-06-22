@@ -348,13 +348,13 @@
                     </div>
                 </div>
 
-                <!-- Scan Progress (mostrato durante scan AdE) -->
+                <!-- Scan Progress (mostrato durante query WFS) -->
                 <div id="scan-progress" class="alert alert-primary mb-3 d-none" style="border-left: 4px solid #2A519F;">
                     <div class="d-flex align-items-center mb-2">
                         <div class="spinner-border spinner-border-sm me-2" role="status" style="color:#2A519F;">
-                            <span class="visually-hidden">Scansione...</span>
+                            <span class="visually-hidden">Query WFS...</span>
                         </div>
-                        <strong>Scansione precisa Agenzia delle Entrate</strong>
+                        <strong>Query WFS INSPIRE Agenzia delle Entrate</strong>
                     </div>
 
                     <p class="small mb-3">
@@ -363,7 +363,7 @@
 
                     <div class="row g-2 small mb-3">
                         <div class="col-4">
-                            <span class="text-muted">Punti scansionati:</span><br>
+                            <span class="text-muted">Tile interrogati:</span><br>
                             <strong id="scan-points">0/…</strong>
                         </div>
                         <div class="col-4">
@@ -372,7 +372,7 @@
                         </div>
                         <div class="col-4">
                             <span class="text-muted">Tempo rimanente:</span><br>
-                            <strong id="scan-eta">~10 min</strong>
+                            <strong id="scan-eta">Calcolo...</strong>
                         </div>
                     </div>
 
@@ -383,8 +383,8 @@
 
                     <p class="small text-muted mt-3 mb-0">
                         <i class="bi bi-info-circle"></i>
-                        Stiamo interrogando l'Agenzia delle Entrate per ottenere le coordinate precise delle particelle catastali.
-                        Questa operazione viene eseguita <strong>una sola volta per comune</strong> e poi salvata in cache.
+                        Stiamo interrogando il servizio WFS INSPIRE per ottenere le coordinate precise delle particelle catastali dal centroid dei poligoni.
+                        Questa operazione viene eseguita <strong>una sola volta per comune</strong> (~30-60 secondi) e poi salvata in cache.
                     </p>
                 </div>
 

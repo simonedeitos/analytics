@@ -21,8 +21,8 @@
     const GEOCODE_MAX_ATTEMPTS = 2;
     const MAP_CLUSTER_RADIUS_PIXELS = 50;
     const MAP_PREPARE_DELAY_MS = 500;
-    const GRID_SIZE = 25; // AdE scan grid dimension (GRID_SIZE × GRID_SIZE points)
-    const SCAN_SECONDS_PER_POINT = 1.1; // Approximate time per AdE grid point (seconds), used for ETA
+    const WFS_SECONDS_PER_TILE = 0.6; // Used for WFS tile ETA in scan progress
+    const WFS_STREAM_TIMEOUT_MS = 180000; // Max SSE wait (3 minutes) for WFS stream completion
     const COLUMN_SURNAME = 'Nome';
     const COLUMN_GIVEN_NAME = 'Nome1';
     let mapInstance = null;
@@ -757,16 +757,16 @@
             if (p.comune && p.provincia) comuniMap.set(p.comune.toUpperCase(), p.provincia);
         });
 
-        // 2. Scan each comune via AdE API (with cache)
+        // 2. Query each comune via WFS API (with cache)
         for (const [comune, provincia] of comuniMap.entries()) {
             try {
                 const scanResult = await scanComuneParticelle(comune, provincia);
                 if (scanResult && scanResult.ok && scanResult.particelle) {
                     Object.assign(particelleCache, scanResult.particelle);
-                    console.log(`✅ [Scan] ${comune}: ${scanResult.particelle_found} particelle trovate`);
+                    console.log(`✅ [WFS] ${comune}: ${scanResult.particelle_found} particelle trovate`);
                 }
             } catch (err) {
-                console.warn(`⚠️ [Scan] ${comune}: scan non disponibile, uso fallback Nominatim`);
+                console.warn(`⚠️ [WFS] ${comune}: query non disponibile, uso fallback Nominatim`);
             }
         }
 
@@ -868,65 +868,81 @@
     }
 
     async function scanComuneParticelle(comune, provincia) {
-        console.log(`🔍 [Scan] Inizio scan preciso per ${comune} (${provincia})`);
+        console.log(`🔍 [WFS] Inizio query WFS per ${comune} (${provincia})`);
         try {
-            const checkUrl = `api/scan_particelle.php?comune=${encodeURIComponent(comune)}&provincia=${encodeURIComponent(provincia)}&mode=check`;
+            const checkUrl = `api/get_particelle_wfs.php?comune=${encodeURIComponent(comune)}&provincia=${encodeURIComponent(provincia)}&mode=check`;
             const checkResp = await fetch(checkUrl);
-            if (!checkResp.ok) throw new Error(`HTTP ${checkResp.status}`);
+            if (!checkResp.ok) {
+                const errorText = await checkResp.text();
+                console.warn(`⚠️ [WFS] Check cache fallito (${checkResp.status}):`, errorText);
+                throw new Error(`HTTP ${checkResp.status}`);
+            }
             const checkData = await checkResp.json();
 
             if (checkData.cached && !checkData.needs_update) {
-                console.log(`✅ [Cache] Usando cache per ${comune} (${checkData.particelle_count} particelle, ${checkData.cache_age_days} giorni)`);
-                const scanUrl = `api/scan_particelle.php?comune=${encodeURIComponent(comune)}&provincia=${encodeURIComponent(provincia)}&mode=scan`;
-                const scanResp = await fetch(scanUrl);
-                if (!scanResp.ok) throw new Error(`HTTP ${scanResp.status}`);
-                return await scanResp.json();
+                console.log(`✅ [Cache] Usando cache WFS per ${comune} (${checkData.particelle_count} particelle, ${checkData.cache_age_days} giorni)`);
+                const fetchUrl = `api/get_particelle_wfs.php?comune=${encodeURIComponent(comune)}&provincia=${encodeURIComponent(provincia)}&mode=fetch`;
+                const fetchResp = await fetch(fetchUrl);
+                if (!fetchResp.ok) throw new Error(`HTTP ${fetchResp.status}`);
+                return await fetchResp.json();
             }
 
-            console.log(`⏳ [Scan] Cache non disponibile, avvio scan (~10 minuti)…`);
-            showScanProgress(comune, 0, GRID_SIZE * GRID_SIZE, 0);
+            if (!checkData.cached || checkData.needs_update) {
+                console.log('⏳ [WFS] Cache non disponibile, avvio query WFS (~30-60 sec)...');
+                showScanProgress(comune, 0, 0, 0);
+            }
 
             return await new Promise((resolve, reject) => {
-                const streamUrl = `api/scan_particelle.php?comune=${encodeURIComponent(comune)}&provincia=${encodeURIComponent(provincia)}&mode=stream`;
+                const streamUrl = `api/get_particelle_wfs.php?comune=${encodeURIComponent(comune)}&provincia=${encodeURIComponent(provincia)}&mode=stream`;
                 const eventSource = new EventSource(streamUrl);
+
+                const progressTimeout = setTimeout(() => {
+                    eventSource.close();
+                    console.warn('⚠️ [WFS] Timeout stream');
+                    reject(new Error('WFS timeout'));
+                }, WFS_STREAM_TIMEOUT_MS);
 
                 eventSource.onmessage = (event) => {
                     const data = JSON.parse(event.data);
                     if (data.complete) {
+                        clearTimeout(progressTimeout);
                         eventSource.close();
                         hideScanProgress();
                         resolve(data.result);
                     } else if (data.error) {
+                        clearTimeout(progressTimeout);
                         eventSource.close();
                         hideScanProgress();
                         reject(new Error(data.error));
                     } else {
-                        updateScanProgress(comune, data.scanned, data.total, data.found);
+                        updateScanProgress(comune, data.tiles_queried, data.total_tiles, data.found);
                     }
                 };
 
                 eventSource.onerror = (err) => {
+                    clearTimeout(progressTimeout);
                     eventSource.close();
                     hideScanProgress();
-                    reject(err);
+                    console.warn('⚠️ [WFS] Stream error:', err);
+                    reject(new Error('WFS stream failed'));
                 };
             });
         } catch (err) {
-            console.warn(`⚠️ [Scan] Scan ${comune} fallito (${err.message}), uso fallback Nominatim`);
+            console.warn(`⚠️ [WFS] Query ${comune} fallita (${err.message}), uso fallback Nominatim`);
             throw err;
         }
     }
 
-    function showScanProgress(comune, scanned, total, found) {
+    function showScanProgress(comune, tilesQueried, totalTiles, found) {
         const progressDiv = document.getElementById('scan-progress');
         if (!progressDiv) return;
         progressDiv.classList.remove('d-none');
-        const percent = total > 0 ? Math.round((scanned / total) * 100) : 0;
-        const eta = total > 0 ? Math.ceil(((total - scanned) * SCAN_SECONDS_PER_POINT) / 60) : 10;
+        const percent = totalTiles > 0 ? Math.round((tilesQueried / totalTiles) * 100) : 0;
+        const eta = totalTiles > 0 ? Math.ceil((totalTiles - tilesQueried) * WFS_SECONDS_PER_TILE) : 1;
         document.getElementById('scan-comune-name').textContent = comune;
-        document.getElementById('scan-points').textContent = `${scanned}/${total}`;
+        document.getElementById('scan-points').textContent = `${tilesQueried}/${totalTiles}`;
         document.getElementById('scan-found').textContent = found;
-        document.getElementById('scan-eta').textContent = eta > 0 ? `~${eta} min` : 'Quasi fatto!';
+        document.getElementById('scan-eta').textContent = eta > 0 ? `~${eta} sec` : 'Quasi fatto!';
         document.getElementById('scan-progress-bar').style.width = `${percent}%`;
     }
 
