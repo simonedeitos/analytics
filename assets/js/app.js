@@ -489,7 +489,11 @@
             const btn = event.target.closest('.btn-copy-phone');
             if (!btn) return;
             const encodedPhone = btn.dataset.phone || '';
-            copyPhone(encodedPhone ? decodeURIComponent(encodedPhone) : '');
+            try {
+                copyPhone(encodedPhone ? decodeURIComponent(encodedPhone) : '');
+            } catch (err) {
+                showToast('Impossibile copiare il numero.', 'warning');
+            }
         });
 
         applyFilters();
@@ -592,7 +596,7 @@
             return `
                 <span class="phone-item">
                     <span class="badge-phone">${escapedPhone}</span>
-                    <button type="button" class="btn-copy-phone" data-phone="${encodedPhone}" aria-label="Copia numero di telefono" title="Copia numero">
+                    <button type="button" class="btn-copy-phone" data-phone="${encodedPhone}" aria-label="Copia numero di telefono" title="Copia numero di telefono">
                         <i class="bi bi-clipboard"></i>
                     </button>
                 </span>
