@@ -597,7 +597,7 @@
             return `
                 <span class="phone-item">
                     <span class="badge-phone">${escapedPhone}</span>
-                    <button type="button" class="btn-copy-phone" data-phone="${encodedPhone}" aria-label="Copia numero di telefono" title="Copia numero di telefono">
+                    <button type="button" class="btn-copy-phone" data-phone="${encodedPhone}" aria-label="Copia numero" title="Copia numero di telefono">
                         <i class="bi bi-clipboard"></i>
                     </button>
                 </span>
@@ -675,6 +675,10 @@
             return;
         }
         const safePhone = rawPhone.replace(/[^\d+]/g, '') || rawPhone;
+        if (!safePhone.trim()) {
+            showToast('Numero non valido.', 'warning');
+            return;
+        }
 
         navigator.clipboard.writeText(safePhone).then(() => {
             showToast(`Numero copiato: ${safePhone}`, 'success');
