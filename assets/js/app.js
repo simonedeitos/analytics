@@ -109,10 +109,10 @@
             reader.onload = e => {
                 try {
                     const data = e.target.result;
-                    const wb = XLSX.read(data, { type: isExcel ? 'binary' : 'binary', raw: false, dateNF: 'yyyy-mm-dd' });
+                    const wb = XLSX.read(data, { type: 'binary', raw: false, dateNF: 'yyyy-mm-dd' });
                     const ws = wb.Sheets[wb.SheetNames[0]];
                     // header:1 → array of arrays; defval → empty string for missing cells
-                    const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', blankrows: false, raw: false, dateNF: 'yyyy-mm-dd' });
+                    const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', blankrows: false, raw: false });
                     if (raw.length < 2) { resolve([]); return; }
 
                     const headers = raw[0].map(h => String(h).trim());
@@ -179,7 +179,7 @@
         const noEmail = raw.replace(emailRe, ' ');
 
         // Extract Italian phone numbers (mobile: 3xx, landline: 0xx, international +39)
-        const phoneRe = /(\+39[\s\-]?)?(\b(3\d{8,9}|0\d{1,3}[\s\-\/]?\d{5,8}|0\d{7,10})\b)/g;
+        const phoneRe = /(\+39[\s\-]?)?(\b(3\d{8,9}|0\d{8,11})\b)/g;
         while ((m = phoneRe.exec(noEmail)) !== null) {
             const num = m[0].replace(/[\s\-\/]/g, '');
             if (num.length >= 9) phones.push(num);
@@ -268,8 +268,6 @@
         const rows = allRows;
 
         // KPIs
-        const uniqueCFs = new Set(rows.map(r => r._cf || (r['Nome'] + '|' + r['Data Nascita'])));
-        // unique persons by CF (fallback to Nome+DOB)
         const withPhone = rows.filter(r => r._hasPhone);
         const withEmail = rows.filter(r => r._hasEmail);
         const isPivaRows = rows.filter(r => r._isPiva);
