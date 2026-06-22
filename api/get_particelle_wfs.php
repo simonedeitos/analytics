@@ -330,7 +330,7 @@ function parseFeatureMember(DOMXPath $xpath, DOMNode $member): ?array {
         }
     }
 
-    // Un poligono valido richiede almeno 3 vertici.
+    // A valid polygon requires at least 3 vertices.
     if (count($coords) < 3) return null;
     $centroid = calculateCentroid($coords);
 

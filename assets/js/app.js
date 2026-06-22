@@ -889,7 +889,7 @@
 
             if (!checkData.cached || checkData.needs_update) {
                 console.log('⏳ [WFS] Cache non disponibile, avvio query WFS (~30-60 sec)...');
-                showScanProgress(comune, 0, 10, 0);
+                showScanProgress(comune, 0, 0, 0);
             }
 
             return await new Promise((resolve, reject) => {
