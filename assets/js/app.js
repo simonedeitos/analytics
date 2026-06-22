@@ -654,6 +654,7 @@
         dataTable.clear();
         dataTable.rows.add(filteredRows);
         dataTable.draw();
+        dataTable.columns.adjust();
     }
 
     function destroyDataTable() {
