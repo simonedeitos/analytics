@@ -492,6 +492,7 @@
             try {
                 copyPhone(encodedPhone ? decodeURIComponent(encodedPhone) : '');
             } catch (err) {
+                console.error('Errore decodifica numero:', err);
                 showToast('Impossibile copiare il numero.', 'warning');
             }
         });
@@ -668,23 +669,25 @@
        COPY PHONE
     ================================================================ */
     function copyPhone(phone) {
-        if (!phone) {
+        const rawPhone = String(phone || '').trim();
+        if (!rawPhone) {
             showToast('Numero non disponibile.', 'warning');
             return;
         }
+        const safePhone = rawPhone.replace(/[^\d+]/g, '') || rawPhone;
 
-        navigator.clipboard.writeText(phone).then(() => {
-            showToast(`Numero copiato: ${phone}`, 'success');
+        navigator.clipboard.writeText(safePhone).then(() => {
+            showToast(`Numero copiato: ${safePhone}`, 'success');
         }).catch(() => {
             // Fallback for browsers without clipboard API
             const ta = document.createElement('textarea');
-            ta.value = phone;
+            ta.value = safePhone;
             ta.style.position = 'fixed'; ta.style.opacity = '0';
             document.body.appendChild(ta);
             ta.select();
             document.execCommand('copy');
             document.body.removeChild(ta);
-            showToast(`Numero copiato: ${phone}`, 'success');
+            showToast(`Numero copiato: ${safePhone}`, 'success');
         });
     }
 
