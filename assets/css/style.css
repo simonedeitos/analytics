@@ -1,0 +1,276 @@
+/* ===================================================
+   EasyCatasto Analytics – Custom Styles
+   Brand: #f28e0e (orange) | #2A519F (blue)
+   =================================================== */
+
+:root {
+    --brand-orange: #f28e0e;
+    --brand-blue:   #2A519F;
+    --brand-blue-dark: #1e3d7a;
+    --bg-light: #f5f7fb;
+}
+
+/* ---- Base ---- */
+body {
+    background-color: var(--bg-light);
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    color: #333;
+}
+
+/* ---- Brand buttons ---- */
+.btn-brand-primary {
+    background-color: var(--brand-orange);
+    border-color: var(--brand-orange);
+    color: #fff;
+    font-weight: 600;
+}
+.btn-brand-primary:hover,
+.btn-brand-primary:focus {
+    background-color: #d97b0b;
+    border-color: #d97b0b;
+    color: #fff;
+}
+
+/* ---- Navbar ---- */
+.navbar {
+    box-shadow: 0 2px 6px rgba(0,0,0,.15);
+}
+
+/* ---- Upload section ---- */
+#upload-section {
+    padding: 2rem 1rem;
+}
+
+.drop-zone {
+    width: 100%;
+    max-width: 520px;
+    min-height: 260px;
+    border: 3px dashed #b0c4de;
+    border-radius: 16px;
+    background: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s, transform 0.15s;
+    box-shadow: 0 4px 20px rgba(42, 81, 159, 0.08);
+    outline: none;
+}
+
+.drop-zone:hover,
+.drop-zone:focus {
+    border-color: var(--brand-blue);
+    background: #f0f4ff;
+    transform: translateY(-2px);
+}
+
+.drop-zone.dragover {
+    border-color: var(--brand-orange);
+    background: #fff8ee;
+    transform: translateY(-2px) scale(1.01);
+    box-shadow: 0 6px 28px rgba(242, 142, 14, 0.18);
+}
+
+.drop-zone-content {
+    text-align: center;
+    padding: 2rem;
+    pointer-events: none;
+}
+
+.drop-zone-content label {
+    pointer-events: all;
+}
+
+.drop-zone-icon {
+    font-size: 3.5rem;
+    color: var(--brand-blue);
+    display: block;
+    margin-bottom: 0.75rem;
+}
+
+/* ---- Disclaimer ---- */
+.disclaimer {
+    font-size: 0.78rem;
+    color: #6c757d;
+    max-width: 520px;
+    text-align: center;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    padding: 0.5rem 1rem;
+    background: #fff;
+}
+
+/* ---- Analytics top bar ---- */
+.analytics-topbar {
+    background: #fff;
+    border-bottom: 2px solid #e9ecef;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    box-shadow: 0 2px 4px rgba(0,0,0,.06);
+}
+
+/* ---- Tabs ---- */
+.nav-tabs .nav-link {
+    color: #555;
+    border-radius: 8px 8px 0 0;
+}
+.nav-tabs .nav-link.active {
+    color: var(--brand-blue);
+    border-bottom-color: transparent;
+    font-weight: 700;
+}
+.nav-tabs .nav-link:hover:not(.active) {
+    color: var(--brand-orange);
+    background: #fff8ee;
+}
+
+/* ---- KPI cards ---- */
+.kpi-card {
+    background: #fff;
+    border-radius: 12px;
+    padding: 1.25rem 1rem;
+    text-align: center;
+    box-shadow: 0 2px 12px rgba(42, 81, 159, 0.08);
+    border-top: 4px solid var(--brand-blue);
+    height: 100%;
+}
+.kpi-card--orange {
+    border-top-color: var(--brand-orange);
+}
+.kpi-card--orange .kpi-icon {
+    color: var(--brand-orange);
+}
+.kpi-icon {
+    font-size: 1.8rem;
+    color: var(--brand-blue);
+    margin-bottom: 0.4rem;
+}
+.kpi-value {
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1;
+    color: #222;
+    margin-bottom: 0.25rem;
+}
+.kpi-label {
+    font-size: 0.75rem;
+    color: #6c757d;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+/* ---- Chart cards ---- */
+.chart-card {
+    background: #fff;
+    border-radius: 12px;
+    padding: 1.25rem;
+    box-shadow: 0 2px 12px rgba(42, 81, 159, 0.08);
+    height: 100%;
+}
+.chart-title {
+    font-weight: 700;
+    color: var(--brand-blue);
+    margin-bottom: 1rem;
+    font-size: 0.9rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+.chart-wrapper {
+    position: relative;
+    height: 260px;
+}
+.chart-wrapper--tall {
+    height: 320px;
+}
+
+/* ---- Filters panel ---- */
+.filters-panel {
+    background: #fff;
+    border-radius: 12px;
+    padding: 1rem;
+    box-shadow: 0 2px 12px rgba(42, 81, 159, 0.07);
+}
+.form-label-sm {
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: #555;
+    margin-bottom: 0.25rem;
+}
+
+/* ---- DataTable overrides ---- */
+#table-data thead th,
+#table-piva thead th {
+    white-space: nowrap;
+    font-size: 0.75rem;
+}
+.dataTables_wrapper .dataTables_filter input {
+    border-radius: 6px;
+    border: 1px solid #ced4da;
+    padding: 0.3rem 0.6rem;
+}
+.dataTables_wrapper .dataTables_length select {
+    border-radius: 6px;
+    padding: 0.3rem 0.5rem;
+}
+.dataTables_paginate .paginate_button.current {
+    background: var(--brand-blue) !important;
+    color: #fff !important;
+    border-color: var(--brand-blue) !important;
+    border-radius: 6px !important;
+}
+.dataTables_paginate .paginate_button:hover {
+    background: #f0f4ff !important;
+    color: var(--brand-blue) !important;
+    border-color: #b0c4de !important;
+}
+
+/* ---- Phone badge ---- */
+.badge-phone {
+    background: #d1fae5;
+    color: #065f46;
+    font-size: 0.7rem;
+    padding: 0.2em 0.5em;
+    border-radius: 4px;
+    font-weight: 600;
+}
+.badge-email {
+    background: #dbeafe;
+    color: #1e40af;
+    font-size: 0.7rem;
+    padding: 0.2em 0.5em;
+    border-radius: 4px;
+    font-weight: 600;
+}
+.badge-gender-m {
+    background: #eff6ff;
+    color: #2563eb;
+    font-size: 0.7rem;
+    padding: 0.2em 0.45em;
+    border-radius: 4px;
+    font-weight: 700;
+}
+.badge-gender-f {
+    background: #fdf2f8;
+    color: #9d174d;
+    font-size: 0.7rem;
+    padding: 0.2em 0.45em;
+    border-radius: 4px;
+    font-weight: 700;
+}
+.badge-gender-a {
+    background: #f3f4f6;
+    color: #374151;
+    font-size: 0.7rem;
+    padding: 0.2em 0.45em;
+    border-radius: 4px;
+    font-weight: 700;
+}
+
+/* ---- Responsive ---- */
+@media (max-width: 576px) {
+    .kpi-value { font-size: 1.5rem; }
+    .chart-wrapper { height: 220px; }
+    .chart-wrapper--tall { height: 260px; }
+}
