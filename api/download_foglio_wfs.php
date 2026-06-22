@@ -208,7 +208,11 @@ function saveFoglioBatch(SQLite3 $db, string $codCatastale, string $foglio, arra
         $stmt->bindValue(':part',   $p['particella'], SQLITE3_TEXT);
         $stmt->bindValue(':lat',    (float)$p['lat'], SQLITE3_FLOAT);
         $stmt->bindValue(':lng',    (float)$p['lng'], SQLITE3_FLOAT);
-        $stmt->bindValue(':area',   $p['area_mq'] !== null ? (float)$p['area_mq'] : null, SQLITE3_FLOAT);
+        if ($p['area_mq'] !== null) {
+            $stmt->bindValue(':area', (float)$p['area_mq'], SQLITE3_FLOAT);
+        } else {
+            $stmt->bindValue(':area', null, SQLITE3_NULL);
+        }
         $stmt->execute();
         $stmt->reset();
     }

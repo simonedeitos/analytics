@@ -768,13 +768,12 @@
 
         // 2. Lookup coordinate da cache (get_coords_wfs.php ora usa la cache pre-popolata)
         updateMapStatusText('Lookup coordinate da database catasto...');
+        const addrWithParcel = mapGroupedData.filter(a => a.foglio && a.particella);
+        const lookupTotal = addrWithParcel.length;
         let catMatched = 0;
+        let lookupDone = 0;
 
-        for (const addr of mapGroupedData) {
-            if (!addr.foglio || !addr.particella) {
-                continue;
-            }
-
+        for (const addr of addrWithParcel) {
             try {
                 const coords = await getParticellaFromWFS(addr);
                 if (coords && coords.ok) {
@@ -788,13 +787,14 @@
                 console.warn(`⚠️ [Map] Lookup fallito per ${addr.comune} F.${addr.foglio} P.${addr.particella}:`, err);
             }
 
-            updateMapProgress(catMatched, total);
+            lookupDone++;
+            updateMapProgress(lookupDone, lookupTotal);
         }
 
-        console.log(`✅ [Map] ${catMatched}/${total} particelle geolocalizzate da catasto`);
+        console.log(`✅ [Map] ${catMatched}/${lookupTotal} particelle geolocalizzate da catasto`);
 
         // 3. Particelle non trovate — segnala errore, senza fallback Nominatim
-        const notFound = mapGroupedData.filter(a => !Number.isFinite(a.lat) || !Number.isFinite(a.lng));
+        const notFound = addrWithParcel.filter(a => !Number.isFinite(a.lat) || !Number.isFinite(a.lng));
         if (notFound.length > 0) {
             mapHasErrors = true;
             console.error(`❌ [Map] ${notFound.length} particelle NON trovate nel catasto:`);
@@ -806,15 +806,16 @@
         mapPreparing = false;
         mapDataReady = true;
 
-        if (!catMatched) {
-            updateMapStatus('error', catMatched, total, 'Nessuna particella trovata nel catasto. Verifica i dati (Comune, Foglio, Particella).');
+        const geocodedCount = mapGroupedData.filter(item => Number.isFinite(item.lat) && Number.isFinite(item.lng)).length;
+        if (!geocodedCount) {
+            updateMapStatus('error', catMatched, lookupTotal, 'Nessuna particella trovata nel catasto. Verifica i dati (Comune, Foglio, Particella).');
             return;
         }
 
         if (mapHasErrors) {
-            updateMapStatus('error', catMatched, total);
+            updateMapStatus('error', catMatched, lookupTotal);
         } else {
-            updateMapStatus('ready', catMatched, total);
+            updateMapStatus('ready', catMatched, lookupTotal);
         }
 
         if (mapInstance) initMap();
@@ -881,6 +882,37 @@
     }
 
     /**
+     * Mappa province italiane: nome completo → sigla (per supportare CSVs con nomi estesi).
+     */
+    const PROVINCE_SIGLA = {
+        'AGRIGENTO':'AG','ALESSANDRIA':'AL','ANCONA':'AN','AOSTA':'AO','AREZZO':'AR',
+        'ASCOLI PICENO':'AP','ASTI':'AT','AVELLINO':'AV','BARI':'BA',
+        'BARLETTA-ANDRIA-TRANI':'BT','BELLUNO':'BL','BENEVENTO':'BN','BERGAMO':'BG',
+        'BIELLA':'BI','BOLOGNA':'BO','BOLZANO':'BZ','BRESCIA':'BS','BRINDISI':'BR',
+        'CAGLIARI':'CA','CALTANISSETTA':'CL','CAMPOBASSO':'CB','CASERTA':'CE',
+        'CATANIA':'CT','CATANZARO':'CZ','CHIETI':'CH','COMO':'CO','COSENZA':'CS',
+        'CREMONA':'CR','CROTONE':'KR','CUNEO':'CN','ENNA':'EN','FERMO':'FM',
+        'FERRARA':'FE','FIRENZE':'FI','FOGGIA':'FG','FORLI-CESENA':'FC',
+        'FROSINONE':'FR','GENOVA':'GE','GORIZIA':'GO','GROSSETO':'GR',
+        'IMPERIA':'IM','ISERNIA':'IS','LA SPEZIA':'SP','LAQUILA':'AQ',
+        'LATINA':'LT','LECCE':'LE','LECCO':'LC','LIVORNO':'LI','LODI':'LO',
+        'LUCCA':'LU','MACERATA':'MC','MANTOVA':'MN','MASSA-CARRARA':'MS',
+        'MATERA':'MT','MESSINA':'ME','MILANO':'MI','MODENA':'MO',
+        'MONZA E BRIANZA':'MB','NAPOLI':'NA','NOVARA':'NO','NUORO':'NU',
+        'ORISTANO':'OR','PADOVA':'PD','PALERMO':'PA','PARMA':'PR','PAVIA':'PV',
+        'PERUGIA':'PG','PESARO E URBINO':'PU','PESCARA':'PE','PIACENZA':'PC',
+        'PISA':'PI','PISTOIA':'PT','PORDENONE':'PN','POTENZA':'PZ','PRATO':'PO',
+        'RAGUSA':'RG','RAVENNA':'RA','REGGIO CALABRIA':'RC','REGGIO EMILIA':'RE',
+        'RIETI':'RI','RIMINI':'RN','ROMA':'RM','ROVIGO':'RO','SALERNO':'SA',
+        'SASSARI':'SS','SAVONA':'SV','SIENA':'SI','SIRACUSA':'SR','SONDRIO':'SO',
+        'SUD SARDEGNA':'SU','TARANTO':'TA','TERAMO':'TE','TERNI':'TR',
+        'TORINO':'TO','TRAPANI':'TP','TRENTO':'TN','TREVISO':'TV','TRIESTE':'TS',
+        'UDINE':'UD','VARESE':'VA','VENEZIA':'VE','VERBANO-CUSIO-OSSOLA':'VB',
+        'VERCELLI':'VC','VERONA':'VR','VIBO VALENTIA':'VV','VICENZA':'VI',
+        'VITERBO':'VT',
+    };
+
+    /**
      * Cerca il codice catastale di un comune nel dataset locale.
      * Supporta sia sigla provincia (BS) sia nome completo (BRESCIA).
      */
@@ -888,23 +920,15 @@
         if (!comuniIstatMap) return null;
 
         const comuneKey = String(comune || '').toUpperCase().trim();
-        const provKey   = String(provincia || '').toUpperCase().replace(/[^A-Z]/g, '');
+        let provKey     = String(provincia || '').toUpperCase().replace(/[^A-Z\s-]/g, '').trim();
 
-        // Prova prima con la sigla
-        let entry = comuniIstatMap.get(`${comuneKey}|${provKey}`);
-        if (entry) return entry.codice_catastale;
-
-        // Se la provincia è un nome completo (es. BRESCIA), prova a trovare la sigla
+        // Se è un nome completo (più di 2 caratteri), convertilo in sigla
         if (provKey.length > 2) {
-            for (const [k, v] of comuniIstatMap) {
-                const parts = k.split('|');
-                if (parts[0] === comuneKey && v.nome_provincia === provKey) {
-                    return v.codice_catastale;
-                }
-            }
+            provKey = PROVINCE_SIGLA[provKey] || provKey.replace(/[^A-Z]/g, '').substring(0, 2);
         }
 
-        return null;
+        const entry = comuniIstatMap.get(`${comuneKey}|${provKey}`);
+        return entry ? entry.codice_catastale : null;
     }
 
     /**
@@ -930,7 +954,6 @@
                     codice_catastale: String(c.codice_catastale || '').toUpperCase(),
                     codice_istat:     c.codice_istat || null,
                     regione:          c.regione || null,
-                    nome_provincia:   String(c.regione || '').toUpperCase(), // for fallback lookup
                 });
             });
 
