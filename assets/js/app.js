@@ -60,6 +60,14 @@
         uploadSec.classList.remove('d-none');
     });
 
+    // Re-adjust column widths when the Data tab becomes visible (fixes scrollX misalignment)
+    const tabDataBtn = document.getElementById('tab-data-btn');
+    if (tabDataBtn) {
+        tabDataBtn.addEventListener('shown.bs.tab', () => {
+            if (dataTable) dataTable.columns.adjust().draw();
+        });
+    }
+
     /* ================================================================
        FILE HANDLING & PARSING
     ================================================================ */
@@ -642,7 +650,7 @@
             language: italianDT(),
             order: [],
             scrollX: true,
-            autoWidth: false,
+            autoWidth: true,
             dom: '<"row mb-2"<"col-sm-6"l><"col-sm-6"f>>rt<"row mt-2"<"col-sm-5"i><"col-sm-7"p>>',
         });
 
