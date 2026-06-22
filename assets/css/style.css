@@ -213,6 +213,13 @@ body {
 .dataTables_wrapper .dataTables_length select {
     border-radius: 6px;
     padding: 0.3rem 0.5rem;
+    min-width: 120px;
+}
+/* Keep thead and tbody column widths in sync when scrollX is active.
+   !important is required to override the inline widths DataTables injects. */
+div.dataTables_scrollHeadInner,
+div.dataTables_scrollHeadInner table {
+    width: 100% !important;
 }
 .dataTables_paginate .paginate_button.current {
     background: var(--brand-blue) !important;
