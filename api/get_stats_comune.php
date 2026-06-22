@@ -15,8 +15,6 @@ declare(strict_types=1);
  * Returns JSON with demographics, economy and real-estate data.
  */
 
-declare(strict_types=1);
-
 date_default_timezone_set('Europe/Rome');
 set_time_limit(30);
 

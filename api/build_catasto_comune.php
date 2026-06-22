@@ -132,7 +132,7 @@ function importComune(string $codice, bool $forceReimport): array
     $destJson = CC_DOWNLOAD_DIR . "/{$codice}.geojson";
 
     try {
-        $url = CC_ADE_BASE_URL . rawurlencode("/data/catasto_full/{$codice}" . CC_GEOJSON_SUFFIX);
+        $url = CC_ADE_BASE_URL . '/data/catasto_full/' . rawurlencode($codice) . CC_GEOJSON_SUFFIX;
         downloadFile($url, $destGz, $codice);
         decompressGzip($destGz, $destJson);
 
@@ -474,11 +474,11 @@ function calculateAreaGeoJSON(array $geom): float
 
 function normalizeNumericCode(string $value): string
 {
-    $digits = preg_replace('/\D+/', '', trim($value));
-    if ($digits === '') {
+    $numericPart = preg_replace('/\D+/', '', trim($value));
+    if ($numericPart === '') {
         return '';
     }
-    $stripped = ltrim($digits, '0');
+    $stripped = ltrim($numericPart, '0');
     return $stripped === '' ? '0' : $stripped;
 }
 

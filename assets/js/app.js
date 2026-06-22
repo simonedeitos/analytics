@@ -803,11 +803,13 @@
                 }
                 try {
                     const checkResp = await fetch(`api/build_catasto_comune.php?action=check&codice_catastale=${encodeURIComponent(codiceIstat)}`);
+                    if (!checkResp.ok) throw new Error(`HTTP ${checkResp.status}`);
                     const checkData = await checkResp.json();
                     if (!checkData.imported) {
                         updateMapStatusText(`Download catasto ${comune}...`);
                         console.log(`🔄 [Auto-Import] Download catasto per ${comune} (${codiceIstat})...`);
                         const importResp = await fetch(`api/build_catasto_comune.php?action=auto&codice_catastale=${encodeURIComponent(codiceIstat)}`);
+                        if (!importResp.ok) throw new Error(`HTTP ${importResp.status}`);
                         const importData = await importResp.json();
                         if (importData.ok && importData.particelle_imported > 0) {
                             console.log(`✅ [Auto-Import] ${comune}: ${importData.particelle_imported} particelle in ${importData.duration_sec}s`);

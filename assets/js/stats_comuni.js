@@ -294,7 +294,7 @@
                     legend: { display: false },
                     tooltip: {
                         callbacks: {
-                            label: (ctx) => ` ${ctx.raw != null ? Number(ctx.raw).toLocaleString('it-IT') : '–'}`,
+                            label: (ctx) => `${label}: ${ctx.raw != null ? Number(ctx.raw).toLocaleString('it-IT') : '–'}`,
                         },
                     },
                 },
