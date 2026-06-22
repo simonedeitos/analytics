@@ -235,6 +235,30 @@ body {
     border-radius: 4px;
     font-weight: 600;
 }
+.phone-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+    margin-right: 0.25rem;
+}
+.btn-copy-phone {
+    border: 0;
+    background: transparent;
+    color: var(--brand-orange);
+    width: 1.6rem;
+    height: 1.6rem;
+    border-radius: 4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background-color .15s ease, color .15s ease;
+}
+.btn-copy-phone:hover,
+.btn-copy-phone:focus {
+    background: #fff3e0;
+    color: var(--brand-blue);
+}
 .badge-email {
     background: #dbeafe;
     color: #1e40af;

@@ -485,7 +485,17 @@
             applyFilters();
         });
 
-        document.getElementById('btn-copy-phones').addEventListener('click', copyVisiblePhones);
+        document.getElementById('table-data').addEventListener('click', (event) => {
+            const btn = event.target.closest('.btn-copy-phone');
+            if (!btn) return;
+            const encodedPhone = btn.dataset.phone || '';
+            try {
+                copyPhone(encodedPhone ? decodeURIComponent(encodedPhone) : '');
+            } catch (err) {
+                console.error('Errore decodifica numero:', err);
+                showToast('Impossibile copiare il numero.', 'warning');
+            }
+        });
 
         applyFilters();
     }
@@ -580,7 +590,19 @@
 
     function renderPhones(phones) {
         if (!phones || !phones.length) return '';
-        return phones.map(p => `<span class="badge-phone">${p}</span>`).join(' ');
+        return phones.map(p => {
+            const phone = String(p || '');
+            const escapedPhone = htmlEscape(phone);
+            const encodedPhone = encodeURIComponent(phone);
+            return `
+                <span class="phone-item">
+                    <span class="badge-phone">${escapedPhone}</span>
+                    <button type="button" class="btn-copy-phone" data-phone="${encodedPhone}" aria-label="Copia numero" title="Copia numero di telefono">
+                        <i class="bi bi-clipboard"></i>
+                    </button>
+                </span>
+            `;
+        }).join(' ');
     }
 
     function renderEmails(emails) {
@@ -632,6 +654,7 @@
         dataTable.clear();
         dataTable.rows.add(filteredRows);
         dataTable.draw();
+        dataTable.columns.adjust();
     }
 
     function destroyDataTable() {
@@ -644,33 +667,32 @@
     }
 
     /* ================================================================
-       COPY PHONES
+       COPY PHONE
     ================================================================ */
-    function copyVisiblePhones() {
-        const phones = [];
-        filteredRows.forEach(row => {
-            if (row._phones) row._phones.forEach(p => phones.push(p));
-        });
-        const unique = [...new Set(phones)];
-
-        if (!unique.length) {
-            showToast('Nessun numero di telefono trovato nelle righe visibili.', 'warning');
+    function copyPhone(phone) {
+        const rawPhone = String(phone || '').trim();
+        if (!rawPhone) {
+            showToast('Numero non disponibile.', 'warning');
+            return;
+        }
+        const safePhone = rawPhone.replace(/[^\d+]/g, '') || rawPhone;
+        if (!safePhone.trim()) {
+            showToast('Numero non valido.', 'warning');
             return;
         }
 
-        const text = unique.join('\n');
-        navigator.clipboard.writeText(text).then(() => {
-            showToast(`${unique.length} numeri copiati negli appunti!`, 'success');
+        navigator.clipboard.writeText(safePhone).then(() => {
+            showToast(`Numero copiato: ${safePhone}`, 'success');
         }).catch(() => {
             // Fallback for browsers without clipboard API
             const ta = document.createElement('textarea');
-            ta.value = text;
+            ta.value = safePhone;
             ta.style.position = 'fixed'; ta.style.opacity = '0';
             document.body.appendChild(ta);
             ta.select();
             document.execCommand('copy');
             document.body.removeChild(ta);
-            showToast(`${unique.length} numeri copiati negli appunti!`, 'success');
+            showToast(`Numero copiato: ${safePhone}`, 'success');
         });
     }
 
