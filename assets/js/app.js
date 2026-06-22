@@ -21,8 +21,8 @@
     const GEOCODE_MAX_ATTEMPTS = 2;
     const MAP_CLUSTER_RADIUS_PIXELS = 50;
     const MAP_PREPARE_DELAY_MS = 500;
-    const WFS_SECONDS_PER_TILE = 0.6; // Used for WFS tile ETA in scan progress
-    const WFS_STREAM_TIMEOUT_MS = 180000; // Max SSE wait (3 minutes) for WFS stream completion
+    const WFS_SECONDS_PER_TILE = 0.6; // Used for legacy WFS scan progress
+    const WFS_STREAM_TIMEOUT_MS = 180000; // Max SSE wait (3 minutes) for legacy WFS stream completion
     const COLUMN_SURNAME = 'Nome';
     const COLUMN_GIVEN_NAME = 'Nome1';
     let mapInstance = null;
@@ -35,7 +35,7 @@
     let geocodeServiceUnavailable = false;
     let mapStatusHideTimer = null;
     let lastGeocodeRequestAt = 0;
-    let particelleCache = {}; // AdE scan cache: key → {lat, lng, foglio, particella, cod_comune}
+    let particelleCache = {}; // DB lookup cache: key → {lat, lng, foglio, particella, cod_comune}
 
     /* ================================================================
        COLOUR PALETTE
@@ -751,65 +751,37 @@
 
         updateMapStatus('preparing', 0, total);
 
-        // 1. Gather unique comuni
-        const comuniMap = new Map();
-        mapGroupedData.forEach(p => {
-            if (p.comune && p.provincia) comuniMap.set(p.comune.toUpperCase(), p.provincia);
-        });
+        console.log('🗺️ [Map] Inizio preparazione dati con database locale...');
 
-        // 2. Query each comune via WFS API (with cache)
-        for (const [comune, provincia] of comuniMap.entries()) {
-            try {
-                const scanResult = await scanComuneParticelle(comune, provincia);
-                if (scanResult && scanResult.ok && scanResult.particelle) {
-                    Object.assign(particelleCache, scanResult.particelle);
-                    console.log(`✅ [WFS] ${comune}: ${scanResult.particelle_found} particelle trovate`);
-                }
-            } catch (err) {
-                console.warn(`⚠️ [WFS] ${comune}: query non disponibile, uso fallback Nominatim`);
-            }
-        }
-
-        // 3. Build a reverse lookup index: foglio|particella → first matching cache key
-        //    This allows O(1) lookup per parcel instead of scanning all cache keys each time.
-        const fpIndex = {}; // "FOGLIO|PARTICELLA" → cacheKey
-        for (const cacheKey of Object.keys(particelleCache)) {
-            const parts = cacheKey.split('|');
-            if (parts.length === 3) {
-                const fpKey = `${parts[1]}|${parts[2]}`;
-                if (!fpIndex[fpKey]) fpIndex[fpKey] = cacheKey;
-            }
-        }
-
-        // 4. Apply AdE coordinates; collect unmatched for Nominatim fallback
+        // 1. Query database locale per ogni particella univoca
         const unmatched = [];
-        mapGroupedData.forEach(addr => {
-            const foglio     = addr.foglio;
-            const particella = addr.particella;
-            const comune     = addr.comune.toUpperCase();
+        let dbMatched = 0;
 
-            if (foglio && particella) {
-                // Try exact comune+foglio+particella key first, then foglio+particella index
-                const exactKey = `${comune}|${foglio}|${particella}`;
-                const fpKey    = `${foglio}|${particella}`;
-                const matchKey = particelleCache[exactKey] ? exactKey : fpIndex[fpKey];
-
-                if (matchKey && particelleCache[matchKey]) {
-                    addr.lat    = parseFloat(particelleCache[matchKey].lat);
-                    addr.lng    = parseFloat(particelleCache[matchKey].lng);
-                    addr.source = 'AdE';
-                    return;
+        for (const addr of mapGroupedData) {
+            if (addr.foglio && addr.particella) {
+                try {
+                    const coords = await getParticellaFromDB(addr);
+                    if (coords && coords.ok) {
+                        addr.lat = Number(coords.lat);
+                        addr.lng = Number(coords.lng);
+                        addr.area_mq = coords.area_mq;
+                        addr.source = 'CatastoDB';
+                        dbMatched++;
+                        updateMapProgress(dbMatched, total);
+                        continue;
+                    }
+                } catch (err) {
+                    console.warn(`⚠️ [DB] Lookup fallito per ${addr.comune} F.${addr.foglio} P.${addr.particella}:`, err);
                 }
             }
 
             unmatched.push(addr);
-        });
+        }
 
-        const adeMatched = mapGroupedData.length - unmatched.length;
-        console.log(`✅ [Map] ${adeMatched}/${mapGroupedData.length} particelle matchate con AdE`);
+        console.log(`✅ [Map] ${dbMatched}/${mapGroupedData.length} particelle trovate in database`);
 
-        // 5. Nominatim fallback for unmatched
-        let completed = adeMatched;
+        // 2. Nominatim fallback per particelle non trovate nel DB
+        let completed = dbMatched;
         if (unmatched.length > 0) {
             console.log(`🔄 [Fallback] Geocoding ${unmatched.length} indirizzi con Nominatim…`);
             for (let i = 0; i < unmatched.length; i++) {
@@ -865,6 +837,37 @@
         }
 
         if (mapInstance) initMap();
+    }
+
+    async function getParticellaFromDB(addressData) {
+        const cacheKey = [
+            addressData.cod_comune || '',
+            addressData.comune || '',
+            addressData.provincia || '',
+            addressData.foglio || '',
+            addressData.particella || '',
+        ].join('|').toUpperCase();
+
+        if (particelleCache[cacheKey]) {
+            return particelleCache[cacheKey];
+        }
+
+        const params = new URLSearchParams({
+            foglio: addressData.foglio,
+            particella: addressData.particella,
+        });
+
+        if (addressData.cod_comune) {
+            params.set('cod_comune', addressData.cod_comune);
+        } else {
+            params.set('comune', addressData.comune);
+            params.set('provincia', addressData.provincia);
+        }
+
+        const response = await fetch(`api/get_coords_db.php?${params.toString()}`);
+        const data = await response.json();
+        particelleCache[cacheKey] = data;
+        return data;
     }
 
     async function scanComuneParticelle(comune, provincia) {
@@ -1056,11 +1059,19 @@
             (a.subalterno || '').localeCompare(b.subalterno || '')
         );
 
-        const sourceIcon = addressData.source === 'AdE'
-            ? `<i class="bi bi-geo-alt-fill text-success ms-1" title="Coordinate precise da Agenzia delle Entrate"></i>`
-            : addressData.jittered
-                ? `<i class="bi bi-geo-alt text-warning ms-1" title="Coordinate approssimative con offset applicato"></i>`
-                : `<i class="bi bi-geo-alt text-warning ms-1" title="Coordinate approssimative da Nominatim"></i>`;
+        let sourceIcon = '';
+        let sourceText = '';
+
+        if (addressData.source === 'CatastoDB') {
+            sourceIcon = '<i class="bi bi-database-check text-success ms-1" title="Coordinate precise da database catasto"></i>';
+            sourceText = `✓ Database Catasto (${addressData.area_mq ? Math.round(addressData.area_mq) + ' m²' : 'area N/A'})`;
+        } else if (addressData.jittered) {
+            sourceIcon = '<i class="bi bi-geo-alt text-warning ms-1" title="Coordinate approssimative con offset applicato"></i>';
+            sourceText = '⚠ Coordinate stimate';
+        } else {
+            sourceIcon = '<i class="bi bi-geo-alt text-warning ms-1" title="Coordinate approssimative da Nominatim"></i>';
+            sourceText = '⚠ Coordinate approssimative';
+        }
 
         const rows = intestatari.map(item => {
             const phones = (item.telefoni || []).map(phone => {
@@ -1112,7 +1123,7 @@
                 </div>
                 <div class="small text-muted mt-1 d-flex justify-content-between">
                     <span>${intestatari.length} unità immobiliari</span>
-                    <span>${addressData.source === 'AdE' ? '✓ Coordinate precise' : addressData.jittered ? '⚠ Coordinate stimate' : '⚠ Coordinate approssimative'}</span>
+                    <span>${sourceText}</span>
                 </div>
             </div>
         `;
@@ -1159,6 +1170,7 @@
             const particella = String(row['Particella'] || '').trim();
             const comune     = String(row['Comune']     || '').trim();
             const provincia  = String(row['Provincia']  || '').trim();
+            const codComune  = String(row['Codice Comune'] || row['Cod Comune'] || row['COD_COMUNE'] || row['cod_comune'] || '').trim().toUpperCase();
 
             if (!comune || !provincia) return;
 
@@ -1174,13 +1186,19 @@
                     civico:     String(row['Civico']    || '').trim(),
                     comune,
                     provincia,
+                    cod_comune: codComune,
                     foglio,
                     particella,
                     lat:        null,
                     lng:        null,
+                    area_mq:    null,
                     source:     null,
                     intestatari: [],
                 };
+            }
+
+            if (!grouped[key].cod_comune && codComune) {
+                grouped[key].cod_comune = codComune;
             }
 
             const nomeCompleto = [row[COLUMN_SURNAME], row[COLUMN_GIVEN_NAME]].filter(Boolean).join(' ').trim() || '-';
