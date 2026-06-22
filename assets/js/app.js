@@ -592,7 +592,7 @@
             return `
                 <span class="phone-item">
                     <span class="badge-phone">${escapedPhone}</span>
-                    <button type="button" class="btn-copy-phone" data-phone="${encodedPhone}" aria-label="Copia numero ${escapedPhone}" title="Copia numero">
+                    <button type="button" class="btn-copy-phone" data-phone="${encodedPhone}" aria-label="Copia numero di telefono" title="Copia numero">
                         <i class="bi bi-clipboard"></i>
                     </button>
                 </span>
