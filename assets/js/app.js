@@ -661,7 +661,6 @@
         if (!dataTable) return;
         dataTable.clear();
         dataTable.rows.add(filteredRows);
-        dataTable.draw(false);
         dataTable.columns.adjust().draw(false);
     }
 
