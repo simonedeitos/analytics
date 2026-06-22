@@ -1,29 +1,7 @@
 <?php
-function enforceAdminPageAccess(): void
-{
-    $configuredToken = (string)(getenv('CATASTO_BUILD_TOKEN') ?: '');
-    $providedToken = (string)($_SERVER['HTTP_X_CATASTO_ADMIN_TOKEN'] ?? $_GET['token'] ?? '');
-    $remoteAddr = (string)($_SERVER['REMOTE_ADDR'] ?? '');
-    $isLocal = $remoteAddr === '' || $remoteAddr === '127.0.0.1' || $remoteAddr === '::1'
-        || preg_match('/^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/', $remoteAddr)
-        || str_starts_with(strtolower($remoteAddr), 'fc')
-        || str_starts_with(strtolower($remoteAddr), 'fd');
+require_once __DIR__ . '/api/catasto_admin_access.php';
 
-    if ($configuredToken !== '') {
-        if (!hash_equals($configuredToken, $providedToken)) {
-            http_response_code(403);
-            exit('Accesso negato: token admin mancante o non valido.');
-        }
-        return;
-    }
-
-    if (!$isLocal) {
-        http_response_code(403);
-        exit('Accesso negato: questa pagina admin è disponibile solo da rete locale oppure con CATASTO_BUILD_TOKEN configurato.');
-    }
-}
-
-enforceAdminPageAccess();
+catastoEnforceAdminAccess(false);
 
 $province = [
     'AGRIGENTO', 'ALESSANDRIA', 'ANCONA', 'AOSTA', 'AREZZO', 'ASCOLI-PICENO',

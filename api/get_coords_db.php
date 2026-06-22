@@ -110,6 +110,7 @@ function normalizeLookupValue(string $value): string
         return '';
     }
 
+    // Cadastral references can contain separators or zero-padding that must be normalized.
     $digits = preg_replace('/\D+/', '', $value);
     if ($digits === '') {
         return $value;

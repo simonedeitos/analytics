@@ -1008,7 +1008,7 @@
         return `${address}, ${addressData.comune}, ${addressData.provincia}, Italia`;
     }
 
-    function formatArea(areaMq) {
+    function formatAreaString(areaMq) {
         return Number.isFinite(areaMq) ? `${Math.round(areaMq)} m²` : 'area N/A';
     }
 
@@ -1071,7 +1071,7 @@
 
         if (addressData.source === 'CatastoDB') {
             sourceIcon = '<i class="bi bi-database-check text-success ms-1" title="Coordinate precise da database catasto"></i>';
-            sourceText = `✓ Database Catasto (${formatArea(addressData.area_mq)})`;
+            sourceText = `✓ Database Catasto (${formatAreaString(addressData.area_mq)})`;
         } else if (addressData.jittered) {
             sourceIcon = '<i class="bi bi-geo-alt text-warning ms-1" title="Coordinate approssimative con offset applicato"></i>';
             sourceText = '⚠ Coordinate stimate';

@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/catasto_admin_access.php';
+
 date_default_timezone_set('Europe/Rome');
 set_time_limit(0);
 
@@ -19,7 +21,7 @@ function handleRequest(): void
 {
     header('Content-Type: application/json; charset=utf-8');
     header('Access-Control-Allow-Origin: *');
-    enforceAdminAccess(true);
+    catastoEnforceAdminAccess(true);
 
     $action = strtolower(trim((string)($_REQUEST['action'] ?? 'stats')));
 
@@ -167,47 +169,6 @@ function ensurePlaceholderFiles(): void
             file_put_contents($path, $content);
         }
     }
-}
-
-function enforceAdminAccess(bool $jsonResponse = false): void
-{
-    $configuredToken = (string)(getenv('CATASTO_BUILD_TOKEN') ?: '');
-    $providedToken = (string)($_SERVER['HTTP_X_CATASTO_ADMIN_TOKEN'] ?? $_REQUEST['token'] ?? '');
-
-    if ($configuredToken !== '') {
-        if (!hash_equals($configuredToken, $providedToken)) {
-            denyAdminAccess($jsonResponse);
-        }
-        return;
-    }
-
-    $remoteAddr = (string)($_SERVER['REMOTE_ADDR'] ?? '');
-    if (!isPrivateOrLocalAddress($remoteAddr)) {
-        denyAdminAccess($jsonResponse);
-    }
-}
-
-function isPrivateOrLocalAddress(string $ip): bool
-{
-    if ($ip === '' || $ip === '127.0.0.1' || $ip === '::1') {
-        return true;
-    }
-
-    if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
-        return preg_match('/^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/', $ip) === 1;
-    }
-
-    return str_starts_with(strtolower($ip), 'fc') || str_starts_with(strtolower($ip), 'fd');
-}
-
-function denyAdminAccess(bool $jsonResponse): void
-{
-    if ($jsonResponse) {
-        sendError('Accesso negato: endpoint admin disponibile solo da rete locale o con token CATASTO_BUILD_TOKEN', 403);
-    }
-
-    http_response_code(403);
-    exit('Accesso negato');
 }
 
 function openDatabase(): SQLite3
@@ -579,8 +540,8 @@ function calculatePolygonArea(array $coords): float
 
     $area = 0.0;
     $n = count($coords);
-    // Local planar approximation: sufficient for small cadastral parcels,
-    // less accurate for very large geometries or extreme latitudes.
+    // Local planar approximation: typically acceptable for cadastral parcels
+    // far smaller than 1 km², less accurate for very large geometries or extreme latitudes.
     for ($i = 0; $i < $n; $i++) {
         $j = ($i + 1) % $n;
         $x1 = $coords[$i]['lng'] * $metersPerDegreeLng;
