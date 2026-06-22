@@ -112,6 +112,12 @@
                     <i class="bi bi-map me-1"></i>Mappa
                 </button>
             </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link fw-semibold" id="tab-stats-comuni-btn" data-bs-toggle="tab"
+                        data-bs-target="#tab-stats-comuni" type="button" role="tab">
+                    <i class="bi bi-graph-up me-1"></i>Statistiche Comuni
+                </button>
+            </li>
         </ul>
 
         <div class="tab-content pt-4" id="mainTabContent">
@@ -396,6 +402,65 @@
                 </div>
             </div><!-- /tab-mappa -->
 
+            <!-- ===== STATISTICHE COMUNI TAB ===== -->
+            <div class="tab-pane fade" id="tab-stats-comuni" role="tabpanel">
+                <div class="alert alert-info mb-3">
+                    <i class="bi bi-info-circle me-2"></i>
+                    Visualizza dati statistici ufficiali sui comuni presenti nei tuoi dati (demografia, economia, immobiliare).
+                    Dati da fonti ISTAT, MEF, Agenzia delle Entrate via Cruscotto Italia.
+                </div>
+
+                <div class="row mb-4">
+                    <div class="col-md-8">
+                        <label class="form-label fw-semibold">Seleziona Comuni da Analizzare</label>
+                        <select id="comuni-loaded" class="form-select" multiple size="8">
+                            <!-- Popolato dinamicamente con comuni dai CSV caricati -->
+                        </select>
+                        <small class="text-muted">
+                            Tieni premuto Ctrl/Cmd per selezionare più comuni e confrontarli
+                        </small>
+                    </div>
+                    <div class="col-md-4 d-flex flex-column justify-content-end gap-2">
+                        <button id="btn-load-stats" class="btn btn-primary">
+                            <i class="bi bi-bar-chart-fill me-2"></i>Carica Statistiche
+                        </button>
+                        <button id="btn-clear-stats" class="btn btn-outline-secondary">
+                            <i class="bi bi-x-circle me-2"></i>Pulisci
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Loading indicator -->
+                <div id="stats-loading" class="text-center py-5 d-none">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Caricamento...</span>
+                    </div>
+                    <p class="text-muted mt-2">Recupero dati statistici...</p>
+                </div>
+
+                <!-- Dashboard statistiche -->
+                <div id="stats-comuni-dashboard" class="row g-4"></div>
+
+                <!-- Grafici comparativi (se più comuni selezionati) -->
+                <div id="stats-comuni-comparison" class="mt-4 d-none">
+                    <h5 class="mb-3"><i class="bi bi-arrows-angle-contract me-2"></i>Confronto Comuni</h5>
+                    <div class="row g-4">
+                        <div class="col-12 col-lg-6">
+                            <div class="chart-card">
+                                <h6 class="chart-title">Popolazione</h6>
+                                <div class="chart-wrapper"><canvas id="chart-compare-popolazione"></canvas></div>
+                            </div>
+                        </div>
+                        <div class="col-12 col-lg-6">
+                            <div class="chart-card">
+                                <h6 class="chart-title">Reddito Medio</h6>
+                                <div class="chart-wrapper"><canvas id="chart-compare-reddito"></canvas></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div><!-- /tab-stats-comuni -->
+
         </div><!-- /tab-content -->
     </div><!-- /container -->
 </div><!-- /analytics-section -->
@@ -426,5 +491,7 @@
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <!-- App logic -->
 <script src="assets/js/app.js"></script>
+<!-- Statistiche Comuni module -->
+<script src="assets/js/stats_comuni.js"></script>
 </body>
 </html>

@@ -1,0 +1,650 @@
+[
+  {
+    "codice_catastale": "A182",
+    "nome": "ALESSANDRIA",
+    "sigla_provincia": "AL",
+    "regione": "Piemonte"
+  },
+  {
+    "codice_catastale": "A479",
+    "nome": "ASTI",
+    "sigla_provincia": "AT",
+    "regione": "Piemonte"
+  },
+  {
+    "codice_catastale": "A859",
+    "nome": "BIELLA",
+    "sigla_provincia": "BI",
+    "regione": "Piemonte"
+  },
+  {
+    "codice_catastale": "D205",
+    "nome": "CUNEO",
+    "sigla_provincia": "CN",
+    "regione": "Piemonte"
+  },
+  {
+    "codice_catastale": "F952",
+    "nome": "NOVARA",
+    "sigla_provincia": "NO",
+    "regione": "Piemonte"
+  },
+  {
+    "codice_catastale": "L219",
+    "nome": "TORINO",
+    "sigla_provincia": "TO",
+    "regione": "Piemonte"
+  },
+  {
+    "codice_catastale": "L746",
+    "nome": "VERBANIA",
+    "sigla_provincia": "VB",
+    "regione": "Piemonte"
+  },
+  {
+    "codice_catastale": "L750",
+    "nome": "VERCELLI",
+    "sigla_provincia": "VC",
+    "regione": "Piemonte"
+  },
+  {
+    "codice_catastale": "A326",
+    "nome": "AOSTA",
+    "sigla_provincia": "AO",
+    "regione": "Valle d'Aosta"
+  },
+  {
+    "codice_catastale": "A794",
+    "nome": "BERGAMO",
+    "sigla_provincia": "BG",
+    "regione": "Lombardia"
+  },
+  {
+    "codice_catastale": "B157",
+    "nome": "BRESCIA",
+    "sigla_provincia": "BS",
+    "regione": "Lombardia"
+  },
+  {
+    "codice_catastale": "C933",
+    "nome": "COMO",
+    "sigla_provincia": "CO",
+    "regione": "Lombardia"
+  },
+  {
+    "codice_catastale": "D150",
+    "nome": "CREMONA",
+    "sigla_provincia": "CR",
+    "regione": "Lombardia"
+  },
+  {
+    "codice_catastale": "E507",
+    "nome": "LECCO",
+    "sigla_provincia": "LC",
+    "regione": "Lombardia"
+  },
+  {
+    "codice_catastale": "E648",
+    "nome": "LODI",
+    "sigla_provincia": "LO",
+    "regione": "Lombardia"
+  },
+  {
+    "codice_catastale": "E897",
+    "nome": "MANTOVA",
+    "sigla_provincia": "MN",
+    "regione": "Lombardia"
+  },
+  {
+    "codice_catastale": "F205",
+    "nome": "MILANO",
+    "sigla_provincia": "MI",
+    "regione": "Lombardia"
+  },
+  {
+    "codice_catastale": "F704",
+    "nome": "MONZA",
+    "sigla_provincia": "MB",
+    "regione": "Lombardia"
+  },
+  {
+    "codice_catastale": "G388",
+    "nome": "PAVIA",
+    "sigla_provincia": "PV",
+    "regione": "Lombardia"
+  },
+  {
+    "codice_catastale": "I829",
+    "nome": "SONDRIO",
+    "sigla_provincia": "SO",
+    "regione": "Lombardia"
+  },
+  {
+    "codice_catastale": "L682",
+    "nome": "VARESE",
+    "sigla_provincia": "VA",
+    "regione": "Lombardia"
+  },
+  {
+    "codice_catastale": "A952",
+    "nome": "BOLZANO",
+    "sigla_provincia": "BZ",
+    "regione": "Trentino-Alto Adige"
+  },
+  {
+    "codice_catastale": "L378",
+    "nome": "TRENTO",
+    "sigla_provincia": "TN",
+    "regione": "Trentino-Alto Adige"
+  },
+  {
+    "codice_catastale": "A757",
+    "nome": "BELLUNO",
+    "sigla_provincia": "BL",
+    "regione": "Veneto"
+  },
+  {
+    "codice_catastale": "G224",
+    "nome": "PADOVA",
+    "sigla_provincia": "PD",
+    "regione": "Veneto"
+  },
+  {
+    "codice_catastale": "H620",
+    "nome": "ROVIGO",
+    "sigla_provincia": "RO",
+    "regione": "Veneto"
+  },
+  {
+    "codice_catastale": "L407",
+    "nome": "TREVISO",
+    "sigla_provincia": "TV",
+    "regione": "Veneto"
+  },
+  {
+    "codice_catastale": "L736",
+    "nome": "VENEZIA",
+    "sigla_provincia": "VE",
+    "regione": "Veneto"
+  },
+  {
+    "codice_catastale": "L781",
+    "nome": "VERONA",
+    "sigla_provincia": "VR",
+    "regione": "Veneto"
+  },
+  {
+    "codice_catastale": "L840",
+    "nome": "VICENZA",
+    "sigla_provincia": "VI",
+    "regione": "Veneto"
+  },
+  {
+    "codice_catastale": "E098",
+    "nome": "GORIZIA",
+    "sigla_provincia": "GO",
+    "regione": "Friuli-Venezia Giulia"
+  },
+  {
+    "codice_catastale": "G888",
+    "nome": "PORDENONE",
+    "sigla_provincia": "PN",
+    "regione": "Friuli-Venezia Giulia"
+  },
+  {
+    "codice_catastale": "L424",
+    "nome": "TRIESTE",
+    "sigla_provincia": "TS",
+    "regione": "Friuli-Venezia Giulia"
+  },
+  {
+    "codice_catastale": "L483",
+    "nome": "UDINE",
+    "sigla_provincia": "UD",
+    "regione": "Friuli-Venezia Giulia"
+  },
+  {
+    "codice_catastale": "D969",
+    "nome": "GENOVA",
+    "sigla_provincia": "GE",
+    "regione": "Liguria"
+  },
+  {
+    "codice_catastale": "E290",
+    "nome": "IMPERIA",
+    "sigla_provincia": "IM",
+    "regione": "Liguria"
+  },
+  {
+    "codice_catastale": "E463",
+    "nome": "LA SPEZIA",
+    "sigla_provincia": "SP",
+    "regione": "Liguria"
+  },
+  {
+    "codice_catastale": "I480",
+    "nome": "SAVONA",
+    "sigla_provincia": "SV",
+    "regione": "Liguria"
+  },
+  {
+    "codice_catastale": "A944",
+    "nome": "BOLOGNA",
+    "sigla_provincia": "BO",
+    "regione": "Emilia-Romagna"
+  },
+  {
+    "codice_catastale": "D548",
+    "nome": "FERRARA",
+    "sigla_provincia": "FE",
+    "regione": "Emilia-Romagna"
+  },
+  {
+    "codice_catastale": "D704",
+    "nome": "FORLI",
+    "sigla_provincia": "FC",
+    "regione": "Emilia-Romagna"
+  },
+  {
+    "codice_catastale": "F257",
+    "nome": "MODENA",
+    "sigla_provincia": "MO",
+    "regione": "Emilia-Romagna"
+  },
+  {
+    "codice_catastale": "G337",
+    "nome": "PARMA",
+    "sigla_provincia": "PR",
+    "regione": "Emilia-Romagna"
+  },
+  {
+    "codice_catastale": "G535",
+    "nome": "PIACENZA",
+    "sigla_provincia": "PC",
+    "regione": "Emilia-Romagna"
+  },
+  {
+    "codice_catastale": "H199",
+    "nome": "RAVENNA",
+    "sigla_provincia": "RA",
+    "regione": "Emilia-Romagna"
+  },
+  {
+    "codice_catastale": "H223",
+    "nome": "REGGIO NELL EMILIA",
+    "sigla_provincia": "RE",
+    "regione": "Emilia-Romagna"
+  },
+  {
+    "codice_catastale": "H294",
+    "nome": "RIMINI",
+    "sigla_provincia": "RN",
+    "regione": "Emilia-Romagna"
+  },
+  {
+    "codice_catastale": "A390",
+    "nome": "AREZZO",
+    "sigla_provincia": "AR",
+    "regione": "Toscana"
+  },
+  {
+    "codice_catastale": "D612",
+    "nome": "FIRENZE",
+    "sigla_provincia": "FI",
+    "regione": "Toscana"
+  },
+  {
+    "codice_catastale": "E202",
+    "nome": "GROSSETO",
+    "sigla_provincia": "GR",
+    "regione": "Toscana"
+  },
+  {
+    "codice_catastale": "E625",
+    "nome": "LIVORNO",
+    "sigla_provincia": "LI",
+    "regione": "Toscana"
+  },
+  {
+    "codice_catastale": "E715",
+    "nome": "LUCCA",
+    "sigla_provincia": "LU",
+    "regione": "Toscana"
+  },
+  {
+    "codice_catastale": "F023",
+    "nome": "MASSA",
+    "sigla_provincia": "MS",
+    "regione": "Toscana"
+  },
+  {
+    "codice_catastale": "G702",
+    "nome": "PISA",
+    "sigla_provincia": "PI",
+    "regione": "Toscana"
+  },
+  {
+    "codice_catastale": "G713",
+    "nome": "PISTOIA",
+    "sigla_provincia": "PT",
+    "regione": "Toscana"
+  },
+  {
+    "codice_catastale": "G999",
+    "nome": "PRATO",
+    "sigla_provincia": "PO",
+    "regione": "Toscana"
+  },
+  {
+    "codice_catastale": "I726",
+    "nome": "SIENA",
+    "sigla_provincia": "SI",
+    "regione": "Toscana"
+  },
+  {
+    "codice_catastale": "G478",
+    "nome": "PERUGIA",
+    "sigla_provincia": "PG",
+    "regione": "Umbria"
+  },
+  {
+    "codice_catastale": "L117",
+    "nome": "TERNI",
+    "sigla_provincia": "TR",
+    "regione": "Umbria"
+  },
+  {
+    "codice_catastale": "A271",
+    "nome": "ANCONA",
+    "sigla_provincia": "AN",
+    "regione": "Marche"
+  },
+  {
+    "codice_catastale": "A462",
+    "nome": "ASCOLI PICENO",
+    "sigla_provincia": "AP",
+    "regione": "Marche"
+  },
+  {
+    "codice_catastale": "D542",
+    "nome": "FERMO",
+    "sigla_provincia": "FM",
+    "regione": "Marche"
+  },
+  {
+    "codice_catastale": "E783",
+    "nome": "MACERATA",
+    "sigla_provincia": "MC",
+    "regione": "Marche"
+  },
+  {
+    "codice_catastale": "G453",
+    "nome": "PESARO",
+    "sigla_provincia": "PU",
+    "regione": "Marche"
+  },
+  {
+    "codice_catastale": "D810",
+    "nome": "FROSINONE",
+    "sigla_provincia": "FR",
+    "regione": "Lazio"
+  },
+  {
+    "codice_catastale": "E472",
+    "nome": "LATINA",
+    "sigla_provincia": "LT",
+    "regione": "Lazio"
+  },
+  {
+    "codice_catastale": "H282",
+    "nome": "RIETI",
+    "sigla_provincia": "RI",
+    "regione": "Lazio"
+  },
+  {
+    "codice_catastale": "H501",
+    "nome": "ROMA",
+    "sigla_provincia": "RM",
+    "regione": "Lazio"
+  },
+  {
+    "codice_catastale": "M082",
+    "nome": "VITERBO",
+    "sigla_provincia": "VT",
+    "regione": "Lazio"
+  },
+  {
+    "codice_catastale": "A345",
+    "nome": "L AQUILA",
+    "sigla_provincia": "AQ",
+    "regione": "Abruzzo"
+  },
+  {
+    "codice_catastale": "C632",
+    "nome": "CHIETI",
+    "sigla_provincia": "CH",
+    "regione": "Abruzzo"
+  },
+  {
+    "codice_catastale": "G482",
+    "nome": "PESCARA",
+    "sigla_provincia": "PE",
+    "regione": "Abruzzo"
+  },
+  {
+    "codice_catastale": "L103",
+    "nome": "TERAMO",
+    "sigla_provincia": "TE",
+    "regione": "Abruzzo"
+  },
+  {
+    "codice_catastale": "B519",
+    "nome": "CAMPOBASSO",
+    "sigla_provincia": "CB",
+    "regione": "Molise"
+  },
+  {
+    "codice_catastale": "E335",
+    "nome": "ISERNIA",
+    "sigla_provincia": "IS",
+    "regione": "Molise"
+  },
+  {
+    "codice_catastale": "A509",
+    "nome": "AVELLINO",
+    "sigla_provincia": "AV",
+    "regione": "Campania"
+  },
+  {
+    "codice_catastale": "A783",
+    "nome": "BENEVENTO",
+    "sigla_provincia": "BN",
+    "regione": "Campania"
+  },
+  {
+    "codice_catastale": "B963",
+    "nome": "CASERTA",
+    "sigla_provincia": "CE",
+    "regione": "Campania"
+  },
+  {
+    "codice_catastale": "F839",
+    "nome": "NAPOLI",
+    "sigla_provincia": "NA",
+    "regione": "Campania"
+  },
+  {
+    "codice_catastale": "H703",
+    "nome": "SALERNO",
+    "sigla_provincia": "SA",
+    "regione": "Campania"
+  },
+  {
+    "codice_catastale": "A662",
+    "nome": "BARI",
+    "sigla_provincia": "BA",
+    "regione": "Puglia"
+  },
+  {
+    "codice_catastale": "A669",
+    "nome": "BARLETTA",
+    "sigla_provincia": "BT",
+    "regione": "Puglia"
+  },
+  {
+    "codice_catastale": "B180",
+    "nome": "BRINDISI",
+    "sigla_provincia": "BR",
+    "regione": "Puglia"
+  },
+  {
+    "codice_catastale": "D643",
+    "nome": "FOGGIA",
+    "sigla_provincia": "FG",
+    "regione": "Puglia"
+  },
+  {
+    "codice_catastale": "E506",
+    "nome": "LECCE",
+    "sigla_provincia": "LE",
+    "regione": "Puglia"
+  },
+  {
+    "codice_catastale": "L049",
+    "nome": "TARANTO",
+    "sigla_provincia": "TA",
+    "regione": "Puglia"
+  },
+  {
+    "codice_catastale": "I158",
+    "nome": "TRANI",
+    "sigla_provincia": "BT",
+    "regione": "Puglia"
+  },
+  {
+    "codice_catastale": "A048",
+    "nome": "ANDRIA",
+    "sigla_provincia": "BT",
+    "regione": "Puglia"
+  },
+  {
+    "codice_catastale": "F052",
+    "nome": "MATERA",
+    "sigla_provincia": "MT",
+    "regione": "Basilicata"
+  },
+  {
+    "codice_catastale": "G942",
+    "nome": "POTENZA",
+    "sigla_provincia": "PZ",
+    "regione": "Basilicata"
+  },
+  {
+    "codice_catastale": "C352",
+    "nome": "CATANZARO",
+    "sigla_provincia": "CZ",
+    "regione": "Calabria"
+  },
+  {
+    "codice_catastale": "D086",
+    "nome": "COSENZA",
+    "sigla_provincia": "CS",
+    "regione": "Calabria"
+  },
+  {
+    "codice_catastale": "D122",
+    "nome": "CROTONE",
+    "sigla_provincia": "KR",
+    "regione": "Calabria"
+  },
+  {
+    "codice_catastale": "H224",
+    "nome": "REGGIO CALABRIA",
+    "sigla_provincia": "RC",
+    "regione": "Calabria"
+  },
+  {
+    "codice_catastale": "F537",
+    "nome": "VIBO VALENTIA",
+    "sigla_provincia": "VV",
+    "regione": "Calabria"
+  },
+  {
+    "codice_catastale": "A089",
+    "nome": "AGRIGENTO",
+    "sigla_provincia": "AG",
+    "regione": "Sicilia"
+  },
+  {
+    "codice_catastale": "B429",
+    "nome": "CALTANISSETTA",
+    "sigla_provincia": "CL",
+    "regione": "Sicilia"
+  },
+  {
+    "codice_catastale": "C351",
+    "nome": "CATANIA",
+    "sigla_provincia": "CT",
+    "regione": "Sicilia"
+  },
+  {
+    "codice_catastale": "C342",
+    "nome": "ENNA",
+    "sigla_provincia": "EN",
+    "regione": "Sicilia"
+  },
+  {
+    "codice_catastale": "F158",
+    "nome": "MESSINA",
+    "sigla_provincia": "ME",
+    "regione": "Sicilia"
+  },
+  {
+    "codice_catastale": "G273",
+    "nome": "PALERMO",
+    "sigla_provincia": "PA",
+    "regione": "Sicilia"
+  },
+  {
+    "codice_catastale": "H163",
+    "nome": "RAGUSA",
+    "sigla_provincia": "RG",
+    "regione": "Sicilia"
+  },
+  {
+    "codice_catastale": "I754",
+    "nome": "SIRACUSA",
+    "sigla_provincia": "SR",
+    "regione": "Sicilia"
+  },
+  {
+    "codice_catastale": "L331",
+    "nome": "TRAPANI",
+    "sigla_provincia": "TP",
+    "regione": "Sicilia"
+  },
+  {
+    "codice_catastale": "B354",
+    "nome": "CAGLIARI",
+    "sigla_provincia": "CA",
+    "regione": "Sardegna"
+  },
+  {
+    "codice_catastale": "F979",
+    "nome": "NUORO",
+    "sigla_provincia": "NU",
+    "regione": "Sardegna"
+  },
+  {
+    "codice_catastale": "G113",
+    "nome": "ORISTANO",
+    "sigla_provincia": "OR",
+    "regione": "Sardegna"
+  },
+  {
+    "codice_catastale": "I452",
+    "nome": "SASSARI",
+    "sigla_provincia": "SS",
+    "regione": "Sardegna"
+  }
+]
