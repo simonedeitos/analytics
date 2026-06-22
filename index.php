@@ -354,7 +354,6 @@
                         <div class="spinner-border spinner-border-sm me-2" role="status" style="color:#2A519F;">
                             <span class="visually-hidden">Query WFS...</span>
                         </div>
-                        <strong>Query WFS INSPIRE Agenzia delle Entrate</strong>
                     </div>
 
                     <p class="small mb-3">
@@ -380,12 +379,6 @@
                         <div id="scan-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated"
                              role="progressbar" style="width:0%; background-color:#2A519F;"></div>
                     </div>
-
-                    <p class="small text-muted mt-3 mb-0">
-                        <i class="bi bi-info-circle"></i>
-                        Stiamo interrogando il servizio WFS INSPIRE per ottenere le coordinate precise delle particelle catastali dal centroid dei poligoni.
-                        Questa operazione viene eseguita <strong>una sola volta per comune</strong> (~30-60 secondi) e poi salvata in cache.
-                    </p>
                 </div>
 
                 <div id="map-container"></div>
