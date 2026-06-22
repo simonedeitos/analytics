@@ -309,10 +309,12 @@ function parseFeatureMember(DOMXPath $xpath, DOMNode $member): ?array {
     if (count($parts) < 3) return null;
 
     $codComune = trim($parts[0]);
-    $foglio = ltrim(trim($parts[1]), '0');
-    $particella = ltrim(trim($parts[2]), '0');
-    if ($foglio === '') $foglio = trim($parts[1]);
-    if ($particella === '') $particella = trim($parts[2]);
+    $foglioRaw = trim($parts[1]);
+    $particellaRaw = trim($parts[2]);
+    $foglio = ltrim($foglioRaw, '0');
+    $particella = ltrim($particellaRaw, '0');
+    if ($foglio === '') $foglio = $foglioRaw;
+    if ($particella === '') $particella = $particellaRaw;
 
     $coords = [];
     $geomNodes = $xpath->query('.//gml:posList | .//gml:pos', $member);
@@ -326,6 +328,7 @@ function parseFeatureMember(DOMXPath $xpath, DOMNode $member): ?array {
         }
     }
 
+    // Un poligono valido richiede almeno 3 vertici.
     if (count($coords) < 3) return null;
     $centroid = calculateCentroid($coords);
 

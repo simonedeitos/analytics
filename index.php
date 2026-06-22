@@ -364,7 +364,7 @@
                     <div class="row g-2 small mb-3">
                         <div class="col-4">
                             <span class="text-muted">Tile interrogati:</span><br>
-                            <strong id="scan-points">0/10 tile</strong>
+                            <strong id="scan-points">0/10 tiles</strong>
                         </div>
                         <div class="col-4">
                             <span class="text-muted">Particelle trovate:</span><br>
