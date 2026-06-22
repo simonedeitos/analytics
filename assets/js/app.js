@@ -22,6 +22,7 @@
     const MAP_CLUSTER_RADIUS_PIXELS = 50;
     const MAP_PREPARE_DELAY_MS = 500;
     const GRID_SIZE = 25; // AdE scan grid dimension (GRID_SIZE × GRID_SIZE points)
+    const SCAN_SECONDS_PER_POINT = 1.1; // Approximate time per AdE grid point (seconds), used for ETA
     const COLUMN_SURNAME = 'Nome';
     const COLUMN_GIVEN_NAME = 'Nome1';
     let mapInstance = null;
@@ -770,7 +771,18 @@
             }
         }
 
-        // 3. Apply AdE coordinates; collect unmatched for Nominatim fallback
+        // 3. Build a reverse lookup index: foglio|particella → first matching cache key
+        //    This allows O(1) lookup per parcel instead of scanning all cache keys each time.
+        const fpIndex = {}; // "FOGLIO|PARTICELLA" → cacheKey
+        for (const cacheKey of Object.keys(particelleCache)) {
+            const parts = cacheKey.split('|');
+            if (parts.length === 3) {
+                const fpKey = `${parts[1]}|${parts[2]}`;
+                if (!fpIndex[fpKey]) fpIndex[fpKey] = cacheKey;
+            }
+        }
+
+        // 4. Apply AdE coordinates; collect unmatched for Nominatim fallback
         const unmatched = [];
         mapGroupedData.forEach(addr => {
             const foglio     = addr.foglio;
@@ -778,33 +790,24 @@
             const comune     = addr.comune.toUpperCase();
 
             if (foglio && particella) {
-                // Try matching with cod_comune key first, then comune name key
-                const keysToTry = [
-                    // We don't know cod_comune client-side so we match on comune name
-                    `${comune}|${foglio}|${particella}`,
-                ];
-                // Also try cod_comune variants from cache keys
-                for (const cacheKey of Object.keys(particelleCache)) {
-                    const parts = cacheKey.split('|');
-                    if (parts.length === 3 && parts[1] === foglio && parts[2] === particella) {
-                        keysToTry.unshift(cacheKey);
-                    }
-                }
-                for (const key of keysToTry) {
-                    if (particelleCache[key]) {
-                        addr.lat    = parseFloat(particelleCache[key].lat);
-                        addr.lng    = parseFloat(particelleCache[key].lng);
-                        addr.source = 'AdE';
-                        return;
-                    }
+                // Try exact comune+foglio+particella key first, then foglio+particella index
+                const exactKey = `${comune}|${foglio}|${particella}`;
+                const fpKey    = `${foglio}|${particella}`;
+                const matchKey = particelleCache[exactKey] ? exactKey : fpIndex[fpKey];
+
+                if (matchKey && particelleCache[matchKey]) {
+                    addr.lat    = parseFloat(particelleCache[matchKey].lat);
+                    addr.lng    = parseFloat(particelleCache[matchKey].lng);
+                    addr.source = 'AdE';
+                    return;
                 }
             }
 
             unmatched.push(addr);
         });
 
-        const adeMMatched = mapGroupedData.length - unmatched.length;
-        console.log(`✅ [Map] ${adeMMatched}/${mapGroupedData.length} particelle matchate con AdE`);
+        const adeMatched = mapGroupedData.length - unmatched.length;
+        console.log(`✅ [Map] ${adeMatched}/${mapGroupedData.length} particelle matchate con AdE`);
 
         // 4. Nominatim fallback for unmatched
         let completed = adeMMatched;
@@ -917,7 +920,7 @@
         if (!progressDiv) return;
         progressDiv.classList.remove('d-none');
         const percent = total > 0 ? Math.round((scanned / total) * 100) : 0;
-        const eta = total > 0 ? Math.ceil(((total - scanned) * 1.1) / 60) : 10;
+        const eta = total > 0 ? Math.ceil(((total - scanned) * SCAN_SECONDS_PER_POINT) / 60) : 10;
         document.getElementById('scan-comune-name').textContent = comune;
         document.getElementById('scan-points').textContent = `${scanned}/${total}`;
         document.getElementById('scan-found').textContent = found;

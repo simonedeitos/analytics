@@ -364,7 +364,7 @@
                     <div class="row g-2 small mb-3">
                         <div class="col-4">
                             <span class="text-muted">Punti scansionati:</span><br>
-                            <strong id="scan-points">0/625</strong>
+                            <strong id="scan-points">0/…</strong>
                         </div>
                         <div class="col-4">
                             <span class="text-muted">Particelle trovate:</span><br>

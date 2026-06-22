@@ -304,7 +304,7 @@ function callAdEApi(float $lat, float $lng): ?array {
         CURLOPT_URL            => $url,
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_TIMEOUT        => 8,
-        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_SSL_VERIFYPEER => true,
         CURLOPT_USERAGENT      => 'EasyCatasto-Analytics/1.0',
         CURLOPT_HTTPHEADER     => [
             'Accept: application/json',
@@ -324,8 +324,9 @@ function callAdEApi(float $lat, float $lng): ?array {
 
 function getCacheFilePath(string $comune, string $provincia): string {
     $filename = strtoupper($comune) . '_' . strtoupper($provincia) . '.json';
-    // Strip any path traversal characters
+    // Strip any path traversal characters and ensure only safe characters remain
     $filename = basename($filename);
+    $filename = preg_replace('/[^A-Z0-9_\.]/i', '_', $filename);
     return CACHE_DIR . '/' . $filename;
 }
 
