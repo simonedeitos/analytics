@@ -649,7 +649,7 @@
             lengthMenu: [[25, 50, 100, 250, -1], [25, 50, 100, 250, 'Tutti']],
             language: italianDT(),
             order: [],
-            scrollX: true,
+            scrollX: false,
             autoWidth: true,
             dom: '<"row mb-2"<"col-sm-6"l><"col-sm-6"f>>rt<"row mt-2"<"col-sm-5"i><"col-sm-7"p>>',
         });
@@ -661,8 +661,8 @@
         if (!dataTable) return;
         dataTable.clear();
         dataTable.rows.add(filteredRows);
-        dataTable.draw();
-        dataTable.columns.adjust();
+        dataTable.draw(false);
+        dataTable.columns.adjust().draw(false);
     }
 
     function destroyDataTable() {
