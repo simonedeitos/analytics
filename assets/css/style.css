@@ -8,6 +8,7 @@
     --brand-blue:   #2A519F;
     --brand-blue-dark: #1e3d7a;
     --bg-light: #f5f7fb;
+    --map-popup-max-height: 300px;
 }
 
 /* ---- Base ---- */
@@ -341,7 +342,7 @@ body {
     margin-bottom: 0.5rem;
 }
 .map-popup-table-wrap {
-    max-height: 300px;
+    max-height: var(--map-popup-max-height);
     overflow-y: auto;
 }
 .map-popup .table thead {
