@@ -488,7 +488,8 @@
         document.getElementById('table-data').addEventListener('click', (event) => {
             const btn = event.target.closest('.btn-copy-phone');
             if (!btn) return;
-            copyPhone(btn.dataset.phone || '');
+            const encodedPhone = btn.dataset.phone || '';
+            copyPhone(encodedPhone ? decodeURIComponent(encodedPhone) : '');
         });
 
         applyFilters();
@@ -587,10 +588,11 @@
         return phones.map(p => {
             const phone = String(p || '');
             const escapedPhone = htmlEscape(phone);
+            const encodedPhone = encodeURIComponent(phone);
             return `
                 <span class="phone-item">
                     <span class="badge-phone">${escapedPhone}</span>
-                    <button type="button" class="btn-copy-phone" data-phone="${escapedPhone}" aria-label="Copia numero ${escapedPhone}" title="Copia numero">
+                    <button type="button" class="btn-copy-phone" data-phone="${encodedPhone}" aria-label="Copia numero ${escapedPhone}" title="Copia numero">
                         <i class="bi bi-clipboard"></i>
                     </button>
                 </span>
