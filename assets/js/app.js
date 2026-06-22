@@ -766,8 +766,7 @@
                     console.log(`✅ [Scan] ${comune}: ${scanResult.particelle_found} particelle trovate`);
                 }
             } catch (err) {
-                console.error(`❌ [Scan] Errore ${comune}:`, err);
-                showToast(`Errore scan ${comune}, uso geocodifica standard`, 'warning');
+                console.warn(`⚠️ [Scan] ${comune}: scan non disponibile, uso fallback Nominatim`);
             }
         }
 
@@ -844,6 +843,9 @@
                 completed++;
                 updateMapProgress(completed, total);
             }
+
+            // Apply jitter to parcels that ended up on identical coordinates
+            applyJitterToDuplicates(unmatched);
         }
 
         geocodingInProgress = false;
@@ -910,7 +912,7 @@
                 };
             });
         } catch (err) {
-            console.error(`❌ [Scan] Errore scan ${comune}:`, err);
+            console.warn(`⚠️ [Scan] Scan ${comune} fallito (${err.message}), uso fallback Nominatim`);
             throw err;
         }
     }
@@ -1040,7 +1042,9 @@
 
         const sourceIcon = addressData.source === 'AdE'
             ? `<i class="bi bi-geo-alt-fill text-success ms-1" title="Coordinate precise da Agenzia delle Entrate"></i>`
-            : `<i class="bi bi-geo-alt text-warning ms-1" title="Coordinate approssimative da Nominatim"></i>`;
+            : addressData.jittered
+                ? `<i class="bi bi-geo-alt text-warning ms-1" title="Coordinate approssimative con offset applicato"></i>`
+                : `<i class="bi bi-geo-alt text-warning ms-1" title="Coordinate approssimative da Nominatim"></i>`;
 
         const rows = intestatari.map(item => {
             const phones = (item.telefoni || []).map(phone => {
@@ -1092,10 +1096,44 @@
                 </div>
                 <div class="small text-muted mt-1 d-flex justify-content-between">
                     <span>${intestatari.length} unità immobiliari</span>
-                    <span>${addressData.source === 'AdE' ? '✓ Coordinate precise' : '⚠ Coordinate approssimative'}</span>
+                    <span>${addressData.source === 'AdE' ? '✓ Coordinate precise' : addressData.jittered ? '⚠ Coordinate stimate' : '⚠ Coordinate approssimative'}</span>
                 </div>
             </div>
         `;
+    }
+
+    /**
+     * Aggiunge piccolo offset casuale alle coordinate quando particelle diverse
+     * hanno stesse coordinate (geocodifica Nominatim imprecisa).
+     * Jitter: ±0.0001° (circa ±11 metri)
+     */
+    function applyJitterToDuplicates(addresses) {
+        const coordsMap = new Map(); // "lat,lng" → [addr1, addr2, ...]
+
+        // Group by coordinates
+        addresses.forEach(addr => {
+            if (Number.isFinite(addr.lat) && Number.isFinite(addr.lng)) {
+                const key = `${addr.lat.toFixed(6)},${addr.lng.toFixed(6)}`;
+                if (!coordsMap.has(key)) coordsMap.set(key, []);
+                coordsMap.get(key).push(addr);
+            }
+        });
+
+        // Apply jitter to duplicates
+        coordsMap.forEach((addrs, coordKey) => {
+            if (addrs.length > 1) {
+                console.log(`🔀 [Jitter] ${addrs.length} particelle su stesse coordinate ${coordKey}, applico offset`);
+                addrs.forEach((addr, idx) => {
+                    addr.jittered = true; // All parcels at same coords are estimated
+                    if (idx > 0) { // First entry keeps original coordinates
+                        const angle = (Math.PI * 2 * idx) / addrs.length;
+                        const distance = 0.0001; // ~11 metri
+                        addr.lat += Math.cos(angle) * distance;
+                        addr.lng += Math.sin(angle) * distance;
+                    }
+                });
+            }
+        });
     }
 
     function groupRowsByAddress(rows) {

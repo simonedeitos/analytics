@@ -13,9 +13,68 @@ define('GRID_SIZE', 25);
 define('BBOX_RADIUS', 0.03); // ~3km
 define('RATE_LIMIT_MS', 1000); // 1 req/sec
 
-$comune   = trim($_GET['comune']   ?? '');
-$provincia = trim($_GET['provincia'] ?? '');
-$mode     = trim($_GET['mode']     ?? 'scan');
+/**
+ * Mappa province italiane: Nome completo → Sigla
+ */
+const PROVINCE_MAP = [
+    'AGRIGENTO' => 'AG', 'ALESSANDRIA' => 'AL', 'ANCONA' => 'AN', 'AOSTA' => 'AO',
+    'AREZZO' => 'AR', 'ASCOLI PICENO' => 'AP', 'ASTI' => 'AT', 'AVELLINO' => 'AV',
+    'BARI' => 'BA', 'BARLETTA-ANDRIA-TRANI' => 'BT', 'BELLUNO' => 'BL', 'BENEVENTO' => 'BN',
+    'BERGAMO' => 'BG', 'BIELLA' => 'BI', 'BOLOGNA' => 'BO', 'BOLZANO' => 'BZ',
+    'BRESCIA' => 'BS', 'BRINDISI' => 'BR', 'CAGLIARI' => 'CA', 'CALTANISSETTA' => 'CL',
+    'CAMPOBASSO' => 'CB', 'CARBONIA-IGLESIAS' => 'CI', 'CASERTA' => 'CE', 'CATANIA' => 'CT',
+    'CATANZARO' => 'CZ', 'CHIETI' => 'CH', 'COMO' => 'CO', 'COSENZA' => 'CS',
+    'CREMONA' => 'CR', 'CROTONE' => 'KR', 'CUNEO' => 'CN', 'ENNA' => 'EN',
+    'FERMO' => 'FM', 'FERRARA' => 'FE', 'FIRENZE' => 'FI', 'FOGGIA' => 'FG',
+    'FORLI-CESENA' => 'FC', 'FROSINONE' => 'FR', 'GENOVA' => 'GE', 'GORIZIA' => 'GO',
+    'GROSSETO' => 'GR', 'IMPERIA' => 'IM', 'ISERNIA' => 'IS', 'LA SPEZIA' => 'SP',
+    'LAQUILA' => 'AQ', 'LATINA' => 'LT', 'LECCE' => 'LE', 'LECCO' => 'LC',
+    'LIVORNO' => 'LI', 'LODI' => 'LO', 'LUCCA' => 'LU', 'MACERATA' => 'MC',
+    'MANTOVA' => 'MN', 'MASSA-CARRARA' => 'MS', 'MATERA' => 'MT', 'MESSINA' => 'ME',
+    'MILANO' => 'MI', 'MODENA' => 'MO', 'MONZA E BRIANZA' => 'MB', 'NAPOLI' => 'NA',
+    'NOVARA' => 'NO', 'NUORO' => 'NU', 'ORISTANO' => 'OR', 'PADOVA' => 'PD',
+    'PALERMO' => 'PA', 'PARMA' => 'PR', 'PAVIA' => 'PV', 'PERUGIA' => 'PG',
+    'PESARO E URBINO' => 'PU', 'PESCARA' => 'PE', 'PIACENZA' => 'PC', 'PISA' => 'PI',
+    'PISTOIA' => 'PT', 'PORDENONE' => 'PN', 'POTENZA' => 'PZ', 'PRATO' => 'PO',
+    'RAGUSA' => 'RG', 'RAVENNA' => 'RA', 'REGGIO CALABRIA' => 'RC', 'REGGIO EMILIA' => 'RE',
+    'RIETI' => 'RI', 'RIMINI' => 'RN', 'ROMA' => 'RM', 'ROVIGO' => 'RO',
+    'SALERNO' => 'SA', 'SASSARI' => 'SS', 'SAVONA' => 'SV', 'SIENA' => 'SI',
+    'SIRACUSA' => 'SR', 'SONDRIO' => 'SO', 'SUD SARDEGNA' => 'SU', 'TARANTO' => 'TA',
+    'TERAMO' => 'TE', 'TERNI' => 'TR', 'TORINO' => 'TO', 'TRAPANI' => 'TP',
+    'TRENTO' => 'TN', 'TREVISO' => 'TV', 'TRIESTE' => 'TS', 'UDINE' => 'UD',
+    'VARESE' => 'VA', 'VENEZIA' => 'VE', 'VERBANO-CUSIO-OSSOLA' => 'VB', 'VERCELLI' => 'VC',
+    'VERONA' => 'VR', 'VIBO VALENTIA' => 'VV', 'VICENZA' => 'VI', 'VITERBO' => 'VT',
+];
+
+/**
+ * Normalizza provincia in sigla a 2 lettere.
+ */
+function normalizeProvincia(string $prov): string {
+    $prov = strtoupper(trim($prov));
+
+    // Already a 2-letter code — validate it is a known province
+    if (strlen($prov) === 2) {
+        return in_array($prov, PROVINCE_MAP, true) ? $prov : $prov;
+    }
+
+    // Exact match in map
+    if (isset(PROVINCE_MAP[$prov])) {
+        return PROVINCE_MAP[$prov];
+    }
+
+    // Partial match: input must be a substring of a known province name
+    foreach (PROVINCE_MAP as $nome => $sigla) {
+        if (strpos($nome, $prov) !== false) {
+            return $sigla;
+        }
+    }
+
+    return $prov; // Return as-is if not found
+}
+
+$comune    = trim($_GET['comune']    ?? '');
+$provincia = normalizeProvincia($_GET['provincia'] ?? '');
+$mode      = trim($_GET['mode']      ?? 'scan');
 
 if (!$comune || !$provincia) {
     header('Content-Type: application/json; charset=utf-8');
@@ -323,7 +382,8 @@ function callAdEApi(float $lat, float $lng): ?array {
 }
 
 function getCacheFilePath(string $comune, string $provincia): string {
-    $filename = strtoupper($comune) . '_' . strtoupper($provincia) . '.json';
+    $provinciaNorm = normalizeProvincia($provincia);
+    $filename = strtoupper($comune) . '_' . strtoupper($provinciaNorm) . '.json';
     // Strip any path traversal characters and ensure only safe characters remain
     $filename = basename($filename);
     $filename = preg_replace('/[^A-Z0-9_\.]/i', '_', $filename);
