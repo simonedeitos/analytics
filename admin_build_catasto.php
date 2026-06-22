@@ -309,7 +309,7 @@ async function executeProvinceBuild(provincia) {
             throw new Error(data.error || 'Build fallito');
         }
 
-        const duration = Number(data.duration_sec || Math.round(((performance.now() - startedAt) / 10)) / 100);
+        const duration = Number(data.duration_sec || (Math.round(((performance.now() - startedAt) / 1000) * 100) / 100));
         completedDurations.push(duration);
         provinceState[provincia] = {
             status: 'success',
