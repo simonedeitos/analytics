@@ -8,6 +8,7 @@
     --brand-blue:   #2A519F;
     --brand-blue-dark: #1e3d7a;
     --bg-light: #f5f7fb;
+    --map-popup-max-height: 300px;
 }
 
 /* ---- Base ---- */
@@ -296,6 +297,96 @@ body {
     font-size: 0.7rem;
     padding: 0.2em 0.45em;
     border-radius: 4px;
+    font-weight: 700;
+}
+
+/* ---- Map tab ---- */
+#map-container {
+    height: 600px;
+    border-radius: 12px;
+    overflow: hidden;
+    background: #f5f7fb;
+    border: 2px solid #e9ecef;
+    box-shadow: 0 4px 20px rgba(42, 81, 159, 0.08);
+}
+#map-status {
+    border-left: 4px solid var(--brand-orange);
+}
+#map-status .progress {
+    height: 6px;
+    background-color: #e9ecef;
+    border-radius: 3px;
+}
+#map-status .progress-bar {
+    background-color: var(--brand-orange);
+    transition: width 0.3s ease;
+}
+
+/* ---- Leaflet popup ---- */
+.leaflet-popup-content-wrapper {
+    border-radius: 12px;
+    padding: 0;
+}
+.map-popup {
+    min-width: 320px;
+    max-width: 450px;
+    padding: 1rem;
+}
+.map-popup h6 {
+    color: var(--brand-blue);
+    border-bottom: 2px solid var(--brand-orange);
+    padding-bottom: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+.map-popup .table {
+    margin-bottom: 0.5rem;
+}
+.map-popup-table-wrap {
+    max-height: var(--map-popup-max-height);
+    overflow-y: auto;
+}
+.map-popup .table thead {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+/* ---- Phone badge in popup ---- */
+.badge-phone-map {
+    background: #d1fae5;
+    color: #065f46;
+    font-size: 0.7rem;
+    padding: 0.25em 0.6em;
+    border-radius: 4px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    transition: all 0.15s ease;
+    border: 1px solid transparent;
+}
+.badge-phone-map:hover {
+    background: #34d399;
+    color: #fff;
+    transform: scale(1.05);
+    border-color: #10b981;
+}
+.badge-phone-map i {
+    font-size: 0.65rem;
+}
+
+/* ---- Marker cluster style ---- */
+.marker-cluster-small,
+.marker-cluster-medium,
+.marker-cluster-large {
+    background-color: rgba(42, 81, 159, 0.6);
+}
+.marker-cluster-small div,
+.marker-cluster-medium div,
+.marker-cluster-large div {
+    background-color: rgba(242, 142, 14, 0.8);
+    color: #fff;
     font-weight: 700;
 }
 

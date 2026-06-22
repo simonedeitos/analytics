@@ -17,6 +17,10 @@
     <!-- DataTables + Bootstrap 5 integration -->
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/dataTables.bootstrap5.min.css">
     <link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.2/css/buttons.bootstrap5.min.css">
+    <!-- Leaflet + MarkerCluster -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
     <!-- Custom styles -->
     <link rel="stylesheet" href="assets/css/style.css">
 </head>
@@ -100,6 +104,12 @@
                 <button class="nav-link fw-semibold" id="tab-data-btn" data-bs-toggle="tab"
                         data-bs-target="#tab-data" type="button" role="tab">
                     <i class="bi bi-grid-3x3 me-1"></i>Dati
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link fw-semibold" id="tab-mappa-btn" data-bs-toggle="tab"
+                        data-bs-target="#tab-mappa" type="button" role="tab">
+                    <i class="bi bi-map me-1"></i>Mappa
                 </button>
             </li>
         </ul>
@@ -328,6 +338,28 @@
 
             </div><!-- /tab-data -->
 
+            <!-- ===== MAPPA TAB ===== -->
+            <div class="tab-pane fade" id="tab-mappa" role="tabpanel">
+                <div id="map-status" class="alert alert-info mb-3 d-none">
+                    <i class="bi bi-hourglass-split"></i>
+                    <span id="map-status-text">Preparazione mappa in corso…</span>
+                    <div class="progress mt-2">
+                        <div id="map-progress-bar" class="progress-bar" style="width:0%;"></div>
+                    </div>
+                </div>
+
+                <div id="map-container"></div>
+
+                <div class="mt-3">
+                    <span class="badge bg-primary me-2">
+                        <i class="bi bi-geo-alt-fill"></i> Indirizzo con dati
+                    </span>
+                    <span class="badge bg-secondary">
+                        <i class="bi bi-geo"></i> Indirizzo non geocodificato
+                    </span>
+                </div>
+            </div><!-- /tab-mappa -->
+
         </div><!-- /tab-content -->
     </div><!-- /container -->
 </div><!-- /analytics-section -->
@@ -353,6 +385,9 @@
 <!-- DataTables -->
 <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
 <script src="https://cdn.datatables.net/1.13.8/js/dataTables.bootstrap5.min.js"></script>
+<!-- Leaflet + MarkerCluster -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <!-- App logic -->
 <script src="assets/js/app.js"></script>
 </body>

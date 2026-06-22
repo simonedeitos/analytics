@@ -14,6 +14,25 @@
     let dataTable = null;   // DataTables instance
     let charts = {};        // Chart.js instances keyed by id
     const CURRENT_YEAR = new Date().getFullYear();
+    const NOMINATIM_USER_AGENT = 'EasyCatasto-Analytics/1.0 (+https://github.com/simonedeitos/analytics)';
+    const NOMINATIM_CONTACT_EMAIL = 'simonedeitos@users.noreply.github.com';
+    const GEOCODE_RATE_LIMIT_MS = 1100;
+    const GEOCODE_RETRY_DELAY_MS = 2000;
+    const GEOCODE_MAX_ATTEMPTS = 2;
+    const MAP_CLUSTER_RADIUS_PIXELS = 50;
+    const MAP_PREPARE_DELAY_MS = 500;
+    const COLUMN_SURNAME = 'Nome';
+    const COLUMN_GIVEN_NAME = 'Nome1';
+    let mapInstance = null;
+    let mapMarkers = null;
+    let mapDataReady = false;
+    let mapGroupedData = [];
+    let geocodedAddresses = {};
+    let geocodingInProgress = false;
+    let mapHasGeocodeErrors = false;
+    let geocodeServiceUnavailable = false;
+    let mapStatusHideTimer = null;
+    let lastGeocodeRequestAt = 0;
 
     /* ================================================================
        COLOUR PALETTE
@@ -56,6 +75,7 @@
         filteredRows = [];
         fileInput.value = '';
         destroyDataTable();
+        resetMapState();
         analyticsSec.classList.add('d-none');
         uploadSec.classList.remove('d-none');
     });
@@ -65,6 +85,35 @@
     if (tabDataBtn) {
         tabDataBtn.addEventListener('shown.bs.tab', () => {
             if (dataTable) dataTable.columns.adjust().draw();
+        });
+    }
+    const tabMapBtn = document.getElementById('tab-mappa-btn');
+    if (tabMapBtn) {
+        tabMapBtn.addEventListener('shown.bs.tab', () => {
+            initMap();
+        });
+    }
+    const mapContainer = document.getElementById('map-container');
+    if (mapContainer) {
+        const copyMapPhoneFromTarget = (target) => {
+            const btn = target.closest('.badge-phone-map');
+            if (!btn) return false;
+            const encodedPhone = btn.dataset.phone || '';
+            try {
+                copyPhone(encodedPhone ? decodeURIComponent(encodedPhone) : '');
+                return true;
+            } catch (err) {
+                console.error('Errore decodifica numero popup mappa:', err);
+                showToast('Impossibile copiare il numero.', 'warning');
+                return true;
+            }
+        };
+        mapContainer.addEventListener('click', (event) => {
+            copyMapPhoneFromTarget(event.target);
+        });
+        mapContainer.addEventListener('keydown', (event) => {
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            if (copyMapPhoneFromTarget(event.target)) event.preventDefault();
         });
     }
 
@@ -267,6 +316,9 @@
         buildStats();
         buildFilters();
         buildDataTable();
+        setTimeout(() => {
+            prepareMapData();
+        }, MAP_PREPARE_DELAY_MS);
     }
 
     /* ================================================================
@@ -670,6 +722,311 @@
             dataTable = null;
             document.querySelector('#table-data thead').innerHTML = '';
             document.querySelector('#table-data tbody').innerHTML = '';
+        }
+    }
+
+    /* ================================================================
+       MAP TAB – BACKGROUND GEOCODING + LEAFLET
+    ================================================================ */
+    async function prepareMapData() {
+        if (geocodingInProgress || !allRows.length) return;
+        geocodingInProgress = true;
+        mapDataReady = false;
+        mapHasGeocodeErrors = false;
+        geocodeServiceUnavailable = false;
+
+        const grouped = groupRowsByAddress(allRows);
+        mapGroupedData = Object.values(grouped);
+        const total = mapGroupedData.length;
+
+        if (!total) {
+            geocodingInProgress = false;
+            mapDataReady = true;
+            updateMapStatus('error');
+            return;
+        }
+
+        updateMapStatus('preparing', 0, total);
+        let completed = 0;
+        for (const addressData of mapGroupedData) {
+            const cacheKey = getAddressKey(addressData);
+            if (geocodedAddresses[cacheKey]) {
+                const cached = geocodedAddresses[cacheKey];
+                addressData.lat = cached.lat;
+                addressData.lng = cached.lng;
+                completed++;
+                updateMapProgress(completed, total);
+                continue;
+            }
+
+            const query = buildGeoQuery(addressData);
+            let coords = await geocodeAddress(query, GEOCODE_MAX_ATTEMPTS);
+            if (!coords) {
+                const fallbackQuery = `${addressData.comune}, ${addressData.provincia}, Italia`;
+                coords = await geocodeAddress(fallbackQuery, GEOCODE_MAX_ATTEMPTS);
+            }
+
+            if (coords) {
+                addressData.lat = coords.lat;
+                addressData.lng = coords.lng;
+                geocodedAddresses[cacheKey] = coords;
+            } else {
+                mapHasGeocodeErrors = true;
+            }
+
+            completed++;
+            updateMapProgress(completed, total);
+        }
+
+        geocodingInProgress = false;
+        mapDataReady = true;
+
+        const geocodedCount = mapGroupedData.filter(item => Number.isFinite(item.lat) && Number.isFinite(item.lng)).length;
+        if (geocodeServiceUnavailable) showToast('Servizio geocodificazione non disponibile', 'warning');
+        if (!geocodedCount) {
+            updateMapStatus('error', completed, total, 'Impossibile geocodificare gli indirizzi. Verifica connessione internet.');
+            return;
+        }
+
+        if (mapHasGeocodeErrors) {
+            updateMapStatus('error', completed, total);
+        } else {
+            updateMapStatus('ready', completed, total);
+        }
+
+        if (mapInstance) initMap();
+    }
+
+    async function geocodeAddress(query, retries) {
+        const maxAttempts = Math.max(1, Number(retries) || 1);
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            try {
+                const now = Date.now();
+                const waitMs = GEOCODE_RATE_LIMIT_MS - (now - lastGeocodeRequestAt);
+                if (waitMs > 0) await sleep(waitMs);
+                lastGeocodeRequestAt = Date.now();
+
+                const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1&email=${encodeURIComponent(NOMINATIM_CONTACT_EMAIL)}`;
+                const response = await fetch(url, {
+                    headers: {
+                        Accept: 'application/json',
+                        'User-Agent': NOMINATIM_USER_AGENT,
+                    },
+                });
+                if (!response.ok) {
+                    if (response.status >= 500) geocodeServiceUnavailable = true;
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                const data = await response.json();
+                if (Array.isArray(data) && data.length) {
+                    return {
+                        lat: Number(data[0].lat),
+                        lng: Number(data[0].lon),
+                    };
+                }
+                console.warn('Geocode failed for:', query);
+            } catch (error) {
+                if (String(error?.message || '').includes('Failed to fetch')) {
+                    geocodeServiceUnavailable = true;
+                }
+                console.warn('Geocode failed for:', query, error);
+            }
+
+            if (attempt < maxAttempts - 1) await sleep(GEOCODE_RETRY_DELAY_MS);
+        }
+        return null;
+    }
+
+    function buildGeoQuery(addressData) {
+        const address = [addressData.indirizzo, addressData.civico].filter(Boolean).join(' ').trim();
+        return `${address}, ${addressData.comune}, ${addressData.provincia}, Italia`;
+    }
+
+    function initMap() {
+        const mapEl = document.getElementById('map-container');
+        if (!mapEl || typeof L === 'undefined') return;
+
+        if (!mapInstance) {
+            mapInstance = L.map('map-container').setView([45.5, 10.5], 8);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; OpenStreetMap',
+                maxZoom: 19,
+            }).addTo(mapInstance);
+            mapMarkers = L.markerClusterGroup({
+                maxClusterRadius: MAP_CLUSTER_RADIUS_PIXELS,
+                spiderfyOnMaxZoom: true,
+                showCoverageOnHover: true,
+            });
+            mapInstance.addLayer(mapMarkers);
+        }
+
+        mapInstance.invalidateSize();
+        if (!mapDataReady) {
+            updateMapStatus('preparing');
+            return;
+        }
+        renderMapMarkers();
+    }
+
+    function renderMapMarkers() {
+        if (!mapInstance || !mapMarkers) return;
+        mapMarkers.clearLayers();
+
+        const geocoded = mapGroupedData.filter(item => Number.isFinite(item.lat) && Number.isFinite(item.lng));
+        geocoded.forEach(addressData => {
+            const marker = L.marker([addressData.lat, addressData.lng]);
+            marker.bindPopup(createMarkerPopup(addressData), { maxWidth: 460 });
+            mapMarkers.addLayer(marker);
+        });
+
+        if (!geocoded.length) {
+            updateMapStatus('error', 0, mapGroupedData.length, 'Impossibile geocodificare gli indirizzi. Verifica connessione internet.');
+            return;
+        }
+
+        const bounds = mapMarkers.getBounds();
+        if (bounds.isValid()) mapInstance.fitBounds(bounds.pad(0.15));
+    }
+
+    function createMarkerPopup(addressData) {
+        const fullAddress = `${addressData.indirizzo} ${addressData.civico}`.trim();
+        const rows = addressData.intestatari.map(item => {
+            const phones = (item.telefoni || []).map(phone => {
+                const safePhone = htmlEscape(phone);
+                const encodedPhone = encodeURIComponent(phone);
+                return `<span class="badge-phone-map" data-phone="${htmlEscape(encodedPhone)}" role="button" tabindex="0"><i class="bi bi-clipboard"></i>${safePhone}</span>`;
+            }).join(' ');
+            const fp = [item.foglio, item.particella].filter(Boolean).join('/') + (item.subalterno ? `-${item.subalterno}` : '');
+            return `
+                <tr>
+                    <td>${htmlEscape(item.nome || '')}</td>
+                    <td>${htmlEscape(fp || '')}</td>
+                    <td>${htmlEscape(item.categoria || '')}</td>
+                    <td>${phones || '<span class="text-muted">-</span>'}</td>
+                </tr>
+            `;
+        }).join('');
+
+        return `
+            <div class="map-popup">
+                <h6><i class="bi bi-house-fill me-1"></i>${htmlEscape(fullAddress)}</h6>
+                <div class="small text-muted mb-2">${htmlEscape(addressData.comune)} (${htmlEscape(addressData.provincia)})</div>
+                <div class="map-popup-table-wrap">
+                    <table class="table table-sm table-striped mb-1">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Intestatario</th>
+                                <th>F./P.</th>
+                                <th>Cat.</th>
+                                <th>Telefono</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+                <div class="small text-muted mt-1">${addressData.intestatari.length} intestatari</div>
+            </div>
+        `;
+    }
+
+    function groupRowsByAddress(rows) {
+        const grouped = {};
+        rows.forEach(row => {
+            const addressData = {
+                indirizzo: String(row['Indirizzo'] || '').trim(),
+                civico: String(row['Civico'] || '').trim(),
+                comune: String(row['Comune'] || '').trim(),
+                provincia: String(row['Provincia'] || '').trim(),
+            };
+            if (!addressData.comune || !addressData.provincia) return;
+            const key = getAddressKey(addressData);
+            if (!grouped[key]) {
+                grouped[key] = {
+                    ...addressData,
+                    lat: null,
+                    lng: null,
+                    intestatari: [],
+                };
+            }
+
+            // EasyCatasto exports use "Nome" (surname) and "Nome1" (first name).
+            const nomeCompleto = [row[COLUMN_SURNAME], row[COLUMN_GIVEN_NAME]].filter(Boolean).join(' ').trim() || '-';
+            grouped[key].intestatari.push({
+                nome: nomeCompleto,
+                telefoni: Array.isArray(row._phones) ? row._phones : [],
+                email: Array.isArray(row._emails) ? row._emails : [],
+                foglio: String(row['Foglio'] || '').trim(),
+                particella: String(row['Particella'] || '').trim(),
+                subalterno: String(row['Subalterno'] || '').trim(),
+                categoria: String(row['Categoria'] || '').trim(),
+            });
+        });
+        return grouped;
+    }
+
+    function getAddressKey(addressData) {
+        return `${addressData.indirizzo}|${addressData.civico}|${addressData.comune}|${addressData.provincia}`.toUpperCase();
+    }
+
+    function updateMapProgress(current, total) {
+        const progressBar = document.getElementById('map-progress-bar');
+        const statusText = document.getElementById('map-status-text');
+        if (!progressBar || !statusText) return;
+        const pct = total ? ((current / total) * 100).toFixed(1) : '0.0';
+        progressBar.style.width = `${pct}%`;
+        statusText.textContent = `Preparazione mappa in corso… ${current}/${total} indirizzi`;
+    }
+
+    function updateMapStatus(state, current, total, customMessage) {
+        const status = document.getElementById('map-status');
+        const statusText = document.getElementById('map-status-text');
+        const progressBar = document.getElementById('map-progress-bar');
+        if (!status || !statusText || !progressBar) return;
+        if (mapStatusHideTimer) {
+            clearTimeout(mapStatusHideTimer);
+            mapStatusHideTimer = null;
+        }
+
+        status.classList.remove('d-none', 'alert-info', 'alert-success', 'alert-warning');
+        if (state === 'preparing') {
+            status.classList.add('alert-info');
+            updateMapProgress(current || 0, total || mapGroupedData.length || 0);
+            return;
+        }
+
+        if (state === 'ready') {
+            status.classList.add('alert-success');
+            progressBar.style.width = '100%';
+            statusText.textContent = '✓ Mappa pronta!';
+            mapStatusHideTimer = setTimeout(() => status.classList.add('d-none'), 2000);
+            return;
+        }
+
+        status.classList.add('alert-warning');
+        progressBar.style.width = total ? `${Math.round((current / total) * 100)}%` : progressBar.style.width;
+        statusText.textContent = customMessage || 'Alcuni indirizzi non sono stati geocodificati';
+    }
+
+    function resetMapState() {
+        mapDataReady = false;
+        mapGroupedData = [];
+        geocodedAddresses = {};
+        geocodingInProgress = false;
+        mapHasGeocodeErrors = false;
+        geocodeServiceUnavailable = false;
+        lastGeocodeRequestAt = 0;
+        if (mapStatusHideTimer) {
+            clearTimeout(mapStatusHideTimer);
+            mapStatusHideTimer = null;
+        }
+        const status = document.getElementById('map-status');
+        const progressBar = document.getElementById('map-progress-bar');
+        if (status) status.classList.add('d-none');
+        if (progressBar) progressBar.style.width = '0%';
+        if (mapInstance) {
+            mapInstance.remove();
+            mapInstance = null;
+            mapMarkers = null;
         }
     }
 
