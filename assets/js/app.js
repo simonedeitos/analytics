@@ -809,8 +809,8 @@
         const adeMatched = mapGroupedData.length - unmatched.length;
         console.log(`✅ [Map] ${adeMatched}/${mapGroupedData.length} particelle matchate con AdE`);
 
-        // 4. Nominatim fallback for unmatched
-        let completed = adeMMatched;
+        // 5. Nominatim fallback for unmatched
+        let completed = adeMatched;
         if (unmatched.length > 0) {
             console.log(`🔄 [Fallback] Geocoding ${unmatched.length} indirizzi con Nominatim…`);
             for (let i = 0; i < unmatched.length; i++) {
