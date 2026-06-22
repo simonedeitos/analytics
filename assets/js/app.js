@@ -14,28 +14,19 @@
     let dataTable = null;   // DataTables instance
     let charts = {};        // Chart.js instances keyed by id
     const CURRENT_YEAR = new Date().getFullYear();
-    const NOMINATIM_USER_AGENT = 'EasyCatasto-Analytics/1.0 (+https://github.com/simonedeitos/analytics)';
-    const NOMINATIM_CONTACT_EMAIL = 'simonedeitos@users.noreply.github.com';
-    const GEOCODE_RATE_LIMIT_MS = 1100;
-    const GEOCODE_RETRY_DELAY_MS = 2000;
-    const GEOCODE_MAX_ATTEMPTS = 2;
     const MAP_CLUSTER_RADIUS_PIXELS = 50;
     const MAP_PREPARE_DELAY_MS = 500;
-    const WFS_SECONDS_PER_TILE = 0.6; // Used for legacy WFS scan progress
-    const WFS_STREAM_TIMEOUT_MS = 180000; // Max SSE wait (3 minutes) for legacy WFS stream completion
     const COLUMN_SURNAME = 'Nome';
     const COLUMN_GIVEN_NAME = 'Nome1';
     let mapInstance = null;
     let mapMarkers = null;
     let mapDataReady = false;
     let mapGroupedData = [];
-    let geocodedAddresses = {};
-    let geocodingInProgress = false;
-    let mapHasGeocodeErrors = false;
-    let geocodeServiceUnavailable = false;
+    let mapPreparing = false;
+    let mapHasErrors = false;
     let mapStatusHideTimer = null;
-    let lastGeocodeRequestAt = 0;
     let particelleCache = {}; // Catasto lookup cache: key → {lat, lng, foglio, particella}
+    let comuniIstatMap = null; // Map: "COMUNE|PROV" → {codice_catastale, codice_istat, regione}
 
     /* ================================================================
        COLOUR PALETTE
@@ -732,18 +723,17 @@
        MAP TAB – BACKGROUND GEOCODING + LEAFLET
     ================================================================ */
     async function prepareMapData() {
-        if (geocodingInProgress || !allRows.length) return;
-        geocodingInProgress = true;
+        if (mapPreparing || !allRows.length) return;
+        mapPreparing = true;
         mapDataReady = false;
-        mapHasGeocodeErrors = false;
-        geocodeServiceUnavailable = false;
+        mapHasErrors = false;
 
         const grouped = groupRowsByAddress(allRows);
         mapGroupedData = Object.values(grouped);
         const total = mapGroupedData.length;
 
         if (!total) {
-            geocodingInProgress = false;
+            mapPreparing = false;
             mapDataReady = true;
             updateMapStatus('error');
             return;
@@ -751,89 +741,80 @@
 
         updateMapStatus('preparing', 0, total);
 
-        console.log('🗺️ [Map] Inizio preparazione dati con lookup catasto WFS...');
+        console.log('🗺️ [Map] Inizio preparazione dati con download fogli catastali...');
 
-        // 1. Query WFS/cached per ogni particella univoca
-        const unmatched = [];
-        let dbMatched = 0;
+        // 1. Estrai fogli unici e scaricali in batch
+        const fogliUnici = extractUniqueFogli(mapGroupedData);
+        const fogliArr = Array.from(fogliUnici.values());
+        console.log(`🗺️ [Map] Fogli unici da scaricare: ${fogliArr.length}`);
+
+        for (let i = 0; i < fogliArr.length; i++) {
+            const { codCatastale, foglio, comune } = fogliArr[i];
+            updateMapStatusText(`Download foglio ${i + 1}/${fogliArr.length}: ${comune} F.${foglio}...`);
+
+            try {
+                const params = new URLSearchParams({ cod_catastale: codCatastale, foglio });
+                const response = await fetch(`api/download_foglio_wfs.php?${params.toString()}`);
+                const data = await response.json();
+                if (data.ok) {
+                    console.log(`✅ [Map] Foglio ${comune} F.${foglio}: ${data.particelle_count} particelle (source: ${data.source})`);
+                } else {
+                    console.warn(`⚠️ [Map] Download fallito per ${comune} F.${foglio}: ${data.error}`);
+                }
+            } catch (err) {
+                console.warn(`⚠️ [Map] Errore download ${comune} F.${foglio}:`, err);
+            }
+        }
+
+        // 2. Lookup coordinate da cache (get_coords_wfs.php ora usa la cache pre-popolata)
+        updateMapStatusText('Lookup coordinate da database catasto...');
+        let catMatched = 0;
 
         for (const addr of mapGroupedData) {
-            if (addr.foglio && addr.particella) {
-                try {
-                    const coords = await getParticellaFromWFS(addr);
-                    if (coords && coords.ok) {
-                        addr.lat = Number(coords.lat);
-                        addr.lng = Number(coords.lng);
-                        addr.area_mq = coords.area_mq === null ? null : Number(coords.area_mq);
-                        addr.source = coords.source || 'WFS-AdE';
-                        dbMatched++;
-                        updateMapProgress(dbMatched, total);
-                        continue;
-                    }
-                } catch (err) {
-                    console.warn(`⚠️ [WFS] Lookup fallito per ${addr.comune} F.${addr.foglio} P.${addr.particella}:`, err);
-                }
+            if (!addr.foglio || !addr.particella) {
+                continue;
             }
 
-            unmatched.push(addr);
-        }
-
-        console.log(`✅ [Map] ${dbMatched}/${mapGroupedData.length} particelle trovate via WFS/cache`);
-
-        // 2. Nominatim fallback per particelle non trovate nel DB
-        let completed = dbMatched;
-        if (unmatched.length > 0) {
-            console.log(`🔄 [Fallback] Geocoding ${unmatched.length} indirizzi con Nominatim…`);
-            for (let i = 0; i < unmatched.length; i++) {
-                const addr = unmatched[i];
-                const cacheKey = getAddressKey(addr);
-                if (geocodedAddresses[cacheKey]) {
-                    addr.lat    = geocodedAddresses[cacheKey].lat;
-                    addr.lng    = geocodedAddresses[cacheKey].lng;
-                    addr.source = 'Nominatim';
-                    completed++;
-                    updateMapProgress(completed, total);
-                    continue;
+            try {
+                const coords = await getParticellaFromWFS(addr);
+                if (coords && coords.ok) {
+                    addr.lat     = Number(coords.lat);
+                    addr.lng     = Number(coords.lng);
+                    addr.area_mq = coords.area_mq === null ? null : Number(coords.area_mq);
+                    addr.source  = coords.source || 'WFS-AdE';
+                    catMatched++;
                 }
-
-                const query = buildGeoQuery(addr);
-                let coords = await geocodeAddress(query, GEOCODE_MAX_ATTEMPTS);
-                if (!coords) {
-                    const fallbackQuery = `${addr.comune}, ${addr.provincia}, Italia`;
-                    coords = await geocodeAddress(fallbackQuery, GEOCODE_MAX_ATTEMPTS);
-                }
-
-                if (coords) {
-                    addr.lat    = coords.lat;
-                    addr.lng    = coords.lng;
-                    addr.source = 'Nominatim';
-                    geocodedAddresses[cacheKey] = coords;
-                } else {
-                    mapHasGeocodeErrors = true;
-                }
-
-                completed++;
-                updateMapProgress(completed, total);
+            } catch (err) {
+                console.warn(`⚠️ [Map] Lookup fallito per ${addr.comune} F.${addr.foglio} P.${addr.particella}:`, err);
             }
 
-            // Apply jitter to parcels that ended up on identical coordinates
-            applyJitterToDuplicates(unmatched);
+            updateMapProgress(catMatched, total);
         }
 
-        geocodingInProgress = false;
+        console.log(`✅ [Map] ${catMatched}/${total} particelle geolocalizzate da catasto`);
+
+        // 3. Particelle non trovate — segnala errore, senza fallback Nominatim
+        const notFound = mapGroupedData.filter(a => !Number.isFinite(a.lat) || !Number.isFinite(a.lng));
+        if (notFound.length > 0) {
+            mapHasErrors = true;
+            console.error(`❌ [Map] ${notFound.length} particelle NON trovate nel catasto:`);
+            notFound.forEach(a => {
+                console.error(`  - ${a.comune} (${a.provincia}) F.${a.foglio} P.${a.particella}`);
+            });
+        }
+
+        mapPreparing = false;
         mapDataReady = true;
 
-        const geocodedCount = mapGroupedData.filter(item => Number.isFinite(item.lat) && Number.isFinite(item.lng)).length;
-        if (geocodeServiceUnavailable) showToast('Servizio geocodificazione non disponibile', 'warning');
-        if (!geocodedCount) {
-            updateMapStatus('error', completed, total, 'Impossibile geocodificare gli indirizzi. Verifica connessione internet.');
+        if (!catMatched) {
+            updateMapStatus('error', catMatched, total, 'Nessuna particella trovata nel catasto. Verifica i dati (Comune, Foglio, Particella).');
             return;
         }
 
-        if (mapHasGeocodeErrors) {
-            updateMapStatus('error', completed, total);
+        if (mapHasErrors) {
+            updateMapStatus('error', catMatched, total);
         } else {
-            updateMapStatus('ready', completed, total);
+            updateMapStatus('ready', catMatched, total);
         }
 
         if (mapInstance) initMap();
@@ -867,139 +848,101 @@
         return data;
     }
 
-    async function scanComuneParticelle(comune, provincia) {
-        console.log(`🔍 [WFS] Inizio query WFS per ${comune} (${provincia})`);
-        try {
-            const checkUrl = `api/get_particelle_wfs.php?comune=${encodeURIComponent(comune)}&provincia=${encodeURIComponent(provincia)}&mode=check`;
-            const checkResp = await fetch(checkUrl);
-            if (!checkResp.ok) {
-                const errorText = await checkResp.text();
-                console.warn(`⚠️ [WFS] Check cache fallito (${checkResp.status}):`, errorText);
-                throw new Error(`HTTP ${checkResp.status}`);
-            }
-            const checkData = await checkResp.json();
+    /**
+     * Estrae i fogli unici da un array di indirizzi mappati.
+     * Ritorna una Map: key → {codCatastale, foglio, comune, provincia}
+     */
+    function extractUniqueFogli(mapData) {
+        const fogliMap = new Map();
 
-            if (checkData.cached && !checkData.needs_update) {
-                console.log(`✅ [Cache] Usando cache WFS per ${comune} (${checkData.particelle_count} particelle, ${checkData.cache_age_days} giorni)`);
-                const fetchUrl = `api/get_particelle_wfs.php?comune=${encodeURIComponent(comune)}&provincia=${encodeURIComponent(provincia)}&mode=fetch`;
-                const fetchResp = await fetch(fetchUrl);
-                if (!fetchResp.ok) throw new Error(`HTTP ${fetchResp.status}`);
-                return await fetchResp.json();
+        mapData.forEach(item => {
+            if (!item.foglio) return;
+
+            const codCatastale = lookupCodiceCatastale(item.comune, item.provincia);
+            if (!codCatastale) {
+                console.warn(`⚠️ [Map] Codice catastale non trovato: ${item.comune} (${item.provincia})`);
+                return;
             }
 
-            if (!checkData.cached || checkData.needs_update) {
-                console.log('⏳ [WFS] Cache non disponibile, avvio query WFS (~30-60 sec)...');
-                showScanProgress(comune, 0, 0, 0);
-            }
+            const foglioNorm = item.foglio.replace(/^0+/, '') || '0';
+            const key = `${codCatastale}|${foglioNorm}`;
 
-            return await new Promise((resolve, reject) => {
-                const streamUrl = `api/get_particelle_wfs.php?comune=${encodeURIComponent(comune)}&provincia=${encodeURIComponent(provincia)}&mode=stream`;
-                const eventSource = new EventSource(streamUrl);
-
-                const progressTimeout = setTimeout(() => {
-                    eventSource.close();
-                    console.warn('⚠️ [WFS] Timeout stream');
-                    reject(new Error('WFS timeout'));
-                }, WFS_STREAM_TIMEOUT_MS);
-
-                eventSource.onmessage = (event) => {
-                    const data = JSON.parse(event.data);
-                    if (data.complete) {
-                        clearTimeout(progressTimeout);
-                        eventSource.close();
-                        hideScanProgress();
-                        resolve(data.result);
-                    } else if (data.error) {
-                        clearTimeout(progressTimeout);
-                        eventSource.close();
-                        hideScanProgress();
-                        reject(new Error(data.error));
-                    } else {
-                        updateScanProgress(comune, data.tiles_queried, data.total_tiles, data.found);
-                    }
-                };
-
-                eventSource.onerror = (err) => {
-                    clearTimeout(progressTimeout);
-                    eventSource.close();
-                    hideScanProgress();
-                    console.warn('⚠️ [WFS] Stream error:', err);
-                    reject(new Error('WFS stream failed'));
-                };
-            });
-        } catch (err) {
-            console.warn(`⚠️ [WFS] Query ${comune} fallita (${err.message}), uso fallback Nominatim`);
-            throw err;
-        }
-    }
-
-    function showScanProgress(comune, tilesQueried, totalTiles, found) {
-        const progressDiv = document.getElementById('scan-progress');
-        if (!progressDiv) return;
-        progressDiv.classList.remove('d-none');
-        const percent = totalTiles > 0 ? Math.round((tilesQueried / totalTiles) * 100) : 0;
-        const eta = totalTiles > 0 ? Math.ceil((totalTiles - tilesQueried) * WFS_SECONDS_PER_TILE) : 1;
-        document.getElementById('scan-comune-name').textContent = comune;
-        document.getElementById('scan-points').textContent = `${tilesQueried}/${totalTiles}`;
-        document.getElementById('scan-found').textContent = found;
-        document.getElementById('scan-eta').textContent = eta > 0 ? `~${eta} sec` : 'Quasi fatto!';
-        document.getElementById('scan-progress-bar').style.width = `${percent}%`;
-    }
-
-    function updateScanProgress(comune, scanned, total, found) {
-        showScanProgress(comune, scanned, total, found);
-    }
-
-    function hideScanProgress() {
-        const progressDiv = document.getElementById('scan-progress');
-        if (progressDiv) {
-            setTimeout(() => progressDiv.classList.add('d-none'), 2000);
-        }
-    }
-
-    async function geocodeAddress(query, retries) {
-        const maxAttempts = Math.max(1, Number(retries) || 1);
-        for (let attempt = 0; attempt < maxAttempts; attempt++) {
-            try {
-                const now = Date.now();
-                const waitMs = GEOCODE_RATE_LIMIT_MS - (now - lastGeocodeRequestAt);
-                if (waitMs > 0) await sleep(waitMs);
-                lastGeocodeRequestAt = Date.now();
-
-                const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1&email=${encodeURIComponent(NOMINATIM_CONTACT_EMAIL)}`;
-                const response = await fetch(url, {
-                    headers: {
-                        Accept: 'application/json',
-                        'User-Agent': NOMINATIM_USER_AGENT,
-                    },
+            if (!fogliMap.has(key)) {
+                fogliMap.set(key, {
+                    codCatastale,
+                    foglio: foglioNorm,
+                    comune: item.comune,
+                    provincia: item.provincia,
                 });
-                if (!response.ok) {
-                    if (response.status >= 500) geocodeServiceUnavailable = true;
-                    throw new Error(`HTTP ${response.status}`);
-                }
-                const data = await response.json();
-                if (Array.isArray(data) && data.length) {
-                    return {
-                        lat: Number(data[0].lat),
-                        lng: Number(data[0].lon),
-                    };
-                }
-                console.warn('Geocode failed for:', query);
-            } catch (error) {
-                if (String(error?.message || '').includes('Failed to fetch')) {
-                    geocodeServiceUnavailable = true;
-                }
-                console.warn('Geocode failed for:', query, error);
             }
+        });
 
-            if (attempt < maxAttempts - 1) await sleep(GEOCODE_RETRY_DELAY_MS);
+        return fogliMap;
+    }
+
+    /**
+     * Cerca il codice catastale di un comune nel dataset locale.
+     * Supporta sia sigla provincia (BS) sia nome completo (BRESCIA).
+     */
+    function lookupCodiceCatastale(comune, provincia) {
+        if (!comuniIstatMap) return null;
+
+        const comuneKey = String(comune || '').toUpperCase().trim();
+        const provKey   = String(provincia || '').toUpperCase().replace(/[^A-Z]/g, '');
+
+        // Prova prima con la sigla
+        let entry = comuniIstatMap.get(`${comuneKey}|${provKey}`);
+        if (entry) return entry.codice_catastale;
+
+        // Se la provincia è un nome completo (es. BRESCIA), prova a trovare la sigla
+        if (provKey.length > 2) {
+            for (const [k, v] of comuniIstatMap) {
+                const parts = k.split('|');
+                if (parts[0] === comuneKey && v.nome_provincia === provKey) {
+                    return v.codice_catastale;
+                }
+            }
         }
+
         return null;
     }
 
-    function buildGeoQuery(addressData) {
-        const address = [addressData.indirizzo, addressData.civico].filter(Boolean).join(' ').trim();
-        return `${address}, ${addressData.comune}, ${addressData.provincia}, Italia`;
+    /**
+     * Carica il dataset comuni catastali da data/comuni_catastali.json
+     * e lo memorizza in comuniIstatMap per lookup O(1).
+     */
+    async function loadComuniCatastali() {
+        try {
+            const response = await fetch('data/comuni_catastali.json');
+            if (!response.ok) {
+                console.warn('⚠️ Impossibile caricare comuni_catastali.json');
+                return;
+            }
+            const comuni = await response.json();
+
+            comuniIstatMap = new Map();
+            comuni.forEach(c => {
+                const nome  = String(c.nome || '').toUpperCase().trim();
+                const sigla = String(c.sigla_provincia || '').toUpperCase().replace(/[^A-Z]/g, '');
+                if (!nome || !sigla) return;
+
+                comuniIstatMap.set(`${nome}|${sigla}`, {
+                    codice_catastale: String(c.codice_catastale || '').toUpperCase(),
+                    codice_istat:     c.codice_istat || null,
+                    regione:          c.regione || null,
+                    nome_provincia:   String(c.regione || '').toUpperCase(), // for fallback lookup
+                });
+            });
+
+            console.log(`✅ Caricati ${comuniIstatMap.size} comuni catastali`);
+        } catch (err) {
+            console.error('⚠️ Errore caricamento comuni_catastali.json:', err);
+        }
+    }
+
+    function updateMapStatusText(text) {
+        const statusText = document.getElementById('map-status-text');
+        if (statusText) statusText.textContent = text;
     }
 
     function formatAreaString(areaMq) {
@@ -1063,15 +1006,15 @@
         let sourceIcon = '';
         let sourceText = '';
 
-        if (addressData.source === 'CatastoDB') {
+        if (addressData.source === 'CatastoDB' || addressData.source === 'WFS-AdE' || addressData.source === 'Cache') {
             sourceIcon = '<i class="bi bi-database-check text-success ms-1" title="Coordinate precise da database catasto"></i>';
             sourceText = `✓ Database Catasto (${formatAreaString(addressData.area_mq)})`;
         } else if (addressData.jittered) {
-            sourceIcon = '<i class="bi bi-geo-alt text-warning ms-1" title="Coordinate approssimative con offset applicato"></i>';
+            sourceIcon = '<i class="bi bi-geo-alt text-warning ms-1" title="Coordinate con offset applicato"></i>';
             sourceText = '⚠ Coordinate stimate';
         } else {
-            sourceIcon = '<i class="bi bi-geo-alt text-warning ms-1" title="Coordinate approssimative da Nominatim"></i>';
-            sourceText = '⚠ Coordinate approssimative';
+            sourceIcon = '<i class="bi bi-geo-alt text-secondary ms-1" title="Coordinate non disponibili"></i>';
+            sourceText = '— Coordinate non trovate';
         }
 
         const rows = intestatari.map(item => {
@@ -1258,18 +1201,15 @@
 
         status.classList.add('alert-warning');
         progressBar.style.width = total ? `${Math.round((current / total) * 100)}%` : progressBar.style.width;
-        statusText.textContent = customMessage || 'Alcuni indirizzi non sono stati geocodificati';
+        statusText.textContent = customMessage || 'Alcune particelle non sono state trovate nel catasto';
     }
 
     function resetMapState() {
         mapDataReady = false;
         mapGroupedData = [];
-        geocodedAddresses = {};
         particelleCache = {};
-        geocodingInProgress = false;
-        mapHasGeocodeErrors = false;
-        geocodeServiceUnavailable = false;
-        lastGeocodeRequestAt = 0;
+        mapPreparing = false;
+        mapHasErrors = false;
         if (mapStatusHideTimer) {
             clearTimeout(mapStatusHideTimer);
             mapStatusHideTimer = null;
@@ -1376,5 +1316,8 @@
         get: () => allRows,
         configurable: true,
     });
+
+    // Pre-carica il database comuni catastali all'avvio
+    loadComuniCatastali();
 
 })();

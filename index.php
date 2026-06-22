@@ -393,11 +393,8 @@
                     <span class="badge bg-success me-2">
                         <i class="bi bi-database-check"></i> Coordinate precise (Database Catasto)
                     </span>
-                    <span class="badge bg-warning text-dark me-2">
-                        <i class="bi bi-geo-alt"></i> Coordinate approssimative (Nominatim)
-                    </span>
                     <span class="badge bg-secondary">
-                        <i class="bi bi-geo"></i> Non geocodificato
+                        <i class="bi bi-geo"></i> Non trovato nel catasto
                     </span>
                 </div>
             </div><!-- /tab-mappa -->
