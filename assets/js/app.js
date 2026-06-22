@@ -940,8 +940,7 @@
         const percent = totalTiles > 0 ? Math.round((tilesQueried / totalTiles) * 100) : 0;
         const eta = totalTiles > 0 ? Math.ceil((totalTiles - tilesQueried) * WFS_SECONDS_PER_TILE) : 1;
         document.getElementById('scan-comune-name').textContent = comune;
-        const tileLabel = totalTiles === 1 ? 'tile' : 'tiles';
-        document.getElementById('scan-points').textContent = `${tilesQueried}/${totalTiles} ${tileLabel}`;
+        document.getElementById('scan-points').textContent = `${tilesQueried}/${totalTiles}`;
         document.getElementById('scan-found').textContent = found;
         document.getElementById('scan-eta').textContent = eta > 0 ? `~${eta} sec` : 'Quasi fatto!';
         document.getElementById('scan-progress-bar').style.width = `${percent}%`;
