@@ -396,3 +396,38 @@ body {
     .chart-wrapper { height: 220px; }
     .chart-wrapper--tall { height: 260px; }
 }
+
+/* ---- Statistiche Comuni – small KPI cards ---- */
+.kpi-card--small {
+    padding: 12px;
+    min-height: auto;
+}
+
+.kpi-card--small .kpi-icon {
+    font-size: 1.5rem;
+    margin-bottom: 8px;
+}
+
+.kpi-card--small .kpi-value {
+    font-size: 1.1rem;
+    margin-bottom: 4px;
+    word-break: break-word;
+}
+
+.kpi-card--small .kpi-label {
+    font-size: 0.7rem;
+}
+
+#comuni-loaded {
+    min-height: 200px;
+}
+
+#stats-comuni-dashboard .chart-card {
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    transition: transform 0.2s;
+}
+
+#stats-comuni-dashboard .chart-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+}
