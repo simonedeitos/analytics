@@ -66,7 +66,7 @@ try {
         $stmt = $db->prepare('
             SELECT cod_comune, comune, provincia, foglio, particella, lat, lng, area_mq
             FROM particelle
-            WHERE comune = :comune COLLATE NOCASE
+            WHERE comune = :comune
               AND provincia IN (:provincia, :provincia_alt)
               AND foglio = :foglio
               AND particella = :particella

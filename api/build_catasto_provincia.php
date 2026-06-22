@@ -9,6 +9,7 @@ define('DOWNLOAD_DIR', __DIR__ . '/../cache/catasto/downloads');
 define('ADE_DOWNLOAD_URL', 'https://wfs.cartografia.agenziaentrate.gov.it/inspire/wfs/GetDataset.php?dataset=');
 define('METERS_PER_DEGREE', 111000);
 define('SQLITE_BUSY_TIMEOUT_MS', 10000);
+define('CENTROID_AREA_EPSILON', 1e-12);
 
 if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {
     handleRequest();
@@ -18,6 +19,7 @@ function handleRequest(): void
 {
     header('Content-Type: application/json; charset=utf-8');
     header('Access-Control-Allow-Origin: *');
+    enforceAdminAccess(true);
 
     $action = strtolower(trim((string)($_REQUEST['action'] ?? 'stats')));
 
@@ -165,6 +167,47 @@ function ensurePlaceholderFiles(): void
             file_put_contents($path, $content);
         }
     }
+}
+
+function enforceAdminAccess(bool $jsonResponse = false): void
+{
+    $configuredToken = (string)(getenv('CATASTO_BUILD_TOKEN') ?: '');
+    $providedToken = (string)($_SERVER['HTTP_X_CATASTO_ADMIN_TOKEN'] ?? $_REQUEST['token'] ?? '');
+
+    if ($configuredToken !== '') {
+        if (!hash_equals($configuredToken, $providedToken)) {
+            denyAdminAccess($jsonResponse);
+        }
+        return;
+    }
+
+    $remoteAddr = (string)($_SERVER['REMOTE_ADDR'] ?? '');
+    if (!isPrivateOrLocalAddress($remoteAddr)) {
+        denyAdminAccess($jsonResponse);
+    }
+}
+
+function isPrivateOrLocalAddress(string $ip): bool
+{
+    if ($ip === '' || $ip === '127.0.0.1' || $ip === '::1') {
+        return true;
+    }
+
+    if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+        return preg_match('/^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/', $ip) === 1;
+    }
+
+    return str_starts_with(strtolower($ip), 'fc') || str_starts_with(strtolower($ip), 'fd');
+}
+
+function denyAdminAccess(bool $jsonResponse): void
+{
+    if ($jsonResponse) {
+        sendError('Accesso negato: endpoint admin disponibile solo da rete locale o con token CATASTO_BUILD_TOKEN', 403);
+    }
+
+    http_response_code(403);
+    exit('Accesso negato');
 }
 
 function openDatabase(): SQLite3
@@ -503,7 +546,7 @@ function calculateCentroid(array $coords): array
         $sumLat += ($coords[$i]['lat'] + $coords[$j]['lat']) * $cross;
     }
 
-    if (abs($area2) < 1e-12) {
+    if (abs($area2) < CENTROID_AREA_EPSILON) {
         $lat = 0.0;
         $lng = 0.0;
         foreach ($coords as $coord) {
@@ -536,6 +579,8 @@ function calculatePolygonArea(array $coords): float
 
     $area = 0.0;
     $n = count($coords);
+    // Approssimazione planare locale: sufficiente per particelle catastali piccole,
+    // meno accurata su geometrie molto estese o a latitudini estreme.
     for ($i = 0; $i < $n; $i++) {
         $j = ($i + 1) % $n;
         $x1 = $coords[$i]['lng'] * $metersPerDegreeLng;

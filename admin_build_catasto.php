@@ -1,4 +1,30 @@
 <?php
+function enforceAdminPageAccess(): void
+{
+    $configuredToken = (string)(getenv('CATASTO_BUILD_TOKEN') ?: '');
+    $providedToken = (string)($_SERVER['HTTP_X_CATASTO_ADMIN_TOKEN'] ?? $_GET['token'] ?? '');
+    $remoteAddr = (string)($_SERVER['REMOTE_ADDR'] ?? '');
+    $isLocal = $remoteAddr === '' || $remoteAddr === '127.0.0.1' || $remoteAddr === '::1'
+        || preg_match('/^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/', $remoteAddr)
+        || str_starts_with(strtolower($remoteAddr), 'fc')
+        || str_starts_with(strtolower($remoteAddr), 'fd');
+
+    if ($configuredToken !== '') {
+        if (!hash_equals($configuredToken, $providedToken)) {
+            http_response_code(403);
+            exit('Accesso negato: token admin mancante o non valido.');
+        }
+        return;
+    }
+
+    if (!$isLocal) {
+        http_response_code(403);
+        exit('Accesso negato: questa pagina admin è disponibile solo da rete locale oppure con CATASTO_BUILD_TOKEN configurato.');
+    }
+}
+
+enforceAdminPageAccess();
+
 $province = [
     'AGRIGENTO', 'ALESSANDRIA', 'ANCONA', 'AOSTA', 'AREZZO', 'ASCOLI-PICENO',
     'ASTI', 'AVELLINO', 'BARI', 'BARLETTA-ANDRIA-TRANI', 'BELLUNO', 'BENEVENTO',
@@ -168,6 +194,7 @@ $province = [
 </div>
 
 <script>
+const adminToken = new URLSearchParams(window.location.search).get('token') || '';
 const provinces = <?php echo json_encode($province, JSON_UNESCAPED_UNICODE); ?>;
 const provinceState = Object.fromEntries(provinces.map(provincia => [provincia, {
     status: 'waiting',
@@ -295,7 +322,7 @@ async function executeProvinceBuild(provincia) {
 
     try {
         const startedAt = performance.now();
-        const response = await fetch('api/build_catasto_provincia.php?action=build&provincia=' + encodeURIComponent(provincia), {
+        const response = await fetch(buildApiUrl('build', { provincia }), {
             method: 'POST'
         });
         const data = await response.json();
@@ -343,7 +370,7 @@ function togglePause() {
 }
 
 async function loadStats() {
-    const response = await fetch('api/build_catasto_provincia.php?action=stats');
+    const response = await fetch(buildApiUrl('stats'));
     const data = await response.json();
 
     document.getElementById('stat-db-size').textContent = `${Number(data.db_size_mb || 0).toFixed(2)} MB`;
@@ -362,7 +389,7 @@ async function clearDatabase() {
     currentProvince = null;
     completedDurations = [];
 
-    const response = await fetch('api/build_catasto_provincia.php?action=clear', { method: 'POST' });
+    const response = await fetch(buildApiUrl('clear'), { method: 'POST' });
     const data = await response.json();
     if (!response.ok || !data.ok) {
         alert(data.error || 'Impossibile cancellare il database');
@@ -397,6 +424,13 @@ function updateProgress() {
 
     document.getElementById('progress-label').textContent = `${completed} / ${provinces.length} province completate${errors ? ` · ${errors} errori` : ''}`;
     document.getElementById('progress-eta').textContent = etaSeconds > 0 ? `ETA: ${formatEta(etaSeconds)}` : 'ETA: --';
+}
+
+function buildApiUrl(action, extraParams = {}) {
+    const params = new URLSearchParams({ action });
+    if (adminToken) params.set('token', adminToken);
+    Object.entries(extraParams).forEach(([key, value]) => params.set(key, value));
+    return `api/build_catasto_provincia.php?${params.toString()}`;
 }
 
 function formatEta(totalSeconds) {

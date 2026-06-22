@@ -764,7 +764,7 @@
                     if (coords && coords.ok) {
                         addr.lat = Number(coords.lat);
                         addr.lng = Number(coords.lng);
-                        addr.area_mq = coords.area_mq;
+                        addr.area_mq = coords.area_mq == null ? null : Number(coords.area_mq);
                         addr.source = 'CatastoDB';
                         dbMatched++;
                         updateMapProgress(dbMatched, total);
@@ -1008,6 +1008,10 @@
         return `${address}, ${addressData.comune}, ${addressData.provincia}, Italia`;
     }
 
+    function formatArea(areaMq) {
+        return Number.isFinite(areaMq) ? `${Math.round(areaMq)} m²` : 'area N/A';
+    }
+
     function initMap() {
         const mapEl = document.getElementById('map-container');
         if (!mapEl || typeof L === 'undefined') return;
@@ -1067,7 +1071,7 @@
 
         if (addressData.source === 'CatastoDB') {
             sourceIcon = '<i class="bi bi-database-check text-success ms-1" title="Coordinate precise da database catasto"></i>';
-            sourceText = `✓ Database Catasto (${addressData.area_mq ? Math.round(addressData.area_mq) + ' m²' : 'area N/A'})`;
+            sourceText = `✓ Database Catasto (${formatArea(addressData.area_mq)})`;
         } else if (addressData.jittered) {
             sourceIcon = '<i class="bi bi-geo-alt text-warning ms-1" title="Coordinate approssimative con offset applicato"></i>';
             sourceText = '⚠ Coordinate stimate';
