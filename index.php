@@ -348,11 +348,11 @@
                     </div>
                 </div>
 
-                <!-- Scan Progress (mostrato durante query WFS) -->
+                <!-- Scan Progress (legacy WFS, mantenuto per compatibilità) -->
                 <div id="scan-progress" class="alert alert-primary mb-3 d-none" style="border-left: 4px solid #2A519F;">
                     <div class="d-flex align-items-center mb-2">
                         <div class="spinner-border spinner-border-sm me-2" role="status" style="color:#2A519F;">
-                            <span class="visually-hidden">Query WFS...</span>
+                            <span class="visually-hidden">Query Catasto...</span>
                         </div>
                     </div>
 
@@ -385,7 +385,7 @@
 
                 <div class="mt-3">
                     <span class="badge bg-success me-2">
-                        <i class="bi bi-geo-alt-fill"></i> Coordinate precise (AdE)
+                        <i class="bi bi-database-check"></i> Coordinate precise (Database Catasto)
                     </span>
                     <span class="badge bg-warning text-dark me-2">
                         <i class="bi bi-geo-alt"></i> Coordinate approssimative (Nominatim)
