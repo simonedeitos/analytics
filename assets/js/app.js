@@ -485,7 +485,11 @@
             applyFilters();
         });
 
-        document.getElementById('btn-copy-phones').addEventListener('click', copyVisiblePhones);
+        document.getElementById('table-data').addEventListener('click', (event) => {
+            const btn = event.target.closest('.btn-copy-phone');
+            if (!btn) return;
+            copyPhone(btn.dataset.phone || '');
+        });
 
         applyFilters();
     }
@@ -580,7 +584,18 @@
 
     function renderPhones(phones) {
         if (!phones || !phones.length) return '';
-        return phones.map(p => `<span class="badge-phone">${p}</span>`).join(' ');
+        return phones.map(p => {
+            const phone = String(p || '');
+            const escapedPhone = htmlEscape(phone);
+            return `
+                <span class="phone-item">
+                    <span class="badge-phone">${escapedPhone}</span>
+                    <button type="button" class="btn-copy-phone" data-phone="${escapedPhone}" aria-label="Copia numero ${escapedPhone}" title="Copia numero">
+                        <i class="bi bi-clipboard"></i>
+                    </button>
+                </span>
+            `;
+        }).join(' ');
     }
 
     function renderEmails(emails) {
@@ -644,33 +659,26 @@
     }
 
     /* ================================================================
-       COPY PHONES
+       COPY PHONE
     ================================================================ */
-    function copyVisiblePhones() {
-        const phones = [];
-        filteredRows.forEach(row => {
-            if (row._phones) row._phones.forEach(p => phones.push(p));
-        });
-        const unique = [...new Set(phones)];
-
-        if (!unique.length) {
-            showToast('Nessun numero di telefono trovato nelle righe visibili.', 'warning');
+    function copyPhone(phone) {
+        if (!phone) {
+            showToast('Numero non disponibile.', 'warning');
             return;
         }
 
-        const text = unique.join('\n');
-        navigator.clipboard.writeText(text).then(() => {
-            showToast(`${unique.length} numeri copiati negli appunti!`, 'success');
+        navigator.clipboard.writeText(phone).then(() => {
+            showToast(`Numero copiato: ${phone}`, 'success');
         }).catch(() => {
             // Fallback for browsers without clipboard API
             const ta = document.createElement('textarea');
-            ta.value = text;
+            ta.value = phone;
             ta.style.position = 'fixed'; ta.style.opacity = '0';
             document.body.appendChild(ta);
             ta.select();
             document.execCommand('copy');
             document.body.removeChild(ta);
-            showToast(`${unique.length} numeri copiati negli appunti!`, 'success');
+            showToast(`Numero copiato: ${phone}`, 'success');
         });
     }
 

@@ -316,9 +316,6 @@
                 <!-- Action bar -->
                 <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
                     <span id="data-count-label" class="text-muted small"></span>
-                    <button id="btn-copy-phones" class="btn btn-brand-primary btn-sm">
-                        <i class="bi bi-clipboard-check me-1"></i>Copia numeri visibili
-                    </button>
                 </div>
 
                 <!-- Data table -->
