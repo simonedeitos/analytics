@@ -579,8 +579,8 @@ function calculatePolygonArea(array $coords): float
 
     $area = 0.0;
     $n = count($coords);
-    // Approssimazione planare locale: sufficiente per particelle catastali piccole,
-    // meno accurata su geometrie molto estese o a latitudini estreme.
+    // Local planar approximation: sufficient for small cadastral parcels,
+    // less accurate for very large geometries or extreme latitudes.
     for ($i = 0; $i < $n; $i++) {
         $j = ($i + 1) % $n;
         $x1 = $coords[$i]['lng'] * $metersPerDegreeLng;

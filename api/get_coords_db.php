@@ -115,8 +115,8 @@ function normalizeLookupValue(string $value): string
         return $value;
     }
 
-    $digits = ltrim($digits, '0');
-    return $digits === '' ? '0' : $digits;
+    $normalizedDigits = ltrim($digits, '0');
+    return $normalizedDigits === '' ? '0' : $normalizedDigits;
 }
 
 function normalizeComune(string $comune): string

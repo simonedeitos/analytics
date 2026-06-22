@@ -764,7 +764,7 @@
                     if (coords && coords.ok) {
                         addr.lat = Number(coords.lat);
                         addr.lng = Number(coords.lng);
-                        addr.area_mq = coords.area_mq == null ? null : Number(coords.area_mq);
+                        addr.area_mq = coords.area_mq === null ? null : Number(coords.area_mq);
                         addr.source = 'CatastoDB';
                         dbMatched++;
                         updateMapProgress(dbMatched, total);
