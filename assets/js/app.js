@@ -883,6 +883,9 @@
 
     /**
      * Mappa province italiane: nome completo → sigla (per supportare CSVs con nomi estesi).
+     * Le chiavi usano la forma normalizzata (senza accenti/apostrofi) perché la funzione
+     * lookupCodiceCatastale sanitizza l'input con /[^A-Z\s-]/g prima del lookup.
+     * Es: "L'AQUILA" → "LAQUILA", "FORLÌ-CESENA" → "FORLI-CESENA".
      */
     const PROVINCE_SIGLA = {
         'AGRIGENTO':'AG','ALESSANDRIA':'AL','ANCONA':'AN','AOSTA':'AO','AREZZO':'AR',

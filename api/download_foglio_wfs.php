@@ -254,6 +254,14 @@ function openCacheDB(): SQLite3
     return $db;
 }
 
+function isValidGeoPoint(mixed $point): bool
+{
+    return is_array($point)
+        && isset($point[0], $point[1])
+        && is_numeric($point[0])
+        && is_numeric($point[1]);
+}
+
 function calculateCentroidFromGeoJSON(array $geom): ?array
 {
     $coords = $geom['coordinates'] ?? null;
@@ -278,7 +286,7 @@ function calculateCentroidFromGeoJSON(array $geom): ?array
     $count  = 0;
 
     foreach ($ring as $point) {
-        if (!is_array($point) || !isset($point[0], $point[1]) || !is_numeric($point[0]) || !is_numeric($point[1])) {
+        if (!isValidGeoPoint($point)) {
             continue;
         }
         $lngSum += (float)$point[0];
@@ -313,9 +321,7 @@ function calculateAreaFromGeoJSON(array $geom): ?float
     for ($i = 0; $i < $count - 1; $i++) {
         $current = $ring[$i] ?? null;
         $next    = $ring[$i + 1] ?? null;
-        if (!is_array($current) || !is_array($next)
-            || !isset($current[0], $current[1], $next[0], $next[1])
-        ) {
+        if (!isValidGeoPoint($current) || !isValidGeoPoint($next)) {
             continue;
         }
         $area += ((float)$current[0] * (float)$next[1]) - ((float)$next[0] * (float)$current[1]);
