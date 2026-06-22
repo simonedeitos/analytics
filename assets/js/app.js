@@ -22,6 +22,7 @@
     const MAP_CLUSTER_RADIUS_PIXELS = 50;
     const MAP_PREPARE_DELAY_MS = 500;
     const WFS_SECONDS_PER_TILE = 0.6;
+    const WFS_STREAM_TIMEOUT_MS = 180000;
     const COLUMN_SURNAME = 'Nome';
     const COLUMN_GIVEN_NAME = 'Nome1';
     let mapInstance = null;
@@ -899,7 +900,7 @@
                     eventSource.close();
                     console.warn('⚠️ [WFS] Timeout stream');
                     reject(new Error('WFS timeout'));
-                }, 180000);
+                }, WFS_STREAM_TIMEOUT_MS);
 
                 eventSource.onmessage = (event) => {
                     const data = JSON.parse(event.data);

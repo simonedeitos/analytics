@@ -13,6 +13,7 @@ define('TILE_SIZE', 0.01);   // ~1km
 define('WFS_TIMEOUT', 30);
 define('TILE_DELAY_US', 500000); // 0.5 sec
 define('METERS_PER_DEGREE', 111000);
+define('WFS_SRS_NAME', 'urn:ogc:def:crs:OGC:1.3:CRS84'); // lon/lat order
 
 const PROVINCE_MAP = [
     'AGRIGENTO' => 'AG', 'ALESSANDRIA' => 'AL', 'ANCONA' => 'AN', 'AOSTA' => 'AO',
@@ -259,6 +260,7 @@ function buildWFSRequest(array $tile): string {
     $minLat = $tile['minLat'];
     $maxLng = $tile['maxLng'];
     $maxLat = $tile['maxLat'];
+    $srsName = WFS_SRS_NAME;
 
     return <<<XML
 <?xml version="1.0" encoding="UTF-8"?>
@@ -271,7 +273,7 @@ function buildWFSRequest(array $tile): string {
     <fes:Filter>
       <fes:BBOX>
         <fes:ValueReference>geometry</fes:ValueReference>
-        <gml:Envelope srsName="EPSG:4326">
+        <gml:Envelope srsName="{$srsName}">
           <gml:lowerCorner>{$minLng} {$minLat}</gml:lowerCorner>
           <gml:upperCorner>{$maxLng} {$maxLat}</gml:upperCorner>
         </gml:Envelope>
@@ -344,29 +346,69 @@ function parseFeatureMember(DOMXPath $xpath, DOMNode $member): ?array {
 }
 
 function calculateCentroid(array $coords): array {
-    $sumLat = 0.0;
+    $area2 = 0.0;
     $sumLng = 0.0;
-    $count = count($coords);
-    foreach ($coords as $coord) {
-        $sumLng += $coord[0];
-        $sumLat += $coord[1];
+    $sumLat = 0.0;
+    $n = count($coords);
+
+    for ($i = 0; $i < $n; $i++) {
+        $j = ($i + 1) % $n;
+        $cross = ($coords[$i][0] * $coords[$j][1]) - ($coords[$j][0] * $coords[$i][1]);
+        $area2 += $cross;
+        $sumLng += ($coords[$i][0] + $coords[$j][0]) * $cross;
+        $sumLat += ($coords[$i][1] + $coords[$j][1]) * $cross;
     }
+
+    if (abs($area2) < 1e-12) {
+        $avgLat = 0.0;
+        $avgLng = 0.0;
+        foreach ($coords as $coord) {
+            $avgLng += $coord[0];
+            $avgLat += $coord[1];
+        }
+        $count = count($coords);
+        return [
+            'lat' => $avgLat / $count,
+            'lng' => $avgLng / $count,
+        ];
+    }
+
+    $factor = 1 / (3 * $area2);
     return [
-        'lat' => $sumLat / $count,
-        'lng' => $sumLng / $count,
+        'lat' => $sumLat * $factor,
+        'lng' => $sumLng * $factor,
     ];
 }
 
 function calculateArea(array $coords): float {
+    $projected = projectCoordsToMeters($coords);
     $area = 0.0;
-    $n = count($coords);
+    $n = count($projected);
     for ($i = 0; $i < $n; $i++) {
         $j = ($i + 1) % $n;
-        $area += $coords[$i][0] * $coords[$j][1];
-        $area -= $coords[$j][0] * $coords[$i][1];
+        $area += $projected[$i][0] * $projected[$j][1];
+        $area -= $projected[$j][0] * $projected[$i][1];
     }
-    $area = abs($area) / 2;
-    return $area * METERS_PER_DEGREE * METERS_PER_DEGREE;
+    return abs($area) / 2;
+}
+
+function projectCoordsToMeters(array $coords): array {
+    $latSum = 0.0;
+    $count = count($coords);
+    foreach ($coords as $coord) {
+        $latSum += $coord[1];
+    }
+    $latRef = $latSum / $count;
+    $metersPerDegreeLon = METERS_PER_DEGREE * cos(deg2rad($latRef));
+
+    $projected = [];
+    foreach ($coords as $coord) {
+        $projected[] = [
+            $coord[0] * $metersPerDegreeLon,
+            $coord[1] * METERS_PER_DEGREE,
+        ];
+    }
+    return $projected;
 }
 
 function geocodeComune(string $comune, string $provincia): ?array {
