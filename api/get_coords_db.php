@@ -110,7 +110,7 @@ function normalizeLookupValue(string $value): string
         return '';
     }
 
-    $digits = preg_replace('/\D+/', '', $value) ?? '';
+    $digits = preg_replace('/\D+/', '', $value);
     if ($digits === '') {
         return $value;
     }

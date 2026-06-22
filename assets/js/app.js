@@ -866,6 +866,9 @@
 
         const response = await fetch(`api/get_coords_db.php?${params.toString()}`);
         const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.error || `HTTP ${response.status}`);
+        }
         particelleCache[cacheKey] = data;
         return data;
     }

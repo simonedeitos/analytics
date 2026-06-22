@@ -216,7 +216,7 @@ function downloadProvinciaDataset(string $provincia, string $targetPath): void
         CURLOPT_FOLLOWLOCATION => true,
         CURLOPT_CONNECTTIMEOUT => 20,
         CURLOPT_TIMEOUT => 0,
-        CURLOPT_USERAGENT => 'EasyCatasto-Analytics/1.0',
+        CURLOPT_USERAGENT => 'EasyCatasto Analytics/1.0 (+https://github.com/simonedeitos/analytics)',
         CURLOPT_SSL_VERIFYPEER => true,
         CURLOPT_FAILONERROR => false,
         CURLOPT_HTTPHEADER => ['Accept: application/zip, application/octet-stream;q=0.9, */*;q=0.1'],
@@ -294,7 +294,12 @@ function findGmlFiles(string $directory): array
 function parseGMLFile(string $filePath, string $provincia): array
 {
     $doc = new DOMDocument();
-    if (!@$doc->load($filePath, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING)) {
+    libxml_use_internal_errors(true);
+    $loaded = $doc->load($filePath, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING);
+    libxml_clear_errors();
+    libxml_use_internal_errors(false);
+
+    if (!$loaded) {
         return [];
     }
 
@@ -378,7 +383,7 @@ function parseFeatureMember(DOMNode $member, DOMXPath $xpath, string $provincia,
 
 function normalizeNumericCode(string $value): string
 {
-    $value = preg_replace('/\D+/', '', $value) ?? '';
+    $value = preg_replace('/\D+/', '', $value);
     $value = ltrim($value, '0');
     return $value === '' ? '0' : $value;
 }

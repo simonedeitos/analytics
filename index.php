@@ -352,7 +352,7 @@
                 <div id="scan-progress" class="alert alert-primary mb-3 d-none" style="border-left: 4px solid #2A519F;">
                     <div class="d-flex align-items-center mb-2">
                         <div class="spinner-border spinner-border-sm me-2" role="status" style="color:#2A519F;">
-                            <span class="visually-hidden">Query catasto...</span>
+                            <span class="visually-hidden">Query Catasto...</span>
                         </div>
                     </div>
 
