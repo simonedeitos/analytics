@@ -35,8 +35,7 @@
     let geocodeServiceUnavailable = false;
     let mapStatusHideTimer = null;
     let lastGeocodeRequestAt = 0;
-    let particelleCache = {}; // DB lookup cache: key → {lat, lng, foglio, particella, cod_comune}
-    let comuniIstatMap = null; // Map: "COMUNE|PROVINCIA" → codice_catastale (Belfiore)
+    let particelleCache = {}; // Catasto lookup cache: key → {lat, lng, foglio, particella}
 
     /* ================================================================
        COLOUR PALETTE
@@ -52,44 +51,6 @@
         for (let i = 0; i < n; i++) arr.push(PALETTE[i % PALETTE.length]);
         return arr;
     }
-
-    /* ================================================================
-       COMUNI ISTAT MAP – load once at startup for Belfiore code lookup
-    ================================================================ */
-    async function loadComuniISTAT() {
-        try {
-            const response = await fetch('data/comuni_istat.json');
-            if (!response.ok) return;
-            const comuni = await response.json();
-
-            comuniIstatMap = new Map();
-            comuni.forEach(c => {
-                // Key format: "NOME COMUNE|SIGLA_PROVINCIA"
-                const key = `${String(c.nome || '').toUpperCase()}|${String(c.sigla_provincia || '').toUpperCase()}`;
-                comuniIstatMap.set(key, String(c.codice_catastale || ''));
-            });
-
-            console.log(`✅ Caricati ${comuniIstatMap.size} comuni (codici catastali)`);
-        } catch (err) {
-            console.warn('⚠️ Errore caricamento comuni_istat.json:', err);
-        }
-    }
-
-    function getCodiceIstatFromData(codComune, comune, provincia) {
-        // 1. If the CSV already includes the Belfiore code, use it directly
-        if (codComune && /^[A-Z][0-9]{3}[A-Z0-9]{0,2}$/.test(String(codComune).toUpperCase())) {
-            return String(codComune).toUpperCase();
-        }
-
-        // 2. Lookup from the comuni_istat.json map
-        if (!comuniIstatMap || !comune || !provincia) return null;
-
-        const key = `${String(comune).toUpperCase()}|${String(provincia).toUpperCase()}`;
-        return comuniIstatMap.get(key) || null;
-    }
-
-    // Kick off comuni map loading immediately
-    loadComuniISTAT();
 
     /* ================================================================
        DRAG & DROP / FILE INPUT
@@ -790,64 +751,34 @@
 
         updateMapStatus('preparing', 0, total);
 
-        console.log('🗺️ [Map] Inizio preparazione dati con database locale...');
+        console.log('🗺️ [Map] Inizio preparazione dati con lookup catasto WFS...');
 
-        // 0. Auto-import: download missing comuni from AdE GeoJSON (best-effort)
-        const comuniUnici = extractUniqueComuniForImport(mapGroupedData);
-        if (comuniUnici.length) {
-            updateMapStatusText('Verifica database catasto comuni...');
-            for (const { codiceIstat, comune } of comuniUnici) {
-                if (!codiceIstat) {
-                    console.warn(`⚠️ [Auto-Import] Codice catastale non trovato per ${comune}`);
-                    continue;
-                }
-                try {
-                    const checkResp = await fetch(`api/build_catasto_comune.php?action=check&codice_catastale=${encodeURIComponent(codiceIstat)}`);
-                    if (!checkResp.ok) throw new Error(`HTTP ${checkResp.status}`);
-                    const checkData = await checkResp.json();
-                    if (!checkData.imported) {
-                        updateMapStatusText(`Download catasto ${comune}...`);
-                        console.log(`🔄 [Auto-Import] Download catasto per ${comune} (${codiceIstat})...`);
-                        const importResp = await fetch(`api/build_catasto_comune.php?action=auto&codice_catastale=${encodeURIComponent(codiceIstat)}`);
-                        if (!importResp.ok) throw new Error(`HTTP ${importResp.status}`);
-                        const importData = await importResp.json();
-                        if (importData.ok && importData.particelle_imported > 0) {
-                            console.log(`✅ [Auto-Import] ${comune}: ${importData.particelle_imported} particelle in ${importData.duration_sec}s`);
-                        }
-                    }
-                } catch (err) {
-                    console.warn(`⚠️ [Auto-Import] Errore per ${comune}:`, err);
-                }
-            }
-            updateMapStatusText('');
-        }
-
-        // 1. Query database locale per ogni particella univoca
+        // 1. Query WFS/cached per ogni particella univoca
         const unmatched = [];
         let dbMatched = 0;
 
         for (const addr of mapGroupedData) {
             if (addr.foglio && addr.particella) {
                 try {
-                    const coords = await getParticellaFromDB(addr);
+                    const coords = await getParticellaFromWFS(addr);
                     if (coords && coords.ok) {
                         addr.lat = Number(coords.lat);
                         addr.lng = Number(coords.lng);
                         addr.area_mq = coords.area_mq === null ? null : Number(coords.area_mq);
-                        addr.source = 'CatastoDB';
+                        addr.source = coords.source || 'WFS-AdE';
                         dbMatched++;
                         updateMapProgress(dbMatched, total);
                         continue;
                     }
                 } catch (err) {
-                    console.warn(`⚠️ [DB] Lookup fallito per ${addr.comune} F.${addr.foglio} P.${addr.particella}:`, err);
+                    console.warn(`⚠️ [WFS] Lookup fallito per ${addr.comune} F.${addr.foglio} P.${addr.particella}:`, err);
                 }
             }
 
             unmatched.push(addr);
         }
 
-        console.log(`✅ [Map] ${dbMatched}/${mapGroupedData.length} particelle trovate in database`);
+        console.log(`✅ [Map] ${dbMatched}/${mapGroupedData.length} particelle trovate via WFS/cache`);
 
         // 2. Nominatim fallback per particelle non trovate nel DB
         let completed = dbMatched;
@@ -908,9 +839,8 @@
         if (mapInstance) initMap();
     }
 
-    async function getParticellaFromDB(addressData) {
+    async function getParticellaFromWFS(addressData) {
         const cacheKey = [
-            addressData.cod_comune || '',
             addressData.comune || '',
             addressData.provincia || '',
             addressData.foglio || '',
@@ -922,47 +852,19 @@
         }
 
         const params = new URLSearchParams({
+            comune: addressData.comune,
+            provincia: addressData.provincia,
             foglio: addressData.foglio,
             particella: addressData.particella,
         });
 
-        if (addressData.cod_comune) {
-            params.set('cod_comune', addressData.cod_comune);
-        } else {
-            params.set('comune', addressData.comune);
-            params.set('provincia', addressData.provincia);
-        }
-
-        const response = await fetch(`api/get_coords_db.php?${params.toString()}`);
+        const response = await fetch(`api/get_coords_wfs.php?${params.toString()}`);
         const data = await response.json();
         if (!response.ok) {
             throw new Error(data.error || `HTTP ${response.status}`);
         }
         particelleCache[cacheKey] = data;
         return data;
-    }
-
-    /**
-     * Extract unique comuni from map data with their Belfiore (cadastral) code.
-     * Only returns entries that have a cadastral parcel (foglio + particella).
-     */
-    function extractUniqueComuniForImport(mapData) {
-        const seen = new Map();
-        mapData.forEach(item => {
-            if (!item.foglio || !item.particella) return; // skip rows without cadastral info
-            const key = `${String(item.comune || '').toUpperCase()}|${String(item.provincia || '').toUpperCase()}`;
-            if (!seen.has(key)) {
-                const codiceIstat = getCodiceIstatFromData(item.cod_comune, item.comune, item.provincia);
-                seen.set(key, { codiceIstat, comune: item.comune, provincia: item.provincia });
-            }
-        });
-        return Array.from(seen.values());
-    }
-
-    /** Update the text message inside the map status bar without changing its state. */
-    function updateMapStatusText(text) {
-        const el = document.querySelector('#map-status .small');
-        if (el && text) el.textContent = text;
     }
 
     async function scanComuneParticelle(comune, provincia) {

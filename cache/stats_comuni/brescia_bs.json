@@ -1,0 +1,32 @@
+{
+    "ok": true,
+    "nome": "BRESCIA",
+    "provincia": "BS",
+    "regione": "Lombardia",
+    "codice_catastale": "B157",
+    "codice_istat": "017029",
+    "demografia": {
+        "popolazione": null,
+        "densita_kmq": null,
+        "fasce_eta": null,
+        "trend_crescita_pct": null,
+        "fonte": "ISTAT (non disponibile)"
+    },
+    "economia": {
+        "reddito_medio_irpef": null,
+        "numero_imprese": null,
+        "settori_principali": [],
+        "tasso_disoccupazione": null,
+        "fonte": "Dati non disponibili via API pubblica documentata"
+    },
+    "immobiliare": {
+        "prezzo_mq_medio_residenziale": null,
+        "prezzo_mq_medio_commerciale": null,
+        "transazioni_anno": null,
+        "fonte": "Dati non disponibili via API pubblica documentata"
+    },
+    "fonte_dati": "ISTAT SDMX + fallback statici",
+    "ultimo_aggiornamento": "2026-06-22",
+    "data_source": "fallback",
+    "notice": "Demografia non disponibile al momento da ISTAT SDMX."
+}
