@@ -21,6 +21,8 @@
     const GEOCODE_MAX_ATTEMPTS = 2;
     const MAP_CLUSTER_RADIUS_PIXELS = 50;
     const MAP_PREPARE_DELAY_MS = 500;
+    const GRID_SIZE = 25; // AdE scan grid dimension (GRID_SIZE × GRID_SIZE points)
+    const SCAN_SECONDS_PER_POINT = 1.1; // Approximate time per AdE grid point (seconds), used for ETA
     const COLUMN_SURNAME = 'Nome';
     const COLUMN_GIVEN_NAME = 'Nome1';
     let mapInstance = null;
@@ -33,6 +35,7 @@
     let geocodeServiceUnavailable = false;
     let mapStatusHideTimer = null;
     let lastGeocodeRequestAt = 0;
+    let particelleCache = {}; // AdE scan cache: key → {lat, lng, foglio, particella, cod_comune}
 
     /* ================================================================
        COLOUR PALETTE
@@ -747,35 +750,100 @@
         }
 
         updateMapStatus('preparing', 0, total);
-        let completed = 0;
-        for (const addressData of mapGroupedData) {
-            const cacheKey = getAddressKey(addressData);
-            if (geocodedAddresses[cacheKey]) {
-                const cached = geocodedAddresses[cacheKey];
-                addressData.lat = cached.lat;
-                addressData.lng = cached.lng;
+
+        // 1. Gather unique comuni
+        const comuniMap = new Map();
+        mapGroupedData.forEach(p => {
+            if (p.comune && p.provincia) comuniMap.set(p.comune.toUpperCase(), p.provincia);
+        });
+
+        // 2. Scan each comune via AdE API (with cache)
+        for (const [comune, provincia] of comuniMap.entries()) {
+            try {
+                const scanResult = await scanComuneParticelle(comune, provincia);
+                if (scanResult && scanResult.ok && scanResult.particelle) {
+                    Object.assign(particelleCache, scanResult.particelle);
+                    console.log(`✅ [Scan] ${comune}: ${scanResult.particelle_found} particelle trovate`);
+                }
+            } catch (err) {
+                console.error(`❌ [Scan] Errore ${comune}:`, err);
+                showToast(`Errore scan ${comune}, uso geocodifica standard`, 'warning');
+            }
+        }
+
+        // 3. Build a reverse lookup index: foglio|particella → first matching cache key
+        //    This allows O(1) lookup per parcel instead of scanning all cache keys each time.
+        const fpIndex = {}; // "FOGLIO|PARTICELLA" → cacheKey
+        for (const cacheKey of Object.keys(particelleCache)) {
+            const parts = cacheKey.split('|');
+            if (parts.length === 3) {
+                const fpKey = `${parts[1]}|${parts[2]}`;
+                if (!fpIndex[fpKey]) fpIndex[fpKey] = cacheKey;
+            }
+        }
+
+        // 4. Apply AdE coordinates; collect unmatched for Nominatim fallback
+        const unmatched = [];
+        mapGroupedData.forEach(addr => {
+            const foglio     = addr.foglio;
+            const particella = addr.particella;
+            const comune     = addr.comune.toUpperCase();
+
+            if (foglio && particella) {
+                // Try exact comune+foglio+particella key first, then foglio+particella index
+                const exactKey = `${comune}|${foglio}|${particella}`;
+                const fpKey    = `${foglio}|${particella}`;
+                const matchKey = particelleCache[exactKey] ? exactKey : fpIndex[fpKey];
+
+                if (matchKey && particelleCache[matchKey]) {
+                    addr.lat    = parseFloat(particelleCache[matchKey].lat);
+                    addr.lng    = parseFloat(particelleCache[matchKey].lng);
+                    addr.source = 'AdE';
+                    return;
+                }
+            }
+
+            unmatched.push(addr);
+        });
+
+        const adeMatched = mapGroupedData.length - unmatched.length;
+        console.log(`✅ [Map] ${adeMatched}/${mapGroupedData.length} particelle matchate con AdE`);
+
+        // 5. Nominatim fallback for unmatched
+        let completed = adeMatched;
+        if (unmatched.length > 0) {
+            console.log(`🔄 [Fallback] Geocoding ${unmatched.length} indirizzi con Nominatim…`);
+            for (let i = 0; i < unmatched.length; i++) {
+                const addr = unmatched[i];
+                const cacheKey = getAddressKey(addr);
+                if (geocodedAddresses[cacheKey]) {
+                    addr.lat    = geocodedAddresses[cacheKey].lat;
+                    addr.lng    = geocodedAddresses[cacheKey].lng;
+                    addr.source = 'Nominatim';
+                    completed++;
+                    updateMapProgress(completed, total);
+                    continue;
+                }
+
+                const query = buildGeoQuery(addr);
+                let coords = await geocodeAddress(query, GEOCODE_MAX_ATTEMPTS);
+                if (!coords) {
+                    const fallbackQuery = `${addr.comune}, ${addr.provincia}, Italia`;
+                    coords = await geocodeAddress(fallbackQuery, GEOCODE_MAX_ATTEMPTS);
+                }
+
+                if (coords) {
+                    addr.lat    = coords.lat;
+                    addr.lng    = coords.lng;
+                    addr.source = 'Nominatim';
+                    geocodedAddresses[cacheKey] = coords;
+                } else {
+                    mapHasGeocodeErrors = true;
+                }
+
                 completed++;
                 updateMapProgress(completed, total);
-                continue;
             }
-
-            const query = buildGeoQuery(addressData);
-            let coords = await geocodeAddress(query, GEOCODE_MAX_ATTEMPTS);
-            if (!coords) {
-                const fallbackQuery = `${addressData.comune}, ${addressData.provincia}, Italia`;
-                coords = await geocodeAddress(fallbackQuery, GEOCODE_MAX_ATTEMPTS);
-            }
-
-            if (coords) {
-                addressData.lat = coords.lat;
-                addressData.lng = coords.lng;
-                geocodedAddresses[cacheKey] = coords;
-            } else {
-                mapHasGeocodeErrors = true;
-            }
-
-            completed++;
-            updateMapProgress(completed, total);
         }
 
         geocodingInProgress = false;
@@ -795,6 +863,80 @@
         }
 
         if (mapInstance) initMap();
+    }
+
+    async function scanComuneParticelle(comune, provincia) {
+        console.log(`🔍 [Scan] Inizio scan preciso per ${comune} (${provincia})`);
+        try {
+            const checkUrl = `api/scan_particelle.php?comune=${encodeURIComponent(comune)}&provincia=${encodeURIComponent(provincia)}&mode=check`;
+            const checkResp = await fetch(checkUrl);
+            if (!checkResp.ok) throw new Error(`HTTP ${checkResp.status}`);
+            const checkData = await checkResp.json();
+
+            if (checkData.cached && !checkData.needs_update) {
+                console.log(`✅ [Cache] Usando cache per ${comune} (${checkData.particelle_count} particelle, ${checkData.cache_age_days} giorni)`);
+                const scanUrl = `api/scan_particelle.php?comune=${encodeURIComponent(comune)}&provincia=${encodeURIComponent(provincia)}&mode=scan`;
+                const scanResp = await fetch(scanUrl);
+                if (!scanResp.ok) throw new Error(`HTTP ${scanResp.status}`);
+                return await scanResp.json();
+            }
+
+            console.log(`⏳ [Scan] Cache non disponibile, avvio scan (~10 minuti)…`);
+            showScanProgress(comune, 0, GRID_SIZE * GRID_SIZE, 0);
+
+            return await new Promise((resolve, reject) => {
+                const streamUrl = `api/scan_particelle.php?comune=${encodeURIComponent(comune)}&provincia=${encodeURIComponent(provincia)}&mode=stream`;
+                const eventSource = new EventSource(streamUrl);
+
+                eventSource.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+                    if (data.complete) {
+                        eventSource.close();
+                        hideScanProgress();
+                        resolve(data.result);
+                    } else if (data.error) {
+                        eventSource.close();
+                        hideScanProgress();
+                        reject(new Error(data.error));
+                    } else {
+                        updateScanProgress(comune, data.scanned, data.total, data.found);
+                    }
+                };
+
+                eventSource.onerror = (err) => {
+                    eventSource.close();
+                    hideScanProgress();
+                    reject(err);
+                };
+            });
+        } catch (err) {
+            console.error(`❌ [Scan] Errore scan ${comune}:`, err);
+            throw err;
+        }
+    }
+
+    function showScanProgress(comune, scanned, total, found) {
+        const progressDiv = document.getElementById('scan-progress');
+        if (!progressDiv) return;
+        progressDiv.classList.remove('d-none');
+        const percent = total > 0 ? Math.round((scanned / total) * 100) : 0;
+        const eta = total > 0 ? Math.ceil(((total - scanned) * SCAN_SECONDS_PER_POINT) / 60) : 10;
+        document.getElementById('scan-comune-name').textContent = comune;
+        document.getElementById('scan-points').textContent = `${scanned}/${total}`;
+        document.getElementById('scan-found').textContent = found;
+        document.getElementById('scan-eta').textContent = eta > 0 ? `~${eta} min` : 'Quasi fatto!';
+        document.getElementById('scan-progress-bar').style.width = `${percent}%`;
+    }
+
+    function updateScanProgress(comune, scanned, total, found) {
+        showScanProgress(comune, scanned, total, found);
+    }
+
+    function hideScanProgress() {
+        const progressDiv = document.getElementById('scan-progress');
+        if (progressDiv) {
+            setTimeout(() => progressDiv.classList.add('d-none'), 2000);
+        }
     }
 
     async function geocodeAddress(query, retries) {
@@ -890,33 +1032,57 @@
 
     function createMarkerPopup(addressData) {
         const fullAddress = `${addressData.indirizzo} ${addressData.civico}`.trim();
-        const rows = addressData.intestatari.map(item => {
+
+        // Sort intestatari by subalterno
+        const intestatari = [...(addressData.intestatari || [])].sort((a, b) =>
+            (a.subalterno || '').localeCompare(b.subalterno || '')
+        );
+
+        const sourceIcon = addressData.source === 'AdE'
+            ? `<i class="bi bi-geo-alt-fill text-success ms-1" title="Coordinate precise da Agenzia delle Entrate"></i>`
+            : `<i class="bi bi-geo-alt text-warning ms-1" title="Coordinate approssimative da Nominatim"></i>`;
+
+        const rows = intestatari.map(item => {
             const phones = (item.telefoni || []).map(phone => {
                 const safePhone = htmlEscape(phone);
                 const encodedPhone = encodeURIComponent(phone);
                 return `<span class="badge-phone-map" data-phone="${htmlEscape(encodedPhone)}" role="button" tabindex="0"><i class="bi bi-clipboard"></i>${safePhone}</span>`;
             }).join(' ');
-            const fp = [item.foglio, item.particella].filter(Boolean).join('/') + (item.subalterno ? `-${item.subalterno}` : '');
+
+            const addrNote = (item.indirizzo && item.civico &&
+                (item.indirizzo !== addressData.indirizzo || item.civico !== addressData.civico))
+                ? `<br><small class="text-muted fst-italic">${htmlEscape(item.indirizzo)} ${htmlEscape(item.civico)}</small>`
+                : '';
+
             return `
                 <tr>
-                    <td>${htmlEscape(item.nome || '')}</td>
-                    <td>${htmlEscape(fp || '')}</td>
-                    <td>${htmlEscape(item.categoria || '')}</td>
+                    <td>${htmlEscape(item.nome || '')}${addrNote}</td>
+                    <td class="text-center">${htmlEscape(item.subalterno || '—')}</td>
+                    <td>${htmlEscape(item.categoria || '—')}</td>
                     <td>${phones || '<span class="text-muted">-</span>'}</td>
                 </tr>
             `;
         }).join('');
 
+        const catInfo = (addressData.foglio && addressData.particella)
+            ? `<div class="small mb-2 p-2" style="background:#f8f9fa;border-radius:6px;border-left:3px solid #f28e0e;">
+                   <strong>Particella Catastale:</strong>
+                   Foglio ${htmlEscape(addressData.foglio)}
+                   · Particella ${htmlEscape(addressData.particella)}
+               </div>`
+            : '';
+
         return `
             <div class="map-popup">
-                <h6><i class="bi bi-house-fill me-1"></i>${htmlEscape(fullAddress)}</h6>
+                <h6><i class="bi bi-house-fill me-1"></i>${htmlEscape(fullAddress)}${sourceIcon}</h6>
                 <div class="small text-muted mb-2">${htmlEscape(addressData.comune)} (${htmlEscape(addressData.provincia)})</div>
+                ${catInfo}
                 <div class="map-popup-table-wrap">
                     <table class="table table-sm table-striped mb-1">
                         <thead class="table-light">
                             <tr>
                                 <th>Intestatario</th>
-                                <th>F./P.</th>
+                                <th style="width:50px;">Sub.</th>
                                 <th>Cat.</th>
                                 <th>Telefono</th>
                             </tr>
@@ -924,7 +1090,10 @@
                         <tbody>${rows}</tbody>
                     </table>
                 </div>
-                <div class="small text-muted mt-1">${addressData.intestatari.length} intestatari</div>
+                <div class="small text-muted mt-1 d-flex justify-content-between">
+                    <span>${intestatari.length} unità immobiliari</span>
+                    <span>${addressData.source === 'AdE' ? '✓ Coordinate precise' : '⚠ Coordinate approssimative'}</span>
+                </div>
             </div>
         `;
     }
@@ -932,33 +1101,45 @@
     function groupRowsByAddress(rows) {
         const grouped = {};
         rows.forEach(row => {
-            const addressData = {
-                indirizzo: String(row['Indirizzo'] || '').trim(),
-                civico: String(row['Civico'] || '').trim(),
-                comune: String(row['Comune'] || '').trim(),
-                provincia: String(row['Provincia'] || '').trim(),
-            };
-            if (!addressData.comune || !addressData.provincia) return;
-            const key = getAddressKey(addressData);
+            const foglio     = String(row['Foglio']     || '').trim();
+            const particella = String(row['Particella'] || '').trim();
+            const comune     = String(row['Comune']     || '').trim();
+            const provincia  = String(row['Provincia']  || '').trim();
+
+            if (!comune || !provincia) return;
+
+            // Primary key: Comune + Foglio + Particella (identifies a unique cadastral parcel)
+            // Fall back to address key when cadastral data is absent
+            const key = (foglio && particella)
+                ? `${comune}|${foglio}|${particella}`.toUpperCase()
+                : getAddressKey({ indirizzo: String(row['Indirizzo'] || '').trim(), civico: String(row['Civico'] || '').trim(), comune, provincia });
+
             if (!grouped[key]) {
                 grouped[key] = {
-                    ...addressData,
-                    lat: null,
-                    lng: null,
+                    indirizzo:  String(row['Indirizzo'] || '').trim(),
+                    civico:     String(row['Civico']    || '').trim(),
+                    comune,
+                    provincia,
+                    foglio,
+                    particella,
+                    lat:        null,
+                    lng:        null,
+                    source:     null,
                     intestatari: [],
                 };
             }
 
-            // EasyCatasto exports use "Nome" (surname) and "Nome1" (first name).
             const nomeCompleto = [row[COLUMN_SURNAME], row[COLUMN_GIVEN_NAME]].filter(Boolean).join(' ').trim() || '-';
             grouped[key].intestatari.push({
-                nome: nomeCompleto,
-                telefoni: Array.isArray(row._phones) ? row._phones : [],
-                email: Array.isArray(row._emails) ? row._emails : [],
-                foglio: String(row['Foglio'] || '').trim(),
-                particella: String(row['Particella'] || '').trim(),
+                nome:       nomeCompleto,
+                telefoni:   Array.isArray(row._phones) ? row._phones : [],
+                email:      Array.isArray(row._emails) ? row._emails : [],
+                foglio,
+                particella,
                 subalterno: String(row['Subalterno'] || '').trim(),
-                categoria: String(row['Categoria'] || '').trim(),
+                categoria:  String(row['Categoria']  || '').trim(),
+                indirizzo:  String(row['Indirizzo']  || '').trim(),
+                civico:     String(row['Civico']     || '').trim(),
             });
         });
         return grouped;
@@ -1011,6 +1192,7 @@
         mapDataReady = false;
         mapGroupedData = [];
         geocodedAddresses = {};
+        particelleCache = {};
         geocodingInProgress = false;
         mapHasGeocodeErrors = false;
         geocodeServiceUnavailable = false;

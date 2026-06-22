@@ -348,14 +348,57 @@
                     </div>
                 </div>
 
+                <!-- Scan Progress (mostrato durante scan AdE) -->
+                <div id="scan-progress" class="alert alert-primary mb-3 d-none" style="border-left: 4px solid #2A519F;">
+                    <div class="d-flex align-items-center mb-2">
+                        <div class="spinner-border spinner-border-sm me-2" role="status" style="color:#2A519F;">
+                            <span class="visually-hidden">Scansione...</span>
+                        </div>
+                        <strong>Scansione precisa Agenzia delle Entrate</strong>
+                    </div>
+
+                    <p class="small mb-3">
+                        Comune: <strong id="scan-comune-name">-</strong>
+                    </p>
+
+                    <div class="row g-2 small mb-3">
+                        <div class="col-4">
+                            <span class="text-muted">Punti scansionati:</span><br>
+                            <strong id="scan-points">0/…</strong>
+                        </div>
+                        <div class="col-4">
+                            <span class="text-muted">Particelle trovate:</span><br>
+                            <strong class="text-success" id="scan-found">0</strong>
+                        </div>
+                        <div class="col-4">
+                            <span class="text-muted">Tempo rimanente:</span><br>
+                            <strong id="scan-eta">~10 min</strong>
+                        </div>
+                    </div>
+
+                    <div class="progress" style="height:10px;">
+                        <div id="scan-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated"
+                             role="progressbar" style="width:0%; background-color:#2A519F;"></div>
+                    </div>
+
+                    <p class="small text-muted mt-3 mb-0">
+                        <i class="bi bi-info-circle"></i>
+                        Stiamo interrogando l'Agenzia delle Entrate per ottenere le coordinate precise delle particelle catastali.
+                        Questa operazione viene eseguita <strong>una sola volta per comune</strong> e poi salvata in cache.
+                    </p>
+                </div>
+
                 <div id="map-container"></div>
 
                 <div class="mt-3">
-                    <span class="badge bg-primary me-2">
-                        <i class="bi bi-geo-alt-fill"></i> Indirizzo con dati
+                    <span class="badge bg-success me-2">
+                        <i class="bi bi-geo-alt-fill"></i> Coordinate precise (AdE)
+                    </span>
+                    <span class="badge bg-warning text-dark me-2">
+                        <i class="bi bi-geo-alt"></i> Coordinate approssimative (Nominatim)
                     </span>
                     <span class="badge bg-secondary">
-                        <i class="bi bi-geo"></i> Indirizzo non geocodificato
+                        <i class="bi bi-geo"></i> Non geocodificato
                     </span>
                 </div>
             </div><!-- /tab-mappa -->
