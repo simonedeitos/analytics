@@ -174,39 +174,84 @@ function analyticspro_find_conflicts(array $rows, int $tenantId): array
 
 function analyticspro_lookup_cadastral_coordinates(array $property): array
 {
-    // Lookup parcel coordinates from the MySQL cadastral tables.
-    // Uses interior_point (pre-computed during ADE import) which represents
-    // a point guaranteed to be inside the polygon boundary.
-    // Le geometrie ADE sono salvate come WKT in ordine (lat, lng) per usare
-    // ST_GeomFromText(wkt, 4326) a 2 parametri (compatibile MySQL/MariaDB):
-    // quindi ST_X() restituisce LAT e ST_Y() restituisce LNG.
-    $pdo = analyticspro_db();
+    // Lookup parcel coordinates via the on-demand WFS public service (AdE INSPIRE).
+    // Results are cached in a local SQLite database so that repeated lookups for the
+    // same parcel are instantaneous.  When the WFS is unreachable or the parcel is not
+    // found the function returns nulls so the import can continue without aborting.
+    static $lastWfsCallAt = 0.0;
+
+    require_once __DIR__ . '/wfs_lookup.php';
+
+    $codCatastale = (string) ($property['cod_catastale'] ?? '');
+    $foglio       = analyticspro_wfs_normalize_token((string) ($property['foglio']     ?? ''));
+    $particella   = analyticspro_wfs_normalize_token((string) ($property['particella'] ?? ''));
+
+    // Resolve codice catastale from comune+provincia if not supplied directly.
+    if ($codCatastale === '' && isset($property['comune'], $property['provincia'])) {
+        $codCatastale = analyticspro_wfs_lookup_cod_catastale(
+            (string) $property['comune'],
+            (string) $property['provincia']
+        ) ?? '';
+    }
+
+    if ($codCatastale === '' || $foglio === '' || $particella === '') {
+        return ['lat' => null, 'lng' => null, 'verified' => 0];
+    }
 
     try {
-        $stmt = $pdo->prepare(
-            'SELECT ST_X(p.interior_point) AS lat, ST_Y(p.interior_point) AS lng
-             FROM cadastral_parcels p
-             JOIN cadastral_comuni c ON c.id = p.comune_id
-             WHERE c.cod_catastale = :cod_catastale
-               AND p.foglio        = :foglio
-               AND p.particella    = :particella
-             LIMIT 1'
-        );
-        $stmt->execute([
-            'cod_catastale' => $property['cod_catastale'],
-            'foglio'        => $property['foglio'],
-            'particella'    => $property['particella'],
-        ]);
-        $coords = $stmt->fetch();
-        if (!$coords || $coords['lat'] === null) {
+        require_once __DIR__ . '/wfs_lookup.php';
+
+        // Check the cache first so we only apply the rate-limiter when a live
+        // WFS call is actually needed.
+        $cached = null;
+        try {
+            $db     = analyticspro_wfs_open_cache_db();
+            $cached = analyticspro_wfs_get_cached_particella($db, $codCatastale, $foglio, $particella);
+            if ($cached !== null) {
+                $db->close();
+            }
+        } catch (Throwable $cacheEx) {
+            $db = null;
+        }
+
+        if ($cached !== null && ($cached['ok'] ?? false)) {
+            return [
+                'lat'      => (float) $cached['lat'],
+                'lng'      => (float) $cached['lng'],
+                'verified' => 1,
+            ];
+        }
+
+        // Apply a minimum delay between consecutive live WFS calls to avoid
+        // rate-limiting by the public AdE service.
+        $now     = microtime(true);
+        $elapsed = $now - $lastWfsCallAt;
+        $minGap  = 0.5; // seconds
+        if ($lastWfsCallAt > 0.0 && $elapsed < $minGap) {
+            usleep((int) (($minGap - $elapsed) * 1_000_000));
+        }
+
+        $wfsData = analyticspro_wfs_query_service($codCatastale, $foglio, $particella);
+        $lastWfsCallAt = microtime(true);
+
+        if ($wfsData !== null && ($wfsData['ok'] ?? false) && isset($db)) {
+            analyticspro_wfs_save_cached_particella($db, $codCatastale, $foglio, $particella, $wfsData);
+        }
+        if (isset($db)) {
+            $db->close();
+        }
+
+        if ($wfsData === null || !($wfsData['ok'] ?? false)) {
             return ['lat' => null, 'lng' => null, 'verified' => 0];
         }
+
         return [
-            'lat'      => $coords['lat'],
-            'lng'      => $coords['lng'],
+            'lat'      => (float) $wfsData['lat'],
+            'lng'      => (float) $wfsData['lng'],
             'verified' => 1,
         ];
     } catch (Throwable $exception) {
+        error_log('[WFS import] Lookup failed for ' . $codCatastale . '/' . $foglio . '/' . $particella . ': ' . $exception->getMessage());
         return ['lat' => null, 'lng' => null, 'verified' => 0];
     }
 }

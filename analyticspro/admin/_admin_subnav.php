@@ -6,7 +6,6 @@ $adminPages = [
     'registrazioni.php'=> ['icon' => 'bi-person-check',   'label' => 'Registrazioni',  'badge' => $pendingCount],
     'utenti.php'       => ['icon' => 'bi-people',          'label' => 'Utenti',         'badge' => 0],
     'smtp.php'         => ['icon' => 'bi-envelope-gear',   'label' => 'SMTP',           'badge' => 0],
-    'import_ade.php'   => ['icon' => 'bi-cloud-upload',    'label' => 'Import ADE',     'badge' => 0],
 ];
 ?>
 <nav class="mb-4">

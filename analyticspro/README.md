@@ -26,6 +26,10 @@ Webapp PHP/PDO multi-tenant per importare dati catastali, salvarli su MySQL/Mari
 - Persistenza server-side con PDO prepared statements.
 - I duplicati su chiave catastale `(user_id, provincia, comune, sezione, foglio, particella, subalterno)` vengono analizzati prima dell'import.
 - Se cambia l'intestatario, il worker crea lo storico su `property_owners` e registra la scelta in `import_duplicate_conflicts`.
+- **Lookup coordinate:** per ogni riga il worker invoca `analyticspro_lookup_cadastral_coordinates()`
+  che usa il lookup WFS on-demand con cache locale (vedi *Lookup WFS on-demand*). Se la
+  particella non viene trovata o il WFS è irraggiungibile, la riga viene comunque importata
+  con `lat/lng = NULL` e `posizione_verificata = 0` — l'import non viene interrotto.
 
 ## Cifratura dati sensibili
 
@@ -64,12 +68,45 @@ Richiede **MySQL 8.0+** o **MariaDB 10.5+** per il supporto a `GEOMETRY` con SRI
 
 ### Lookup coordinate
 
-La funzione `analyticspro_lookup_cadastral_coordinates()` in `includes/importer.php`
-interroga `cadastral_parcels.interior_point` tramite `ST_X()` / `ST_Y()` per ottenere
-`lat` / `lng` da assegnare al marker (le geometrie WKT vengono salvate in ordine `lat lng`
-per compatibilità MySQL/MariaDB con `ST_GeomFromText(wkt, 4326)` a 2 parametri).
+> **⚠️ Comportamento aggiornato:** la funzione `analyticspro_lookup_cadastral_coordinates()` in
+> `includes/importer.php` **non interroga più** `cadastral_parcels.interior_point` (tabella
+> popolata dal bulk import ADE, ora disabilitato).  
+> Utilizza invece il lookup on-demand via WFS pubblico AdE INSPIRE (vedi sezione
+> *Lookup WFS on-demand* più avanti).
+
+La logica condivisa di lookup è centralizzata in `includes/wfs_lookup.php`
+(`analyticspro_wfs_lookup_particella()`) ed è usata sia dall'endpoint HTTP
+`api/get_coords_wfs.php` sia dal worker di import CSV/Excel.
+
+---
+
+### Lookup WFS on-demand
+
+La funzione `analyticspro_wfs_lookup_particella(codCatastale, foglio, particella)` in
+`includes/wfs_lookup.php` esegue la seguente sequenza:
+
+1. **Cache locale SQLite** (`cache/catasto/catasto_cache.db`, tabella `particelle_cache`):
+   se il record è già in cache, viene restituito immediatamente senza chiamate di rete.
+2. **WFS pubblico AdE INSPIRE** (`https://wfs.cartografia.agenziaentrate.gov.it/inspire/wfs/ows01.php`):
+   se non in cache, interroga il servizio live, calcola il centroide dalla geometria GeoJSON
+   e salva il risultato in cache per richieste future.
+3. **Fallimento isolato**: se il WFS non risponde o la particella non esiste, la funzione
+   ritorna `['ok' => false, ...]`; il worker di import continua con le righe successive
+   segnando la riga come "coordinate non trovate" (nessun abort dell'import).
+
+**Rate-limiting**: durante l'import bulk, il worker applica un gap minimo di 500 ms tra
+chiamate live consecutive al WFS per evitare blocchi da parte del servizio pubblico.
+Le hit di cache non sono soggette a questo ritardo.
 
 ## Worker ADE
+
+> **⚠️ Sezione nascosta dalla UI admin:** la voce "Import ADE" è stata rimossa dalla
+> dashboard admin e dalla sub-nav (file `admin/index.php` e `admin/_admin_subnav.php`)
+> in favore del nuovo flusso di lookup on-demand via WFS (vedi sezione *Lookup WFS on-demand*).
+> Il codice sottostante (`admin/import_ade.php`, `api/admin/ade_jobs.php`,
+> `cron/ade_import_worker.php`, `includes/ade_import.php`, tabelle `ade_import_jobs` /
+> `ade_import_job_log`) è mantenuto intatto per continuità con job storici e per poter
+> riattivare la funzionalità in futuro accedendo direttamente via URL.
 
 - Endpoint admin: `analyticspro/api/admin/ade_jobs.php`
 - Worker CLI: `analyticspro/cron/ade_import_worker.php`
