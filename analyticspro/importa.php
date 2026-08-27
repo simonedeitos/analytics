@@ -43,7 +43,18 @@ analyticspro_render_header('Importa dati', ['app_assets' => true]);
         <div class="card-body">
             <h2 class="h5">Importa dati da CSV / Excel</h2>
             <p class="text-muted small">Formati supportati: .csv, .xlsx, .xls. Il parsing lato client riusa SheetJS e invia al backend solo i record elaborati per il tenant corrente.</p>
-            <input id="import-files" type="file" class="form-control" multiple accept=".csv,.xlsx,.xls">
+            <div id="import-drop-zone" class="drop-zone mb-2" tabindex="0" role="button" aria-label="Area upload file">
+                <div class="drop-zone-content">
+                    <i class="bi bi-cloud-upload drop-zone-icon"></i>
+                    <p class="fw-semibold mb-1">Trascina i file qui</p>
+                    <p class="text-muted small mb-3">oppure</p>
+                    <label for="import-files" class="btn btn-primary px-4">
+                        <i class="bi bi-folder2-open me-2"></i>Seleziona file
+                    </label>
+                    <input type="file" id="import-files" accept=".csv,.xlsx,.xls" multiple class="d-none">
+                    <p class="text-muted small mt-3 mb-0">Formati supportati: <strong>.csv</strong>, <strong>.xlsx</strong>, <strong>.xls</strong></p>
+                </div>
+            </div>
             <div class="form-text">In caso di duplicato catastale con intestatario diverso verrà chiesta conferma prima dell'aggiornamento.</div>
         </div>
     </div>

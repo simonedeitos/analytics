@@ -171,12 +171,16 @@ function analyticspro_render_header(string $title, array $options = []): void
                 </ul>
 
                 <?php if (analyticspro_is_admin()): ?>
+                <?php $pendingCount = analyticspro_count_pending_registrations(); ?>
                 <div class="ap-nav-section-label">Amministrazione</div>
                 <ul>
                     <li>
                         <a href="<?= analyticspro_h(analyticspro_base_url('admin/index.php')) ?>"
                            class="<?= strpos($currentPage, 'admin/') === 0 ? 'active' : '' ?>">
                             <i class="bi bi-shield-check"></i> Amministrazione
+                            <?php if ($pendingCount > 0): ?>
+                                <span class="badge rounded-pill bg-danger ms-auto"><?= (int) $pendingCount ?></span>
+                            <?php endif; ?>
                         </a>
                     </li>
                 </ul>

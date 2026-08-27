@@ -118,10 +118,14 @@
             ? state.assignedProperties.length
             : state.properties.filter(property => (property.assignments || []).length > 0).length;
 
-        document.querySelector('[data-kpi="properties"]').textContent = state.properties.length;
-        document.querySelector('[data-kpi="owners"]').textContent = ownerCount;
-        document.querySelector('[data-kpi="phones"]').textContent = phoneCount;
-        document.querySelector('[data-kpi="assigned"]').textContent = assignedCount;
+        const setKpi = (key, value) => {
+            const el = document.querySelector(`[data-kpi="${key}"]`);
+            if (el) el.textContent = value;
+        };
+        setKpi('properties', state.properties.length);
+        setKpi('owners', ownerCount);
+        setKpi('phones', phoneCount);
+        setKpi('assigned', assignedCount);
     }
 
     function buildOwnerSummary(property) {
@@ -228,10 +232,12 @@
     }
 
     function renderAssignedTable() {
+        if (!document.getElementById('assigned-table')) return;
         initDataTable('#assigned-table', buildTableData(state.assignedProperties), state.canExport || state.role !== 'subuser');
     }
 
     function renderReportTable() {
+        if (!document.getElementById('report-table')) return;
         initDataTable('#report-table', buildTableData(state.properties), state.role !== 'subuser');
     }
 
@@ -280,6 +286,7 @@
             state.map.fitBounds(state.markers.getBounds().pad(0.2));
         }
         setTimeout(() => state.map.invalidateSize(), 150);
+        setTimeout(() => state.map?.invalidateSize(), 600);
     }
 
     function buildPopupHtml(property) {
@@ -525,6 +532,41 @@
             await saveProperty(button);
         }
     });
+
+    // ----- Drop-zone drag & drop (importa.php) -----
+    (function () {
+        const zone = document.getElementById('import-drop-zone');
+        if (!zone) return;
+        zone.addEventListener('dragover', event => { event.preventDefault(); zone.classList.add('dragover'); });
+        zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+        zone.addEventListener('drop', event => {
+            event.preventDefault();
+            zone.classList.remove('dragover');
+            const validExts = ['.csv', '.xlsx', '.xls'];
+            const files = Array.from(event.dataTransfer.files).filter(file =>
+                validExts.some(ext => file.name.toLowerCase().endsWith(ext))
+            );
+            if (!files.length) {
+                alert('Nessun file valido trovato. Formati accettati: .csv, .xlsx, .xls');
+                return;
+            }
+            runImport(files).catch(error => {
+                state.overlay.hide();
+                alert(error.message);
+            });
+        });
+        zone.addEventListener('click', event => {
+            if (!event.target.closest('label')) {
+                document.getElementById('import-files')?.click();
+            }
+        });
+        zone.addEventListener('keydown', event => {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                document.getElementById('import-files')?.click();
+            }
+        });
+    })();
 
     loadProperties().catch(error => alert(error.message));
     if (document.getElementById('ade-jobs')) {

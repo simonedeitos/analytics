@@ -209,8 +209,9 @@ body {
     background: #e9ecef;
 }
 #map-fullpage {
-    height: calc(100vh - var(--ap-topbar-h) - 110px);
-    min-height: 420px;
+    width: 100%;
+    height: calc(100vh - var(--ap-topbar-h) - 140px);
+    min-height: 480px;
     border-radius: .5rem;
     overflow: hidden;
     background: #e9ecef;
@@ -235,6 +236,53 @@ body {
 .help-steps li { margin-bottom: .55rem; }
 .property-inline-control { min-width: 120px; }
 .small-select[multiple] { min-height: 88px; }
+
+/* ----- Drop Zone (importa.php) --------------------------------------- */
+.drop-zone {
+    width: 100%;
+    max-width: 560px;
+    min-height: 220px;
+    border: 3px dashed #b0c4de;
+    border-radius: 16px;
+    background: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: border-color .2s, background .2s, transform .15s;
+    box-shadow: 0 4px 20px rgba(42,81,159,.08);
+    outline: none;
+}
+.drop-zone:hover,
+.drop-zone:focus {
+    border-color: var(--ap-blue);
+    background: #f0f4ff;
+    transform: translateY(-2px);
+}
+.drop-zone.dragover {
+    border-color: var(--ap-orange);
+    background: #fff8ee;
+    transform: translateY(-2px) scale(1.01);
+    box-shadow: 0 6px 28px rgba(242,142,14,.18);
+}
+.drop-zone-content {
+    text-align: center;
+    padding: 2rem;
+    pointer-events: none;
+}
+.drop-zone-content label { pointer-events: all; }
+.drop-zone-icon {
+    font-size: 3.5rem;
+    color: var(--ap-blue);
+    display: block;
+    margin-bottom: .75rem;
+}
+
+/* ----- #assigned-save button ----------------------------------------- */
+#assigned-save {
+    white-space: nowrap;
+    flex-shrink: 0;
+}
 
 /* Admin sub-nav (secondary tabs inside admin pages) */
 .ap-admin-subnav .nav-link { color: var(--ap-blue); }

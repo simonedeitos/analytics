@@ -310,3 +310,14 @@ function analyticspro_launch_background(string $script, array $arguments = []): 
     shell_exec($command);
     return true;
 }
+
+function analyticspro_count_pending_registrations(): int
+{
+    try {
+        $pdo = analyticspro_db();
+        $stmt = $pdo->query("SELECT COUNT(*) FROM users WHERE status = 'pending'");
+        return (int) ($stmt ? $stmt->fetchColumn() : 0);
+    } catch (Throwable) {
+        return 0;
+    }
+}
