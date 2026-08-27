@@ -2,6 +2,11 @@
 
 declare(strict_types=1);
 
+/**
+ * Parser GML particelle catastali con supporto a due dialetti:
+ * - INSPIRE "puro" (camelCase, es. geometry / label / nationalCadastralReference / inspireId/localId)
+ * - MapServer/AdE WFS (UPPERCASE, es. msGeometry / LABEL / NATIONALCADASTRALREFERENCE / INSPIREID_LOCALID)
+ */
 function analyticspro_parse_cadastral_parcels_gml(string $gmlPath): array
 {
     if (!is_file($gmlPath) || !is_readable($gmlPath)) {
@@ -29,14 +34,18 @@ function analyticspro_parse_cadastral_parcels_gml(string $gmlPath): array
         if ($points === []) {
             continue;
         }
+        $inspireIdLocal = analyticspro_xpath_string($xpath, './/*[local-name()="inspireId"]//*[local-name()="localId"][1]', $parcelNode)
+            ?? analyticspro_xpath_string_ci($xpath, 'inspireid_localid', $parcelNode)
+            ?? analyticspro_xpath_string_ci($xpath, 'inspireidlocalid', $parcelNode);
+        $inspireIdNamespace = analyticspro_xpath_string($xpath, './/*[local-name()="inspireId"]//*[local-name()="namespace"][1]', $parcelNode)
+            ?? analyticspro_xpath_string_ci($xpath, 'inspireid_namespace', $parcelNode)
+            ?? analyticspro_xpath_string_ci($xpath, 'inspireidnamespace', $parcelNode);
 
         $parcels[] = [
-            'inspire_id' => analyticspro_xpath_string($xpath, './/*[local-name()="inspireId"]//*[local-name()="localId"][1]', $parcelNode)
-                ?? analyticspro_xpath_string($xpath, './/*[local-name()="INSPIREID_LOCALID"][1]', $parcelNode)
-                ?? analyticspro_xpath_string($xpath, './/*[local-name()="inspireId"][1]', $parcelNode),
-            'label' => analyticspro_xpath_string($xpath, './/*[local-name()="label" or local-name()="LABEL"][1]', $parcelNode),
-            'national_reference' => analyticspro_xpath_string($xpath, './/*[local-name()="nationalCadastralReference" or local-name()="NATIONALCADASTRALREFERENCE"][1]', $parcelNode),
-            'area_mq' => analyticspro_xpath_float($xpath, './/*[local-name()="areaValue"][1]', $parcelNode),
+            'inspire_id' => analyticspro_compose_inspire_id($inspireIdNamespace, $inspireIdLocal),
+            'label' => analyticspro_xpath_string_ci($xpath, 'label', $parcelNode),
+            'national_reference' => analyticspro_xpath_string_ci($xpath, 'nationalcadastralreference', $parcelNode),
+            'area_mq' => analyticspro_xpath_float_ci($xpath, 'areavalue', $parcelNode),
             'points' => $points,
         ];
     }
@@ -46,9 +55,20 @@ function analyticspro_parse_cadastral_parcels_gml(string $gmlPath): array
 
 function analyticspro_extract_polygon_points_from_parcel(DOMXPath $xpath, DOMNode $parcelNode): array
 {
-    $polygonNode = $xpath->query('.//*[local-name()="geometry" or local-name()="msGeometry"]//*[local-name()="Polygon"][1]', $parcelNode)?->item(0);
-    if (!$polygonNode instanceof DOMNode) {
-        $polygonNode = $xpath->query('.//*[local-name()="MultiSurface"]//*[local-name()="surfaceMember"]//*[local-name()="Polygon"][1]', $parcelNode)?->item(0);
+    $polygonQueries = [
+        './/*[local-name()="geometry"]//*[local-name()="Polygon"][1]',
+        './/*[local-name()="msGeometry"]//*[local-name()="Polygon"][1]',
+        './/*[local-name()="MultiSurface"]//*[local-name()="surfaceMember"]//*[local-name()="Polygon"][1]',
+        './/*[local-name()="Polygon"][1]',
+    ];
+
+    $polygonNode = null;
+    foreach ($polygonQueries as $query) {
+        $candidate = $xpath->query($query, $parcelNode)?->item(0);
+        if ($candidate instanceof DOMNode) {
+            $polygonNode = $candidate;
+            break;
+        }
     }
     if (!$polygonNode instanceof DOMNode) {
         return [];
@@ -225,6 +245,17 @@ function analyticspro_xpath_string(DOMXPath $xpath, string $query, DOMNode $cont
     return $value === '' ? null : $value;
 }
 
+function analyticspro_xpath_string_ci(DOMXPath $xpath, string $localNameLowercase, DOMNode $context): ?string
+{
+    $safeName = strtolower(trim($localNameLowercase));
+    if ($safeName === '' || !preg_match('/^[a-z0-9_]+$/', $safeName)) {
+        return null;
+    }
+
+    $query = './/*[translate(local-name(), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")="' . $safeName . '"][1]';
+    return analyticspro_xpath_string($xpath, $query, $context);
+}
+
 function analyticspro_xpath_float(DOMXPath $xpath, string $query, DOMNode $context): ?float
 {
     $value = analyticspro_xpath_string($xpath, $query, $context);
@@ -237,6 +268,35 @@ function analyticspro_xpath_float(DOMXPath $xpath, string $query, DOMNode $conte
     }
 
     return (float) $match[0];
+}
+
+function analyticspro_xpath_float_ci(DOMXPath $xpath, string $localNameLowercase, DOMNode $context): ?float
+{
+    $value = analyticspro_xpath_string_ci($xpath, $localNameLowercase, $context);
+    if (!is_string($value)) {
+        return null;
+    }
+
+    if (!preg_match('/[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?/', $value, $match)) {
+        return null;
+    }
+
+    return (float) $match[0];
+}
+
+function analyticspro_compose_inspire_id(?string $namespace, ?string $localId): ?string
+{
+    if (!is_string($localId) || trim($localId) === '') {
+        return null;
+    }
+
+    $localId = trim($localId);
+    $namespace = is_string($namespace) ? trim($namespace) : '';
+    if ($namespace === '') {
+        return $localId;
+    }
+
+    return str_starts_with($localId, $namespace) ? $localId : $namespace . $localId;
 }
 
 function analyticspro_extract_cadastral_parts(?string $nationalReference, ?string $label): ?array
@@ -258,7 +318,7 @@ function analyticspro_extract_cadastral_parts(?string $nationalReference, ?strin
             $candidate = $prefixed[1];
         }
 
-        if (preg_match('/^(?:(?<sezione>[A-Z]{1,4})[._\/-])?(?<foglio>\d{1,5})[._\/-](?<particella>[A-Z0-9]{1,20})$/', $candidate, $parts)) {
+        if (preg_match('/^(?:(?<sezione>[A-Z]{1,4})[._\/-])?(?<foglio>\d{1,6})[._\/-](?<particella>[A-Z0-9]{1,20})$/', $candidate, $parts)) {
             return [
                 'sezione' => ($parts['sezione'] ?? '') !== '' ? (string) $parts['sezione'] : null,
                 'foglio' => (string) $parts['foglio'],
@@ -276,6 +336,8 @@ function analyticspro_extract_cadastral_parts(?string $nationalReference, ?strin
         $sezioneTokens = array_slice($tokens, 0, -2);
         $sezione = $sezioneTokens !== [] ? implode('.', $sezioneTokens) : null;
 
+        // Dialetto AdE osservato: D185_090400.1 -> prefisso comune rimosso, "090400" mantenuto
+        // interamente come foglio (stringa, inclusi eventuali zeri iniziali), "1" come particella.
         if ($foglio !== '' && ctype_digit($foglio) && preg_match('/^[A-Z0-9]+$/', $particella)) {
             return [
                 'sezione' => $sezione !== '' ? $sezione : null,

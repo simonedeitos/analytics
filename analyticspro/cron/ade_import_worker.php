@@ -93,6 +93,35 @@ function analyticspro_discover_comune_gml_sets(string $jobDir): array
     return $pleFiles;
 }
 
+function analyticspro_log_ignored_map_gml_files(int $jobId, string $jobDir): void
+{
+    if (!is_dir($jobDir)) {
+        return;
+    }
+
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($jobDir, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::LEAVES_ONLY
+    );
+
+    foreach ($iterator as $fileInfo) {
+        if (!$fileInfo instanceof SplFileInfo || !$fileInfo->isFile()) {
+            continue;
+        }
+
+        $filename = $fileInfo->getFilename();
+        if (!preg_match('/_map\.gml$/i', $filename)) {
+            continue;
+        }
+
+        analyticspro_ade_log(
+            $jobId,
+            'info',
+            "File _map.gml rilevato (" . $filename . ') — contiene fogli/sezioni (CadastralZoning), ignorato per import particelle.'
+        );
+    }
+}
+
 function analyticspro_update_ade_job_progress(int $jobId, array $stats, ?string $status = null): void
 {
     $sql = 'UPDATE ade_import_jobs
@@ -148,6 +177,7 @@ function analyticspro_run_ade_import_job(int $jobId, string $zipPath): void
         analyticspro_extract_nested_zip($jobId, $zipPath, $jobDir, $stats);
 
         $comuneSets = analyticspro_discover_comune_gml_sets($jobDir);
+        analyticspro_log_ignored_map_gml_files($jobId, $jobDir);
         $stats['total_comuni'] = count($comuneSets);
         $stats['processed_comuni'] = 0;
 
