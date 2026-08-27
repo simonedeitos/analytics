@@ -487,9 +487,12 @@
         setAdeUploadButtonState(true);
         try {
             const response = await fetch(withTenant(state.adeJobsEndpoint), { method: 'POST', body: formData });
-            const payload = await response.json();
-            if (!response.ok || !payload.ok) {
-                throw new Error(payload.error || 'Upload fallito');
+            let payload = null;
+            try {
+                payload = await response.json();
+            } catch {}
+            if (!response.ok || !payload?.ok) {
+                throw new Error(payload?.error || `Upload fallito (${response.status})`);
             }
             input.value = '';
             setAdeUploadButtonState(false, false);
@@ -498,7 +501,7 @@
             alert('Import avviato correttamente.');
         } catch (error) {
             setAdeUploadButtonState(false);
-            alert(error.message);
+            throw error;
         }
     }
 
@@ -555,7 +558,7 @@
             loadProperties().catch(error => alert(error.message));
         }
         if (event.target.id === 'ade-zips-submit') {
-            submitAdeUpload();
+            submitAdeUpload().catch(error => alert(error.message));
         }
     });
 
