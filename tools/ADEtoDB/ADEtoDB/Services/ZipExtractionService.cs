@@ -57,20 +57,9 @@ public sealed class ZipExtractionService
         foreach (var entry in archive.Entries) {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var normalizedEntryPath = entry.FullName
-                .Replace('/', Path.DirectorySeparatorChar)
-                .Replace('\\', Path.DirectorySeparatorChar);
-            var destinationPath = Path.Combine(targetDirectory, normalizedEntryPath);
-            var fullDestinationPath = Path.GetFullPath(destinationPath);
-            var allowedPrefix = targetRoot.EndsWith(Path.DirectorySeparatorChar)
-                ? targetRoot
-                : targetRoot + Path.DirectorySeparatorChar;
+            var fullDestinationPath = BuildSafeDestinationPath(targetRoot, entry.FullName, comparison);
 
-            if (!fullDestinationPath.StartsWith(allowedPrefix, comparison) && !string.Equals(fullDestinationPath, targetRoot, comparison)) {
-                throw new InvalidDataException($"ZIP entry non valida fuori dalla directory di estrazione: {entry.FullName}");
-            }
-
-            var destinationDirectory = Path.GetDirectoryName(destinationPath);
+            var destinationDirectory = Path.GetDirectoryName(fullDestinationPath);
             if (!string.IsNullOrWhiteSpace(destinationDirectory)) {
                 Directory.CreateDirectory(destinationDirectory);
             }
@@ -130,5 +119,32 @@ public sealed class ZipExtractionService
         }
 
         return value.Replace(' ', '_');
+    }
+
+    private static string BuildSafeDestinationPath(string targetRoot, string entryPath, StringComparison comparison)
+    {
+        var normalizedEntryPath = entryPath
+            .Replace('/', Path.DirectorySeparatorChar)
+            .Replace('\\', Path.DirectorySeparatorChar);
+
+        if (Path.IsPathRooted(normalizedEntryPath)) {
+            throw new InvalidDataException($"ZIP entry non valida con path assoluto: {entryPath}");
+        }
+
+        var pathSegments = normalizedEntryPath.Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries);
+        if (pathSegments.Any(segment => segment is "." or "..")) {
+            throw new InvalidDataException($"ZIP entry non valida con path traversal: {entryPath}");
+        }
+
+        var fullDestinationPath = Path.GetFullPath(Path.Combine(targetRoot, Path.Combine(pathSegments)));
+        var allowedPrefix = targetRoot.EndsWith(Path.DirectorySeparatorChar)
+            ? targetRoot
+            : targetRoot + Path.DirectorySeparatorChar;
+
+        if (!fullDestinationPath.StartsWith(allowedPrefix, comparison) && !string.Equals(fullDestinationPath, targetRoot, comparison)) {
+            throw new InvalidDataException($"ZIP entry non valida fuori dalla directory di estrazione: {entryPath}");
+        }
+
+        return fullDestinationPath;
     }
 }
