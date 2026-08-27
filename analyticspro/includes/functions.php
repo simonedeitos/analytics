@@ -38,7 +38,7 @@ function analyticspro_h(?string $value): string
 
 function analyticspro_base_url(string $path = ''): string
 {
-    $base = rtrim(analyticspro_env('APP_URL', '/AnalyticsPRO'), '/');
+    $base = rtrim(analyticspro_env('APP_URL', '/analyticspro'), '/');
     return $path === '' ? $base : $base . '/' . ltrim($path, '/');
 }
 
@@ -172,19 +172,25 @@ function analyticspro_client_ip(): ?string
     return $_SERVER['REMOTE_ADDR'] ?? null;
 }
 
+function analyticspro_current_role(): ?string
+{
+    $role = analyticspro_current_user()['role'] ?? null;
+    return is_string($role) ? $role : null;
+}
+
 function analyticspro_is_admin(): bool
 {
-    return analyticspro_current_user()['role'] ?? null === 'admin';
+    return analyticspro_current_role() === 'admin';
 }
 
 function analyticspro_is_main_user(): bool
 {
-    return analyticspro_current_user()['role'] ?? null === 'user';
+    return analyticspro_current_role() === 'user';
 }
 
 function analyticspro_is_subuser(): bool
 {
-    return analyticspro_current_user()['role'] ?? null === 'subuser';
+    return analyticspro_current_role() === 'subuser';
 }
 
 function analyticspro_current_tenant_id(): ?int

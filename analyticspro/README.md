@@ -4,16 +4,16 @@ Webapp PHP/PDO multi-tenant per importare dati catastali, salvarli su MySQL/Mari
 
 ## Setup rapido
 
-1. Copia `AnalyticsPRO/.env.example` in `AnalyticsPRO/.env` e configura:
+1. Copia `analyticspro/.env.example` in `analyticspro/.env` e configura:
    - MySQL/MariaDB: `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASS`
    - PostGIS: `POSTGIS_HOST`, `POSTGIS_PORT`, `POSTGIS_DB`, `POSTGIS_USER`, `POSTGIS_PASS`
    - Bootstrap encryption key: `APP_BOOTSTRAP_ENCRYPTION_KEY`
 2. Esegui lo schema iniziale MySQL/MariaDB:
    ```bash
-   mysql -u USER -p DBNAME < AnalyticsPRO/sql/schema.sql
+   mysql -u USER -p DBNAME < analyticspro/sql/schema.sql
    ```
-3. Apri `AnalyticsPRO/setup/create_admin.php`, genera la query del primo admin ed eseguila manualmente sul database.
-4. **Elimina `AnalyticsPRO/setup/create_admin.php` dopo l'uso**.
+3. Apri `analyticspro/setup/create_admin.php`, genera la query del primo admin ed eseguila manualmente sul database.
+4. **Elimina `analyticspro/setup/create_admin.php` dopo l'uso**.
 5. Accedi come admin e completa:
    - configurazione SMTP (`smtp_*` salvati in `system_config`)
    - `admin_notification_email`
@@ -30,7 +30,7 @@ Webapp PHP/PDO multi-tenant per importare dati catastali, salvarli su MySQL/Mari
 ## Cifratura dati sensibili
 
 - Campo chiave: `system_config.encryption_key`, con fallback `APP_BOOTSTRAP_ENCRYPTION_KEY`.
-- Algoritmo: AES-256-CBC (`AnalyticsPRO/config/encryption.php`).
+- Algoritmo: AES-256-CBC (`analyticspro/config/encryption.php`).
 - Hash di ricerca esatta: SHA-256 per nome/cognome/codice fiscale/telefono.
 
 ## SMTP
@@ -67,8 +67,8 @@ La query marker usa `ST_PointOnSurface(geom)`.
 
 ## Worker ADE
 
-- Endpoint admin: `AnalyticsPRO/api/admin/ade_jobs.php`
-- Worker CLI: `AnalyticsPRO/cron/ade_import_worker.php`
+- Endpoint admin: `analyticspro/api/admin/ade_jobs.php`
+- Worker CLI: `analyticspro/cron/ade_import_worker.php`
 - In questa prima PR il worker:
   - salva il job in coda
   - estrae ricorsivamente ZIP annidati
