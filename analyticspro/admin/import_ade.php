@@ -8,6 +8,8 @@ require __DIR__ . '/_admin_check.php';
 
 $pdo     = analyticspro_db();
 $recentJobs = $pdo->query("SELECT j.id, j.provincia_sigla, j.zip_filename, j.status, j.total_comuni, j.processed_comuni, j.total_particelle, j.processed_particelle, j.created_at, j.completed_at, j.error_message FROM ade_import_jobs j ORDER BY j.created_at DESC LIMIT 30")->fetchAll();
+$sqlUploadMax = trim((string) ini_get('upload_max_filesize')) ?: 'n/d';
+$sqlPostMax = trim((string) ini_get('post_max_size')) ?: 'n/d';
 
 analyticspro_render_header('Import ADE', ['app_assets' => true]);
 require __DIR__ . '/_admin_subnav.php';
@@ -36,6 +38,12 @@ require __DIR__ . '/_admin_subnav.php';
                             <button class="nav-link" id="tab-server-btn" data-bs-toggle="tab"
                                     data-bs-target="#tab-server" type="button" role="tab">
                                 <i class="bi bi-hdd me-1"></i>File sul server
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="tab-sql-btn" data-bs-toggle="tab"
+                                    data-bs-target="#tab-sql" type="button" role="tab">
+                                <i class="bi bi-database me-1"></i>Importa file SQL pre-elaborato
                             </button>
                         </li>
                     </ul>
@@ -71,6 +79,39 @@ require __DIR__ . '/_admin_subnav.php';
                                 </button>
                                 <button id="ade-server-submit" class="btn btn-primary btn-sm" type="button" disabled style="display:none!important">
                                     <i class="bi bi-play-fill me-1"></i>Importa selezionati
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="tab-pane fade" id="tab-sql" role="tabpanel">
+                            <p class="text-muted small mb-3">
+                                Carica un file <code>.sql</code> già pre-elaborato, oppure selezionalo da
+                                <code>storage/manual_upload/</code>. Il worker esegue in background gli statement
+                                del file e aggiorna il log live come per gli import ZIP.
+                            </p>
+                            <div class="alert alert-light border small mb-3">
+                                Limite upload PHP corrente: <strong><?= analyticspro_h($sqlUploadMax) ?></strong> per file,
+                                <strong><?= analyticspro_h($sqlPostMax) ?></strong> per richiesta.
+                                Per file SQL molto grandi usa <code>storage/manual_upload/</code> via FTP/file manager.
+                            </div>
+                            <input id="ade-sql-files" type="file" class="form-control mb-2" accept=".sql">
+                            <button id="ade-sql-submit" class="btn btn-primary mt-2" type="button" disabled>
+                                <i class="bi bi-cloud-upload me-1"></i>Importa SQL
+                            </button>
+                            <hr>
+                            <p class="text-muted small mb-3">
+                                In alternativa seleziona uno o più file <code>.sql</code> già presenti in
+                                <code>storage/manual_upload/</code>.
+                            </p>
+                            <div id="ade-server-sql-files-list">
+                                <div class="text-muted small">Caricamento lista file…</div>
+                            </div>
+                            <div class="mt-2 d-flex gap-2 flex-wrap">
+                                <button id="ade-server-sql-select-all" class="btn btn-sm btn-outline-secondary" type="button" style="display:none!important">
+                                    Seleziona tutti
+                                </button>
+                                <button id="ade-server-sql-submit" class="btn btn-primary btn-sm" type="button" disabled style="display:none!important">
+                                    <i class="bi bi-play-fill me-1"></i>Importa SQL selezionati
                                 </button>
                             </div>
                         </div>
@@ -117,12 +158,18 @@ require __DIR__ . '/_admin_subnav.php';
                                                 'failed'     => 'danger',
                                             ];
                                             $sc = $statusColors[$job['status']] ?? 'secondary';
+                                            $isSqlJob = strtolower((string) pathinfo((string) $job['zip_filename'], PATHINFO_EXTENSION)) === 'sql';
                                             ?>
                                             <span class="badge bg-<?= analyticspro_h($sc) ?>"><?= analyticspro_h((string) $job['status']) ?></span>
                                         </td>
                                         <td class="small">
-                                            <?= analyticspro_h((string) $job['processed_comuni']) ?>/<?= analyticspro_h((string) $job['total_comuni']) ?> comuni<br>
-                                            <?= analyticspro_h((string) $job['processed_particelle']) ?>/<?= analyticspro_h((string) $job['total_particelle']) ?> particelle
+                                            <?php if ($isSqlJob): ?>
+                                                <?= analyticspro_h((string) $job['processed_comuni']) ?>/<?= analyticspro_h((string) $job['total_comuni']) ?> INSERT comuni<br>
+                                                <?= analyticspro_h((string) $job['processed_particelle']) ?>/<?= analyticspro_h((string) $job['total_particelle']) ?> INSERT particelle
+                                            <?php else: ?>
+                                                <?= analyticspro_h((string) $job['processed_comuni']) ?>/<?= analyticspro_h((string) $job['total_comuni']) ?> comuni<br>
+                                                <?= analyticspro_h((string) $job['processed_particelle']) ?>/<?= analyticspro_h((string) $job['total_particelle']) ?> particelle
+                                            <?php endif; ?>
                                         </td>
                                         <td class="text-muted small"><?= analyticspro_h((string) $job['created_at']) ?></td>
                                         <td>
@@ -167,4 +214,3 @@ require __DIR__ . '/_admin_subnav.php';
     </div>
 </div>
 <?php analyticspro_render_footer(true); ?>
-

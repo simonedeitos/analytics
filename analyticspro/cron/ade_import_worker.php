@@ -3,17 +3,8 @@
 declare(strict_types=1);
 
 require dirname(__DIR__) . '/includes/bootstrap.php';
+require_once dirname(__DIR__) . '/includes/ade_import.php';
 require_once dirname(__DIR__) . '/includes/gml_parser.php';
-
-function analyticspro_ade_log(int $jobId, string $level, string $message): void
-{
-    analyticspro_db()->prepare('INSERT INTO ade_import_job_log (job_id, level, message) VALUES (:job_id, :level, :message)')
-        ->execute([
-            'job_id' => $jobId,
-            'level' => $level,
-            'message' => $message,
-        ]);
-}
 
 function analyticspro_ade_collect_warning(array &$warningSummary, string $key, ?string $example = null, ?string $detail = null): void
 {
@@ -195,35 +186,14 @@ function analyticspro_log_ignored_map_gml_files(int $jobId, string $jobDir): voi
     }
 }
 
-function analyticspro_update_ade_job_progress(int $jobId, array $stats, ?string $status = null): void
-{
-    $sql = 'UPDATE ade_import_jobs
-            SET total_comuni = :total_comuni,
-                processed_comuni = :processed_comuni,
-                total_particelle = :total_particelle,
-                processed_particelle = :processed_particelle';
-
-    $params = [
-        'total_comuni' => (int) ($stats['total_comuni'] ?? 0),
-        'processed_comuni' => (int) ($stats['processed_comuni'] ?? 0),
-        'total_particelle' => (int) ($stats['total_particelle'] ?? 0),
-        'processed_particelle' => (int) ($stats['processed_particelle'] ?? 0),
-        'id' => $jobId,
-    ];
-
-    if ($status !== null) {
-        $sql .= ', status = :status';
-        $params['status'] = $status;
-    }
-
-    $sql .= ' WHERE id = :id';
-    analyticspro_db()->prepare($sql)->execute($params);
-}
-
 function analyticspro_run_ade_import_job(int $jobId, string $zipPath): void
 {
     if (PHP_SAPI === 'cli' && function_exists('set_time_limit')) {
         @set_time_limit(0);
+    }
+
+    if (!analyticspro_ade_is_allowed_import_path($zipPath, ['zip'])) {
+        throw new RuntimeException('Percorso archivio ZIP non consentito.');
     }
 
     $pdo = analyticspro_db();

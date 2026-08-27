@@ -512,8 +512,7 @@
             if (!statusEl) return;
             const color = STATUS_COLORS[job.status] || 'secondary';
             statusEl.innerHTML = `<span class="badge bg-${escapeHtml(color)} me-2">${escapeHtml(job.status)}</span>`
-                + `Comuni ${escapeHtml(String(job.processed_comuni))}/${escapeHtml(String(job.total_comuni))} · `
-                + `Particelle ${escapeHtml(String(job.processed_particelle))}/${escapeHtml(String(job.total_particelle))}`;
+                + formatAdeJobProgress(job);
         }
 
         async function poll() {
@@ -568,25 +567,40 @@
         };
     })();
 
-    function setAdeUploadButtonState(isUploading = false, hasFilesOverride = null) {
-        const input = document.getElementById('ade-zips');
-        const button = document.getElementById('ade-zips-submit');
+    function isAdeSqlJob(job) {
+        return String(job?.zip_filename || '').toLowerCase().endsWith('.sql');
+    }
+
+    function formatAdeJobProgress(job) {
+        if (isAdeSqlJob(job)) {
+            return `INSERT comuni ${escapeHtml(String(job.processed_comuni))}/${escapeHtml(String(job.total_comuni))} · `
+                + `INSERT particelle ${escapeHtml(String(job.processed_particelle))}/${escapeHtml(String(job.total_particelle))}`;
+        }
+
+        return `Comuni ${escapeHtml(String(job.processed_comuni))}/${escapeHtml(String(job.total_comuni))} · `
+            + `Particelle ${escapeHtml(String(job.processed_particelle))}/${escapeHtml(String(job.total_particelle))}`;
+    }
+
+    function setAdeUploadButtonState(inputId, buttonId, idleHtml, loadingHtml, isUploading = false, hasFilesOverride = null) {
+        const input = document.getElementById(inputId);
+        const button = document.getElementById(buttonId);
         if (!input || !button) return;
         const hasFiles = typeof hasFilesOverride === 'boolean' ? hasFilesOverride : Boolean(input.files?.length);
         button.disabled = isUploading || !hasFiles;
         button.innerHTML = isUploading
-            ? '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Caricamento...'
-            : '<i class="bi bi-cloud-upload me-1"></i>Importa';
+            ? loadingHtml
+            : idleHtml;
     }
 
-    async function submitAdeUpload() {
-        const input = document.getElementById('ade-zips');
+    async function submitAdeUpload(inputId, buttonId, importType, idleHtml, loadingHtml) {
+        const input = document.getElementById(inputId);
         if (!input?.files?.length) return;
         const formData = new FormData();
         formData.append('csrf_token', state.csrfToken);
+        formData.append('import_type', importType);
         Array.from(input.files).forEach(file => formData.append('files[]', file));
 
-        setAdeUploadButtonState(true);
+        setAdeUploadButtonState(inputId, buttonId, idleHtml, loadingHtml, true);
         try {
             const response = await fetch(withTenant(state.adeJobsEndpoint), { method: 'POST', body: formData });
             let payload = null;
@@ -595,14 +609,14 @@
                 throw new Error(payload?.error || `Upload fallito (${response.status})`);
             }
             input.value = '';
-            setAdeUploadButtonState(false, false);
+            setAdeUploadButtonState(inputId, buttonId, idleHtml, loadingHtml, false, false);
             const latestJobId = payload.job_ids?.length ? payload.job_ids[payload.job_ids.length - 1] : null;
             await refreshAdeJobs();
             if (latestJobId && adeLogModal) {
                 adeLogModal.open(latestJobId, `Job #${latestJobId}`);
             }
         } catch (error) {
-            setAdeUploadButtonState(false);
+            setAdeUploadButtonState(inputId, buttonId, idleHtml, loadingHtml, false);
             throw error;
         }
     }
@@ -622,16 +636,23 @@
                         <span class="badge text-bg-secondary">${escapeHtml(job.status)}</span>
                     </div>
                     <div class="progress my-2" style="height:6px;"><div class="progress-bar" style="width:${percent}%"></div></div>
-                    <div class="small text-muted">Comuni ${escapeHtml(String(job.processed_comuni))}/${escapeHtml(String(job.total_comuni))} · Particelle ${escapeHtml(String(job.processed_particelle))}/${escapeHtml(String(job.total_particelle))}</div>
+                    <div class="small text-muted">${formatAdeJobProgress(job)}</div>
                 </div>`;
         }).join('') || '<p class="text-muted mb-0">Nessun job ADE presente.</p>';
     }
 
     // ---- Manual upload (file già sul server) ----
-    async function loadAdeServerFiles() {
-        const listEl = document.getElementById('ade-server-files-list');
-        const selectAllBtn = document.getElementById('ade-server-select-all');
-        const submitBtn = document.getElementById('ade-server-submit');
+    async function loadAdeServerFiles(options = {}) {
+        const {
+            type = 'zip',
+            listId = 'ade-server-files-list',
+            selectAllId = 'ade-server-select-all',
+            submitId = 'ade-server-submit',
+            emptyLabel = 'Nessun file presente in <code>storage/manual_upload/</code>.',
+        } = options;
+        const listEl = document.getElementById(listId);
+        const selectAllBtn = document.getElementById(selectAllId);
+        const submitBtn = document.getElementById(submitId);
         if (!listEl) return;
         if (!state.adeManualFilesEndpoint) {
             listEl.innerHTML = '<p class="text-danger small mb-0">Endpoint lista file non configurato.</p>';
@@ -643,11 +664,11 @@
         listEl.innerHTML = '<div class="text-muted small">Caricamento…</div>';
 
         try {
-            const payload = await api(state.adeManualFilesEndpoint);
+            const payload = await api(`${state.adeManualFilesEndpoint}?type=${encodeURIComponent(type)}`);
             const files = payload.files || [];
 
             if (!files.length) {
-                listEl.innerHTML = '<p class="text-muted small mb-0">Nessun file ZIP presente in <code>storage/manual_upload/</code>.</p>';
+                listEl.innerHTML = `<p class="text-muted small mb-0">${emptyLabel}</p>`;
                 selectAllBtn && (selectAllBtn.style.display = 'none');
                 submitBtn && (submitBtn.style.display = 'none');
                 return;
@@ -676,9 +697,17 @@
         }
     }
 
-    async function submitAdeServerFiles() {
-        const listEl = document.getElementById('ade-server-files-list');
-        const submitBtn = document.getElementById('ade-server-submit');
+    async function submitAdeServerFiles(options = {}) {
+        const {
+            type = 'zip',
+            listId = 'ade-server-files-list',
+            submitId = 'ade-server-submit',
+            idleHtml = '<i class="bi bi-play-fill me-1"></i>Importa selezionati',
+            loadingHtml = '<span class="spinner-border spinner-border-sm me-1"></span>Elaborazione…',
+            reloadOptions = options,
+        } = options;
+        const listEl = document.getElementById(listId);
+        const submitBtn = document.getElementById(submitId);
         if (!listEl || !state.adeManualFilesEndpoint) return;
 
         const checked = Array.from(listEl.querySelectorAll('.ade-server-file-check:checked')).map(cb => cb.value);
@@ -686,12 +715,13 @@
 
         if (submitBtn) {
             submitBtn.disabled = true;
-            submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Elaborazione…';
+            submitBtn.innerHTML = loadingHtml;
         }
 
         try {
             const formData = new FormData();
             formData.append('csrf_token', state.csrfToken);
+            formData.append('type', type);
             checked.forEach(name => formData.append('files[]', name));
 
             const response = await fetch(state.adeManualFilesEndpoint, { method: 'POST', body: formData });
@@ -701,7 +731,7 @@
                 throw new Error(payload?.error || `Errore (${response.status})`);
             }
 
-            await loadAdeServerFiles();
+            await loadAdeServerFiles(reloadOptions);
             await refreshAdeJobs();
 
             const latestJobId = payload.job_ids?.length ? payload.job_ids[payload.job_ids.length - 1] : null;
@@ -712,7 +742,7 @@
             alert(error.message);
             if (submitBtn) {
                 submitBtn.disabled = false;
-                submitBtn.innerHTML = '<i class="bi bi-play-fill me-1"></i>Importa selezionati';
+                submitBtn.innerHTML = idleHtml;
             }
         }
     }
@@ -737,7 +767,10 @@
             }).catch(error => alert(error.message));
         }
         if (event.target.id === 'ade-zips') {
-            setAdeUploadButtonState(false);
+            setAdeUploadButtonState('ade-zips', 'ade-zips-submit', '<i class="bi bi-cloud-upload me-1"></i>Importa', '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Caricamento...', false);
+        }
+        if (event.target.id === 'ade-sql-files') {
+            setAdeUploadButtonState('ade-sql-files', 'ade-sql-submit', '<i class="bi bi-cloud-upload me-1"></i>Importa SQL', '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Caricamento...', false);
         }
     });
 
@@ -751,14 +784,54 @@
             loadProperties().catch(error => alert(error.message));
         }
         if (event.target.id === 'ade-zips-submit') {
-            submitAdeUpload().catch(error => alert(error.message));
+            submitAdeUpload('ade-zips', 'ade-zips-submit', 'zip', '<i class="bi bi-cloud-upload me-1"></i>Importa', '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Caricamento...').catch(error => alert(error.message));
+        }
+        if (event.target.id === 'ade-sql-submit') {
+            submitAdeUpload('ade-sql-files', 'ade-sql-submit', 'sql', '<i class="bi bi-cloud-upload me-1"></i>Importa SQL', '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Caricamento...').catch(error => alert(error.message));
         }
         if (event.target.id === 'ade-server-submit') {
-            submitAdeServerFiles().catch(error => alert(error.message));
+            submitAdeServerFiles({
+                type: 'zip',
+                listId: 'ade-server-files-list',
+                submitId: 'ade-server-submit',
+                idleHtml: '<i class="bi bi-play-fill me-1"></i>Importa selezionati',
+                loadingHtml: '<span class="spinner-border spinner-border-sm me-1"></span>Elaborazione…',
+                reloadOptions: {
+                    type: 'zip',
+                    listId: 'ade-server-files-list',
+                    selectAllId: 'ade-server-select-all',
+                    submitId: 'ade-server-submit',
+                    emptyLabel: 'Nessun file ZIP presente in <code>storage/manual_upload/</code>.',
+                },
+            }).catch(error => alert(error.message));
+        }
+        if (event.target.id === 'ade-server-sql-submit') {
+            submitAdeServerFiles({
+                type: 'sql',
+                listId: 'ade-server-sql-files-list',
+                submitId: 'ade-server-sql-submit',
+                idleHtml: '<i class="bi bi-play-fill me-1"></i>Importa SQL selezionati',
+                loadingHtml: '<span class="spinner-border spinner-border-sm me-1"></span>Elaborazione…',
+                reloadOptions: {
+                    type: 'sql',
+                    listId: 'ade-server-sql-files-list',
+                    selectAllId: 'ade-server-sql-select-all',
+                    submitId: 'ade-server-sql-submit',
+                    emptyLabel: 'Nessun file SQL presente in <code>storage/manual_upload/</code>.',
+                },
+            }).catch(error => alert(error.message));
         }
         if (event.target.id === 'ade-server-select-all') {
             const listEl = document.getElementById('ade-server-files-list');
             const submitBtn = document.getElementById('ade-server-submit');
+            const allChecks = listEl?.querySelectorAll('.ade-server-file-check') || [];
+            const allChecked = Array.from(allChecks).every(cb => cb.checked);
+            allChecks.forEach(cb => { cb.checked = !allChecked; });
+            if (submitBtn) submitBtn.disabled = allChecked;
+        }
+        if (event.target.id === 'ade-server-sql-select-all') {
+            const listEl = document.getElementById('ade-server-sql-files-list');
+            const submitBtn = document.getElementById('ade-server-sql-submit');
             const allChecks = listEl?.querySelectorAll('.ade-server-file-check') || [];
             const allChecked = Array.from(allChecks).every(cb => cb.checked);
             allChecks.forEach(cb => { cb.checked = !allChecked; });
@@ -837,10 +910,31 @@
             }
         }
         refreshAdeJobs().catch(() => {});
-        loadAdeServerFiles().catch(() => {});
+        loadAdeServerFiles({
+            type: 'zip',
+            listId: 'ade-server-files-list',
+            selectAllId: 'ade-server-select-all',
+            submitId: 'ade-server-submit',
+            emptyLabel: 'Nessun file ZIP presente in <code>storage/manual_upload/</code>.',
+        }).catch(() => {});
         // Load server files when the tab is shown
         document.getElementById('tab-server-btn')?.addEventListener('shown.bs.tab', () => {
-            loadAdeServerFiles().catch(() => {});
+            loadAdeServerFiles({
+                type: 'zip',
+                listId: 'ade-server-files-list',
+                selectAllId: 'ade-server-select-all',
+                submitId: 'ade-server-submit',
+                emptyLabel: 'Nessun file ZIP presente in <code>storage/manual_upload/</code>.',
+            }).catch(() => {});
+        });
+        document.getElementById('tab-sql-btn')?.addEventListener('shown.bs.tab', () => {
+            loadAdeServerFiles({
+                type: 'sql',
+                listId: 'ade-server-sql-files-list',
+                selectAllId: 'ade-server-sql-select-all',
+                submitId: 'ade-server-sql-submit',
+                emptyLabel: 'Nessun file SQL presente in <code>storage/manual_upload/</code>.',
+            }).catch(() => {});
         });
         const adePollingInterval = setInterval(() => refreshAdeJobs().catch(() => clearInterval(adePollingInterval)), 5000);
     }

@@ -302,35 +302,35 @@ function analyticspro_launch_background(string $script, array $arguments = []): 
     $phpBinary = PHP_BINARY ?: 'php';
     $escapedArgs = array_map(static fn ($arg) => escapeshellarg((string) $arg), $arguments);
     $command = sprintf('%s %s %s', escapeshellcmd($phpBinary), escapeshellarg($script), implode(' ', $escapedArgs));
+    $detachedCommand = $command . ' > /dev/null 2>&1 < /dev/null';
+    $shellWrapper = 'sh -c ' . escapeshellarg(
+        'if command -v setsid >/dev/null 2>&1; then exec setsid ' . $detachedCommand . '; else exec nohup ' . $detachedCommand . '; fi'
+    ) . ' >/dev/null 2>&1 &';
 
-    // Prova con proc_open, che non richiede shell_exec e permette di
-    // staccare realmente il processo figlio dalla richiesta HTTP corrente.
+    // Prova con proc_open, preferendo setsid (se disponibile) per staccare il
+    // processo in una nuova sessione; fallback a nohup sugli hosting più limitati.
     if (function_exists('proc_open')) {
         $descriptors = [
-            0 => ['pipe', 'r'],
-            1 => ['file', ANALYTICSPRO_ROOT . '/storage/logs/ade_worker.log', 'a'],
-            2 => ['file', ANALYTICSPRO_ROOT . '/storage/logs/ade_worker.log', 'a'],
+            0 => ['file', '/dev/null', 'r'],
+            1 => ['file', '/dev/null', 'a'],
+            2 => ['file', '/dev/null', 'a'],
         ];
 
-        // nohup + redirezione garantisce che il processo sopravviva alla chiusura
-        // della richiesta PHP-FPM/Apache corrente anche se lo script termina.
-        $fullCommand = 'nohup ' . $command . ' > /dev/null 2>&1 &';
-        $process = @proc_open($fullCommand, $descriptors, $pipes, ANALYTICSPRO_ROOT);
+        $process = @proc_open($shellWrapper, $descriptors, $pipes, ANALYTICSPRO_ROOT);
         if (is_resource($process)) {
             foreach ($pipes as $pipe) {
-                if (is_resource($pipe)) {
-                    fclose($pipe);
-                }
+            if (is_resource($pipe)) {
+                fclose($pipe);
+            }
             }
             // Non chiamare proc_close(): bloccherebbe fino al termine del processo.
-            // Il processo figlio, disaccoppiato con nohup + '&', prosegue autonomamente.
             return true;
         }
     }
 
     // Fallback: shell_exec, se disponibile.
     if (function_exists('shell_exec') && !in_array('shell_exec', array_map('trim', explode(',', (string) ini_get('disable_functions'))), true)) {
-        shell_exec($command . ' > /dev/null 2>&1 &');
+        shell_exec($shellWrapper);
         return true;
     }
 
