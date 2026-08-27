@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require dirname(__DIR__, 2) . '/includes/bootstrap.php';
+require_once ANALYTICSPRO_ROOT . '/includes/ade_import.php';
 require_once ANALYTICSPRO_ROOT . '/includes/api_bootstrap.php';
 
 analyticspro_api_guard();
@@ -14,8 +15,11 @@ if (!analyticspro_is_admin()) {
 try {
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         analyticspro_verify_csrf($_POST['csrf_token'] ?? null);
+        $importType = strtolower(trim((string) ($_POST['import_type'] ?? 'zip')));
+        $allowedExtensions = $importType === 'sql' ? ['sql'] : ['zip'];
+
         if (empty($_FILES['files'])) {
-            throw new RuntimeException('Nessun file ZIP inviato.');
+            throw new RuntimeException($importType === 'sql' ? 'Nessun file SQL inviato.' : 'Nessun file ZIP inviato.');
         }
 
         $createdJobIds = [];
@@ -28,34 +32,22 @@ try {
                 continue;
             }
 
-            $province = strtoupper(pathinfo((string) $name, PATHINFO_FILENAME));
+            $filename = analyticspro_ade_validate_filename((string) $name, $allowedExtensions);
+            if ($filename === null) {
+                throw new RuntimeException($importType === 'sql' ? 'Il file caricato deve avere estensione .sql.' : 'Il file caricato deve avere estensione .zip.');
+            }
+
             $pdo = analyticspro_db();
-            $pdo->prepare("INSERT INTO ade_import_jobs (provincia_sigla, zip_filename, status, created_by) VALUES (:provincia_sigla, :zip_filename, 'queued', :created_by)")
-                ->execute([
-                    'provincia_sigla' => $province,
-                    'zip_filename' => basename((string) $name),
-                    'created_by' => analyticspro_current_user()['id'],
-                ]);
-            $jobId = (int) $pdo->lastInsertId();
-            $destination = ANALYTICSPRO_ROOT . '/storage/ade_uploads/job_' . $jobId . '_' . basename((string) $name);
+            $jobId = analyticspro_ade_create_job($pdo, $filename, (int) analyticspro_current_user()['id']);
+            $destination = analyticspro_ade_prepare_destination_path($jobId, $filename);
             if (!move_uploaded_file((string) $tmpNames[$index], $destination)) {
                 throw new RuntimeException('Impossibile salvare il file caricato.');
             }
 
-            $worker = ANALYTICSPRO_ROOT . '/cron/ade_import_worker.php';
-            if (!analyticspro_launch_background($worker, [$jobId, $destination])) {
-                // Impossibile avviare un processo separato: NON eseguire il worker in modo
-               // sincrono dentro questa richiesta HTTP, altrimenti per ZIP grandi
-              // (province come Roma/Milano) si va in timeout 504 sul reverse proxy anche
-              // se il worker prosegue lato server. Segnala l'errore in modo esplicito.
-              analyticspro_ade_log($jobId, 'error', 'Impossibile avviare il worker in background (proc_open/shell_exec non disponibili su questo hosting). Contattare l\'amministratore di sistema per abilitare l\'esecuzione di processi in background, oppure configurare un cron job che esegua manualmente: php ' . $worker . ' ' . $jobId . ' ' . $destination);
-             $pdo->prepare("UPDATE ade_import_jobs SET status = 'failed', error_message = :error_message WHERE id = :id")
-             ->execute([
-                   'error_message' => 'Impossibile avviare il worker in background su questo hosting.',
-                  'id' => $jobId,
-               ]);
-              continue;
-            }   
+            if (!analyticspro_ade_launch_job($jobId, $destination, $importType)) {
+                continue;
+            }
+
             $createdJobIds[] = $jobId;
         }
 

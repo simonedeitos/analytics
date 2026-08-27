@@ -107,6 +107,39 @@ e processati esattamente come gli upload diretti da browser.
 
 Il tab **"Upload dal browser"** rimane disponibile per i file di piccole dimensioni.
 
+## Import ADE: file SQL pre-elaborati
+
+Per import molto grandi puoi evitare il parsing GML lato server generando prima un
+file `.sql` offline con il tool companion `tools/ADEtoDB/`.
+
+Nella pagina **Admin → Import cartografia ADE** è disponibile il terzo tab
+**"Importa file SQL pre-elaborato"**, che supporta due flussi:
+
+1. caricamento diretto del file `.sql` dal browser
+2. selezione di file `.sql` già copiati in `analyticspro/storage/manual_upload/`
+
+Il worker SQL esegue gli statement in background, aggiorna `ade_import_job_log`
+con l'avanzamento e continua anche in presenza di errori su singoli statement,
+tracciandoli nel log del job.
+
+### Tool Windows Forms ADEtoDB
+
+La solution Visual Studio è inclusa nel repository:
+
+```text
+tools/ADEtoDB/
+```
+
+ADEtoDB estrae localmente gli ZIP ADE, interpreta i GML con la stessa logica del
+parser PHP (`msGeometry`, campi maiuscoli, riferimenti catastali con sezione+foglio
+attaccati) e genera SQL compatibile con:
+
+- `cadastral_comuni`
+- `cadastral_parcels`
+- `ST_GeomFromText(wkt, 4326)` a **2 parametri**
+
+Consulta `tools/ADEtoDB/README.md` per build e utilizzo end-to-end.
+
 ### Log live
 
 Subito dopo aver avviato un import (da entrambe le modalità) si apre automaticamente

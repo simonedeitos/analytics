@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require dirname(__DIR__, 2) . '/includes/bootstrap.php';
+require_once ANALYTICSPRO_ROOT . '/includes/ade_import.php';
 require_once ANALYTICSPRO_ROOT . '/includes/api_bootstrap.php';
 
 analyticspro_api_guard();
@@ -14,11 +15,17 @@ if (!analyticspro_is_admin()) {
 $manualUploadDir = ANALYTICSPRO_ROOT . '/storage/manual_upload';
 
 try {
+    $requestedType = strtolower(trim((string) ($_REQUEST['type'] ?? 'zip')));
+    if (!in_array($requestedType, ['zip', 'sql'], true)) {
+        throw new RuntimeException('Tipo file non supportato.');
+    }
+    $allowedExtensions = [$requestedType];
+
     if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         $files = [];
         if (is_dir($manualUploadDir)) {
             foreach (new DirectoryIterator($manualUploadDir) as $fileInfo) {
-                if (!$fileInfo->isFile() || strtolower($fileInfo->getExtension()) !== 'zip') {
+                if (!$fileInfo->isFile() || strtolower($fileInfo->getExtension()) !== $requestedType) {
                     continue;
                 }
                 $files[] = [
@@ -45,8 +52,8 @@ try {
         $errors = [];
 
         foreach ($selectedNames as $rawName) {
-            $name = basename((string) $rawName);
-            if ($name === '' || strtolower(pathinfo($name, PATHINFO_EXTENSION)) !== 'zip') {
+            $name = analyticspro_ade_validate_filename((string) $rawName, $allowedExtensions);
+            if ($name === null) {
                 $errors[] = ['name' => (string) $rawName, 'error' => 'Nome file non valido.'];
                 continue;
             }
@@ -59,28 +66,17 @@ try {
                 continue;
             }
 
-            $province = strtoupper(pathinfo($name, PATHINFO_FILENAME));
-            $pdo->prepare(
-                "INSERT INTO ade_import_jobs (provincia_sigla, zip_filename, status, created_by)
-                 VALUES (:provincia_sigla, :zip_filename, 'queued', :created_by)"
-            )->execute([
-                'provincia_sigla' => $province,
-                'zip_filename' => $name,
-                'created_by' => analyticspro_current_user()['id'],
-            ]);
-            $jobId = (int) $pdo->lastInsertId();
+            $jobId = analyticspro_ade_create_job($pdo, $name, (int) analyticspro_current_user()['id']);
 
-            $destination = ANALYTICSPRO_ROOT . '/storage/ade_uploads/job_' . $jobId . '_' . $name;
+            $destination = analyticspro_ade_prepare_destination_path($jobId, $name);
             if (!rename($realSource, $destination)) {
                 $errors[] = ['name' => $name, 'error' => 'Impossibile spostare il file.'];
                 $pdo->prepare('DELETE FROM ade_import_jobs WHERE id = :id')->execute(['id' => $jobId]);
                 continue;
             }
 
-            $worker = ANALYTICSPRO_ROOT . '/cron/ade_import_worker.php';
-            if (!analyticspro_launch_background($worker, [$jobId, $destination])) {
-                require ANALYTICSPRO_ROOT . '/cron/ade_import_worker.php';
-                analyticspro_run_ade_import_job($jobId, $destination);
+            if (!analyticspro_ade_launch_job($jobId, $destination, $requestedType)) {
+                continue;
             }
 
             $createdJobIds[] = $jobId;
