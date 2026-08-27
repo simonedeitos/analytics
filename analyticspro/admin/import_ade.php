@@ -7,31 +7,14 @@ require_once __DIR__ . '/../includes/layout.php';
 require __DIR__ . '/_admin_check.php';
 
 $pdo     = analyticspro_db();
-$recentJobs = $pdo->query("SELECT j.id, j.provincia_sigla, j.zip_filename, j.status, j.total_comuni, j.processed_comuni, j.created_at, j.completed_at FROM ade_import_jobs j ORDER BY j.created_at DESC LIMIT 30")->fetchAll();
-
-// Pre-fetch the last 5 log lines for each non-completed job in a single query
-$nonCompletedIds = array_column(
-    array_filter($recentJobs, static fn($j) => in_array($j['status'], ['extracting', 'importing', 'verifying', 'failed'], true)),
-    'id'
-);
-$jobLogsByJob = [];
-if ($nonCompletedIds) {
-    // Fetch the most recent rows ordered descending, then invert per job in PHP
-    $inPlaceholders = implode(',', array_fill(0, count($nonCompletedIds), '?'));
-    $logStmt = $pdo->prepare("SELECT job_id, level, message, created_at FROM ade_import_job_log WHERE job_id IN ($inPlaceholders) ORDER BY id DESC");
-    $logStmt->execute($nonCompletedIds);
-    foreach ($logStmt->fetchAll() as $row) {
-        if (!isset($jobLogsByJob[$row['job_id']]) || count($jobLogsByJob[$row['job_id']]) < 5) {
-            $jobLogsByJob[$row['job_id']][] = $row;
-        }
-    }
-}
+$recentJobs = $pdo->query("SELECT j.id, j.provincia_sigla, j.zip_filename, j.status, j.total_comuni, j.processed_comuni, j.total_particelle, j.processed_particelle, j.created_at, j.completed_at, j.error_message FROM ade_import_jobs j ORDER BY j.created_at DESC LIMIT 30")->fetchAll();
 
 analyticspro_render_header('Import ADE', ['app_assets' => true]);
 require __DIR__ . '/_admin_subnav.php';
 ?>
 <div id="analyticspro-app"
-     data-ade-jobs-endpoint="<?= analyticspro_h(analyticspro_base_url('api/admin/ade_jobs.php')) ?>">
+     data-ade-jobs-endpoint="<?= analyticspro_h(analyticspro_base_url('api/admin/ade_jobs.php')) ?>"
+     data-ade-manual-files-endpoint="<?= analyticspro_h(analyticspro_base_url('api/admin/ade_manual_files.php')) ?>">
 
     <h1 class="h3 mb-4">Import cartografia ADE</h1>
 
@@ -39,19 +22,61 @@ require __DIR__ . '/_admin_subnav.php';
         <div class="col-lg-5">
             <div class="card border-0 shadow-sm">
                 <div class="card-body">
-                    <h2 class="h5">Carica ZIP provinciali</h2>
-                    <p class="text-muted small mb-3">
-                        Carica i file ZIP provinciali ADE (es. <code>NA.zip</code>). Il worker elabora
-                        ricorsivamente i comuni annidati (<code>A024_ACERRA.zip</code> → GML) e
-                        popola le tabelle <code>cadastral_comuni</code> e <code>cadastral_parcels</code>
-                        nel database applicativo MySQL.
-                    </p>
-                    <input id="ade-zips" type="file" class="form-control mb-2" accept=".zip" multiple>
-                    <button id="ade-zips-submit" class="btn btn-primary mt-2" type="button" disabled>
-                        <i class="bi bi-cloud-upload me-1"></i>Importa
-                    </button>
-                    <div class="form-text mb-3">Puoi caricare una provincia per volta o più file contemporaneamente.</div>
-                    <div id="ade-jobs" class="mt-2"></div>
+                    <h2 class="h5">Importa ZIP provinciali</h2>
+
+                    <!-- Nav tabs -->
+                    <ul class="nav nav-tabs mb-3" id="ade-import-tabs" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active" id="tab-upload-btn" data-bs-toggle="tab"
+                                    data-bs-target="#tab-upload" type="button" role="tab">
+                                <i class="bi bi-cloud-upload me-1"></i>Upload dal browser
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="tab-server-btn" data-bs-toggle="tab"
+                                    data-bs-target="#tab-server" type="button" role="tab">
+                                <i class="bi bi-hdd me-1"></i>File sul server
+                            </button>
+                        </li>
+                    </ul>
+
+                    <div class="tab-content">
+                        <!-- Tab: upload da browser -->
+                        <div class="tab-pane fade show active" id="tab-upload" role="tabpanel">
+                            <p class="text-muted small mb-3">
+                                Carica i file ZIP provinciali ADE (es. <code>BS.zip</code>). Il worker elabora
+                                ricorsivamente i comuni annidati e popola le tabelle
+                                <code>cadastral_comuni</code> e <code>cadastral_parcels</code>.
+                            </p>
+                            <input id="ade-zips" type="file" class="form-control mb-2" accept=".zip" multiple>
+                            <button id="ade-zips-submit" class="btn btn-primary mt-2" type="button" disabled>
+                                <i class="bi bi-cloud-upload me-1"></i>Importa
+                            </button>
+                            <div class="form-text mb-3">Puoi caricare una provincia per volta o più file contemporaneamente.</div>
+                        </div>
+
+                        <!-- Tab: file già sul server -->
+                        <div class="tab-pane fade" id="tab-server" role="tabpanel">
+                            <p class="text-muted small mb-3">
+                                Seleziona i file ZIP già presenti in
+                                <code>storage/manual_upload/</code> (caricati via FTP/file manager)
+                                per avviarne l'elaborazione senza doverli ricaricare dal browser.
+                            </p>
+                            <div id="ade-server-files-list">
+                                <div class="text-muted small">Caricamento lista file…</div>
+                            </div>
+                            <div class="mt-2 d-flex gap-2 flex-wrap">
+                                <button id="ade-server-select-all" class="btn btn-sm btn-outline-secondary" type="button" style="display:none!important">
+                                    Seleziona tutti
+                                </button>
+                                <button id="ade-server-submit" class="btn btn-primary btn-sm" type="button" disabled style="display:none!important">
+                                    <i class="bi bi-play-fill me-1"></i>Importa selezionati
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="ade-jobs" class="mt-3"></div>
                 </div>
             </div>
         </div>
@@ -70,8 +95,9 @@ require __DIR__ . '/_admin_subnav.php';
                                         <th>Provincia</th>
                                         <th>File</th>
                                         <th>Stato</th>
-                                        <th>Comuni</th>
+                                        <th>Comuni / Particelle</th>
                                         <th>Avviato</th>
+                                        <th></th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -94,26 +120,20 @@ require __DIR__ . '/_admin_subnav.php';
                                             ?>
                                             <span class="badge bg-<?= analyticspro_h($sc) ?>"><?= analyticspro_h((string) $job['status']) ?></span>
                                         </td>
-                                        <td><?= analyticspro_h((string) $job['processed_comuni']) ?>/<?= analyticspro_h((string) $job['total_comuni']) ?></td>
+                                        <td class="small">
+                                            <?= analyticspro_h((string) $job['processed_comuni']) ?>/<?= analyticspro_h((string) $job['total_comuni']) ?> comuni<br>
+                                            <?= analyticspro_h((string) $job['processed_particelle']) ?>/<?= analyticspro_h((string) $job['total_particelle']) ?> particelle
+                                        </td>
                                         <td class="text-muted small"><?= analyticspro_h((string) $job['created_at']) ?></td>
-                                    </tr>
-                                    <?php
-                                    // Show last log lines for non-completed jobs (pre-fetched above)
-                                    if (in_array($job['status'], ['extracting', 'importing', 'verifying', 'failed'], true)):
-                                        $lines = array_reverse($jobLogsByJob[$job['id']] ?? []);
-                                    ?>
-                                    <tr>
-                                        <td colspan="6" class="p-0">
-                                            <div class="bg-dark text-white small p-2 font-monospace" style="font-size:.75rem;max-height:80px;overflow-y:auto;">
-                                                <?php foreach ($lines as $line): ?>
-                                                    <div class="text-<?= $line['level'] === 'error' ? 'danger' : ($line['level'] === 'warning' ? 'warning' : 'light') ?>">
-                                                        [<?= analyticspro_h((string) $line['created_at']) ?>] <?= analyticspro_h((string) $line['message']) ?>
-                                                    </div>
-                                                <?php endforeach; ?>
-                                            </div>
+                                        <td>
+                                            <button class="btn btn-sm btn-outline-secondary ade-open-log-btn"
+                                                    data-job-id="<?= analyticspro_h((string) $job['id']) ?>"
+                                                    data-job-label="<?= analyticspro_h(strtoupper((string) $job['provincia_sigla']) . ' · ' . (string) $job['zip_filename']) ?>"
+                                                    title="Vedi log">
+                                                <i class="bi bi-terminal"></i>
+                                            </button>
                                         </td>
                                     </tr>
-                                    <?php endif; ?>
                                 <?php endforeach; ?>
                                 </tbody>
                             </table>
@@ -124,4 +144,27 @@ require __DIR__ . '/_admin_subnav.php';
         </div>
     </div>
 </div>
+
+<!-- Modal log live -->
+<div class="modal fade" id="ade-log-modal" tabindex="-1" aria-labelledby="ade-log-modal-label" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content bg-dark text-light">
+            <div class="modal-header border-secondary">
+                <div>
+                    <h5 class="modal-title" id="ade-log-modal-label">Log job ADE</h5>
+                    <div id="ade-log-modal-status" class="small mt-1"></div>
+                </div>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Chiudi"></button>
+            </div>
+            <div class="modal-body p-0">
+                <div id="ade-log-modal-body" class="font-monospace p-3" style="font-size:.78rem;min-height:300px;max-height:60vh;overflow-y:auto;background:#1e1e1e;"></div>
+            </div>
+            <div class="modal-footer border-secondary">
+                <span id="ade-log-modal-footer" class="text-muted small me-auto"></span>
+                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Chiudi</button>
+            </div>
+        </div>
+    </div>
+</div>
 <?php analyticspro_render_footer(true); ?>
+

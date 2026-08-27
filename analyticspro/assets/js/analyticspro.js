@@ -19,6 +19,7 @@
         importEndpoint: root.dataset.importEndpoint,
         importProgressEndpoint: root.dataset.importProgressEndpoint,
         adeJobsEndpoint: root.dataset.adeJobsEndpoint,
+        adeManualFilesEndpoint: root.dataset.adeManualFilesEndpoint,
         properties: [],
         subusers: [],
         map: null,
@@ -471,6 +472,102 @@
         }
     }
 
+    // ---- ADE log modal ----
+    const adeLogModal = (() => {
+        const modalEl = document.getElementById('ade-log-modal');
+        if (!modalEl) return null;
+        const bsModal = new bootstrap.Modal(modalEl);
+        const bodyEl = document.getElementById('ade-log-modal-body');
+        const statusEl = document.getElementById('ade-log-modal-status');
+        const footerEl = document.getElementById('ade-log-modal-footer');
+        const titleEl = document.getElementById('ade-log-modal-label');
+        let currentJobId = null;
+        let lastLogId = 0;
+        let pollingTimer = null;
+        let userScrolled = false;
+
+        const STATUS_COLORS = { queued: 'secondary', extracting: 'info', importing: 'primary', verifying: 'warning', completed: 'success', failed: 'danger' };
+        const LOG_COLORS = { error: 'text-danger', warning: 'text-warning', info: 'text-light' };
+
+        function formatSize(bytes) {
+            if (bytes >= 1048576) return (bytes / 1048576).toFixed(1) + ' MB';
+            if (bytes >= 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            return bytes + ' B';
+        }
+
+        function appendLogs(logs) {
+            if (!bodyEl || !logs.length) return;
+            const wasAtBottom = bodyEl.scrollHeight - bodyEl.scrollTop <= bodyEl.clientHeight + 40;
+            logs.forEach(log => {
+                const div = document.createElement('div');
+                div.className = LOG_COLORS[log.level] || 'text-light';
+                div.textContent = `[${log.created_at}] ${(log.level || 'info').toUpperCase().padEnd(7)} ${log.message}`;
+                bodyEl.appendChild(div);
+                if (log.id) lastLogId = Math.max(lastLogId, Number(log.id));
+            });
+            if (!userScrolled || wasAtBottom) bodyEl.scrollTop = bodyEl.scrollHeight;
+        }
+
+        function updateStatus(job) {
+            if (!statusEl) return;
+            const color = STATUS_COLORS[job.status] || 'secondary';
+            statusEl.innerHTML = `<span class="badge bg-${escapeHtml(color)} me-2">${escapeHtml(job.status)}</span>`
+                + `Comuni ${escapeHtml(String(job.processed_comuni))}/${escapeHtml(String(job.total_comuni))} · `
+                + `Particelle ${escapeHtml(String(job.processed_particelle))}/${escapeHtml(String(job.total_particelle))}`;
+        }
+
+        async function poll() {
+            if (!currentJobId) return;
+            try {
+                const url = `${state.adeJobsEndpoint}?job_id=${currentJobId}&after_id=${lastLogId}`;
+                const payload = await api(url);
+                const job = payload.job;
+                if (job) updateStatus(job);
+                appendLogs(payload.logs || []);
+                const done = job && (job.status === 'completed' || job.status === 'failed');
+                if (done) {
+                    stopPolling();
+                    if (footerEl) {
+                        footerEl.textContent = job.status === 'completed'
+                            ? 'Job completato.'
+                            : `Job fallito: ${job.error_message || 'errore sconosciuto'}`;
+                    }
+                } else {
+                    pollingTimer = setTimeout(poll, 1500);
+                }
+            } catch {
+                pollingTimer = setTimeout(poll, 3000);
+            }
+        }
+
+        function stopPolling() {
+            if (pollingTimer) { clearTimeout(pollingTimer); pollingTimer = null; }
+        }
+
+        if (bodyEl) {
+            bodyEl.addEventListener('scroll', () => {
+                userScrolled = bodyEl.scrollHeight - bodyEl.scrollTop > bodyEl.clientHeight + 60;
+            });
+        }
+
+        modalEl.addEventListener('hidden.bs.modal', stopPolling);
+
+        return {
+            open(jobId, label) {
+                currentJobId = jobId;
+                lastLogId = 0;
+                userScrolled = false;
+                if (bodyEl) bodyEl.innerHTML = '';
+                if (titleEl) titleEl.textContent = label || `Job #${jobId}`;
+                if (statusEl) statusEl.innerHTML = '';
+                if (footerEl) footerEl.textContent = 'Connessione in corso…';
+                bsModal.show();
+                poll();
+            },
+            formatSize,
+        };
+    })();
+
     function setAdeUploadButtonState(isUploading = false, hasFilesOverride = null) {
         const input = document.getElementById('ade-zips');
         const button = document.getElementById('ade-zips-submit');
@@ -493,40 +590,128 @@
         try {
             const response = await fetch(withTenant(state.adeJobsEndpoint), { method: 'POST', body: formData });
             let payload = null;
-            try {
-                payload = await response.json();
-            } catch {}
+            try { payload = await response.json(); } catch {}
             if (!response.ok || !payload?.ok) {
                 throw new Error(payload?.error || `Upload fallito (${response.status})`);
             }
             input.value = '';
             setAdeUploadButtonState(false, false);
-            const latestJob = payload.job_ids?.length ? payload.job_ids[payload.job_ids.length - 1] : undefined;
-            await refreshAdeJobs(latestJob);
-            alert('Import avviato correttamente.');
+            const latestJobId = payload.job_ids?.length ? payload.job_ids[payload.job_ids.length - 1] : null;
+            await refreshAdeJobs();
+            if (latestJobId && adeLogModal) {
+                const firstFile = Array.from(input.files || [])[0];
+                adeLogModal.open(latestJobId, `Job #${latestJobId}`);
+            }
         } catch (error) {
             setAdeUploadButtonState(false);
             throw error;
         }
     }
 
-    async function refreshAdeJobs(jobId) {
+    async function refreshAdeJobs() {
         const container = document.getElementById('ade-jobs');
         if (!container) return;
-        const payload = await api(jobId ? `${state.adeJobsEndpoint}?job_id=${jobId}` : state.adeJobsEndpoint);
-        const jobs = payload.jobs || (payload.job ? [payload.job] : []);
-        const logsByJob = payload.logs ? { [payload.job.id]: payload.logs } : {};
+        const payload = await api(state.adeJobsEndpoint);
+        const jobs = payload.jobs || [];
         container.innerHTML = jobs.map(job => {
-            const percent = job.total_particelle ? Math.round((Number(job.processed_particelle) / Number(job.total_particelle || 1)) * 100) : 0;
-            const logs = logsByJob[job.id] || [];
+            const percent = Number(job.total_particelle) > 0
+                ? Math.round((Number(job.processed_particelle) / Number(job.total_particelle)) * 100) : 0;
             return `
-                <div class="border rounded p-3 mb-3">
-                    <div class="d-flex justify-content-between flex-wrap gap-2"><strong>${escapeHtml(job.provincia_sigla)} · ${escapeHtml(job.zip_filename)}</strong><span class="badge text-bg-secondary">${escapeHtml(job.status)}</span></div>
-                    <div class="progress my-2" style="height: 8px;"><div class="progress-bar" style="width:${percent}%"></div></div>
-                    <div class="small text-muted">Comuni ${job.processed_comuni}/${job.total_comuni} · Particelle ${job.processed_particelle}/${job.total_particelle}</div>
-                    ${logs.length ? `<pre class="small bg-light p-2 mt-2 mb-0">${escapeHtml(logs.map(log => `[${log.created_at}] ${log.level.toUpperCase()} ${log.message}`).join('\n'))}</pre>` : ''}
+                <div class="border rounded p-3 mb-2">
+                    <div class="d-flex justify-content-between flex-wrap gap-2">
+                        <strong>${escapeHtml(job.provincia_sigla)} · ${escapeHtml(job.zip_filename)}</strong>
+                        <span class="badge text-bg-secondary">${escapeHtml(job.status)}</span>
+                    </div>
+                    <div class="progress my-2" style="height:6px;"><div class="progress-bar" style="width:${percent}%"></div></div>
+                    <div class="small text-muted">Comuni ${escapeHtml(String(job.processed_comuni))}/${escapeHtml(String(job.total_comuni))} · Particelle ${escapeHtml(String(job.processed_particelle))}/${escapeHtml(String(job.total_particelle))}</div>
                 </div>`;
         }).join('') || '<p class="text-muted mb-0">Nessun job ADE presente.</p>';
+    }
+
+    // ---- Manual upload (file già sul server) ----
+    async function loadAdeServerFiles() {
+        const listEl = document.getElementById('ade-server-files-list');
+        const selectAllBtn = document.getElementById('ade-server-select-all');
+        const submitBtn = document.getElementById('ade-server-submit');
+        if (!listEl || !state.adeManualFilesEndpoint) return;
+
+        listEl.innerHTML = '<div class="text-muted small">Caricamento…</div>';
+
+        try {
+            const payload = await api(state.adeManualFilesEndpoint);
+            const files = payload.files || [];
+
+            if (!files.length) {
+                listEl.innerHTML = '<p class="text-muted small mb-0">Nessun file ZIP presente in <code>storage/manual_upload/</code>.</p>';
+                if (selectAllBtn) selectAllBtn.style.removeProperty('display');
+                if (submitBtn) submitBtn.style.removeProperty('display');
+                selectAllBtn && (selectAllBtn.style.display = 'none');
+                submitBtn && (submitBtn.style.display = 'none');
+                return;
+            }
+
+            listEl.innerHTML = `<div class="list-group list-group-flush border rounded mb-2">
+                ${files.map(f => `
+                <label class="list-group-item list-group-item-action py-2 px-3 d-flex align-items-center gap-2">
+                    <input type="checkbox" class="form-check-input ade-server-file-check" value="${escapeHtml(f.name)}">
+                    <span class="flex-grow-1 text-truncate font-monospace small">${escapeHtml(f.name)}</span>
+                    <span class="text-muted small text-nowrap">${escapeHtml(adeLogModal?.formatSize(f.size) || String(f.size))}</span>
+                </label>`).join('')}
+            </div>`;
+
+            if (selectAllBtn) { selectAllBtn.style.removeProperty('display'); }
+            if (submitBtn) { submitBtn.style.removeProperty('display'); submitBtn.disabled = true; }
+
+            listEl.querySelectorAll('.ade-server-file-check').forEach(cb => {
+                cb.addEventListener('change', () => {
+                    const anyChecked = !!listEl.querySelector('.ade-server-file-check:checked');
+                    if (submitBtn) submitBtn.disabled = !anyChecked;
+                });
+            });
+        } catch (error) {
+            listEl.innerHTML = `<p class="text-danger small mb-0">Errore: ${escapeHtml(error.message)}</p>`;
+        }
+    }
+
+    async function submitAdeServerFiles() {
+        const listEl = document.getElementById('ade-server-files-list');
+        const submitBtn = document.getElementById('ade-server-submit');
+        if (!listEl || !state.adeManualFilesEndpoint) return;
+
+        const checked = Array.from(listEl.querySelectorAll('.ade-server-file-check:checked')).map(cb => cb.value);
+        if (!checked.length) return;
+
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Elaborazione…';
+        }
+
+        try {
+            const formData = new FormData();
+            formData.append('csrf_token', state.csrfToken);
+            checked.forEach(name => formData.append('files[]', name));
+
+            const response = await fetch(state.adeManualFilesEndpoint, { method: 'POST', body: formData });
+            let payload = null;
+            try { payload = await response.json(); } catch {}
+            if (!response.ok || !payload?.ok) {
+                throw new Error(payload?.error || `Errore (${response.status})`);
+            }
+
+            await loadAdeServerFiles();
+            await refreshAdeJobs();
+
+            const latestJobId = payload.job_ids?.length ? payload.job_ids[payload.job_ids.length - 1] : null;
+            if (latestJobId && adeLogModal) {
+                adeLogModal.open(latestJobId, `Job #${latestJobId}`);
+            }
+        } catch (error) {
+            alert(error.message);
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '<i class="bi bi-play-fill me-1"></i>Importa selezionati';
+            }
+        }
     }
 
     document.addEventListener('change', event => {
@@ -564,6 +749,23 @@
         }
         if (event.target.id === 'ade-zips-submit') {
             submitAdeUpload().catch(error => alert(error.message));
+        }
+        if (event.target.id === 'ade-server-submit') {
+            submitAdeServerFiles().catch(error => alert(error.message));
+        }
+        if (event.target.id === 'ade-server-select-all') {
+            const listEl = document.getElementById('ade-server-files-list');
+            const submitBtn = document.getElementById('ade-server-submit');
+            const allChecks = listEl?.querySelectorAll('.ade-server-file-check') || [];
+            const allChecked = Array.from(allChecks).every(cb => cb.checked);
+            allChecks.forEach(cb => { cb.checked = !allChecked; });
+            if (submitBtn) submitBtn.disabled = allChecked;
+        }
+        const logBtn = event.target.closest('.ade-open-log-btn');
+        if (logBtn && adeLogModal) {
+            const jobId = logBtn.dataset.jobId;
+            const label = logBtn.dataset.jobLabel || `Job #${jobId}`;
+            adeLogModal.open(Number(jobId), label);
         }
     });
 
@@ -611,7 +813,13 @@
 
     loadProperties().catch(error => alert(error.message));
     if (document.getElementById('ade-jobs')) {
+        state.adeManualFilesEndpoint = root.dataset.adeManualFilesEndpoint;
         refreshAdeJobs().catch(() => {});
+        loadAdeServerFiles().catch(() => {});
+        // Load server files when the tab is shown
+        document.getElementById('tab-server-btn')?.addEventListener('shown.bs.tab', () => {
+            loadAdeServerFiles().catch(() => {});
+        });
         const adePollingInterval = setInterval(() => refreshAdeJobs().catch(() => clearInterval(adePollingInterval)), 5000);
     }
 })();

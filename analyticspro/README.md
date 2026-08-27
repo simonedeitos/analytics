@@ -88,3 +88,27 @@ interroga `cadastral_parcels.interior_point` tramite `ST_Y()` / `ST_X()` per ott
 - CSRF su form e API JSON
 - Il telefono resta nascosto se `can_view_phone = 0` per il tenant
 - I subutenti non possono eliminare dati e, senza `can_edit_all_markers`, possono modificare solo immobili assegnati
+
+## Import ADE: caricamento via FTP / file manager
+
+Per file ZIP di grandi dimensioni (o quando l'upload HTTP diretto non è pratico),
+è possibile caricare i file sul server tramite FTP o file manager nella cartella:
+
+```
+analyticspro/storage/manual_upload/
+```
+
+Poi nella pagina **Admin → Import cartografia ADE**, seleziona il tab
+**"File già presenti sul server"**: la lista dei file ZIP presenti in
+`storage/manual_upload/` viene mostrata automaticamente. Spunta i file desiderati
+e clicca **"Importa selezionati"**: i file vengono spostati in `storage/ade_uploads/`
+e processati esattamente come gli upload diretti da browser.
+
+Il tab **"Upload dal browser"** rimane disponibile per i file di piccole dimensioni.
+
+### Log live
+
+Subito dopo aver avviato un import (da entrambe le modalità) si apre automaticamente
+una finestra modale con il **log in tempo reale** del job. Puoi riaprirla in qualsiasi
+momento cliccando il pulsante <kbd><i class="bi bi-terminal"></i></kbd> accanto a
+ciascun job nella tabella "Job recenti".
