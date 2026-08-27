@@ -167,14 +167,14 @@ function analyticspro_run_ade_import_job(int $jobId, string $zipPath): void
         );
 
         $upsertParcelStmt = $pdo->prepare(
-            'INSERT INTO cadastral_parcels (comune_id, cod_catastale, sezione, foglio, particella, geom, interior_point, area_mq, source_file)
-             VALUES (:comune_id, :cod_catastale, :sezione, :foglio, :particella, ST_GeomFromText(:wkt_polygon, 4326), ST_GeomFromText(:wkt_point, 4326), :area_mq, :source_file)
+            "INSERT INTO cadastral_parcels (comune_id, cod_catastale, sezione, foglio, particella, geom, interior_point, area_mq, source_file)
+             VALUES (:comune_id, :cod_catastale, :sezione, :foglio, :particella, ST_GeomFromText(:wkt_polygon, 4326, 'axis-order=long-lat'), ST_GeomFromText(:wkt_point, 4326, 'axis-order=long-lat'), :area_mq, :source_file)
              ON DUPLICATE KEY UPDATE
                 id = LAST_INSERT_ID(id),
                 geom = VALUES(geom),
                 interior_point = VALUES(interior_point),
                 area_mq = VALUES(area_mq),
-                source_file = VALUES(source_file)'
+                source_file = VALUES(source_file)"
         );
 
         $upsertVerificationStmt = $pdo->prepare(
@@ -262,27 +262,36 @@ function analyticspro_run_ade_import_job(int $jobId, string $zipPath): void
                         analyticspro_ade_log($jobId, 'warning', "Centroide fuori poligono, uso fallback {$interior['strategy']} per {$codCatastale} {$parts['foglio']}/{$parts['particella']}");
                     }
 
-                    $upsertParcelStmt->execute([
-                        'comune_id' => $comuneId,
-                        'cod_catastale' => $codCatastale,
-                        'sezione' => $parts['sezione'] ?? null,
-                        'foglio' => $parts['foglio'],
-                        'particella' => $parts['particella'],
-                        'wkt_polygon' => $wktPolygon,
-                        'wkt_point' => $wktPoint,
-                        'area_mq' => $parcel['area_mq'] ?? null,
-                        'source_file' => basename($plePath),
-                    ]);
+                    try {
+                        $upsertParcelStmt->execute([
+                            'comune_id' => $comuneId,
+                            'cod_catastale' => $codCatastale,
+                            'sezione' => $parts['sezione'] ?? null,
+                            'foglio' => $parts['foglio'],
+                            'particella' => $parts['particella'],
+                            'wkt_polygon' => $wktPolygon,
+                            'wkt_point' => $wktPoint,
+                            'area_mq' => $parcel['area_mq'] ?? null,
+                            'source_file' => basename($plePath),
+                        ]);
 
-                    $parcelId = (int) $pdo->lastInsertId();
-                    $upsertVerificationStmt->execute([
-                        'parcel_id' => $parcelId,
-                    ]);
+                        $parcelId = (int) $pdo->lastInsertId();
+                        $upsertVerificationStmt->execute([
+                            'parcel_id' => $parcelId,
+                        ]);
 
-                    // TODO: integrare verifica reale contro servizio ADE (WMS/AJAX) in una fase successiva.
+                        // TODO: integrare verifica reale contro servizio ADE (WMS/AJAX) in una fase successiva.
 
-                    $stats['processed_particelle']++;
-                    $insertedForComune++;
+                        $stats['processed_particelle']++;
+                        $insertedForComune++;
+                    } catch (Throwable $parcelException) {
+                        analyticspro_ade_log(
+                            $jobId,
+                            'warning',
+                            "Particella scartata {$codCatastale} {$parts['foglio']}/{$parts['particella']}: {$parcelException->getMessage()}"
+                        );
+                        continue;
+                    }
 
                     if ($stats['processed_particelle'] % $progressStep === 0) {
                         analyticspro_update_ade_job_progress($jobId, $stats);
