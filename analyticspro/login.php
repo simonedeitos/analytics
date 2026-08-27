@@ -33,7 +33,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-analyticspro_render_header('Login', ['body_class' => 'bg-auth']);
+analyticspro_render_header('Login', ['body_class' => 'bg-auth', 'auth_page' => true]);
 ?>
 <div class="row justify-content-center">
     <div class="col-12 col-md-6 col-lg-4">

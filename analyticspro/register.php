@@ -59,7 +59,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-analyticspro_render_header('Registrazione', ['body_class' => 'bg-auth']);
+analyticspro_render_header('Registrazione', ['body_class' => 'bg-auth', 'auth_page' => true]);
 ?>
 <div class="row justify-content-center">
     <div class="col-12 col-md-7 col-lg-5">

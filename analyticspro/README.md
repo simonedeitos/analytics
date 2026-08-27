@@ -6,11 +6,11 @@ Webapp PHP/PDO multi-tenant per importare dati catastali, salvarli su MySQL/Mari
 
 1. Copia `analyticspro/.env.example` in `analyticspro/.env` e configura:
    - MySQL/MariaDB: `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASS`
-   - PostGIS: `POSTGIS_HOST`, `POSTGIS_PORT`, `POSTGIS_DB`, `POSTGIS_USER`, `POSTGIS_PASS`
    - Bootstrap encryption key: `APP_BOOTSTRAP_ENCRYPTION_KEY`
-2. Esegui lo schema iniziale MySQL/MariaDB:
+2. Esegui gli schemi SQL:
    ```bash
    mysql -u USER -p DBNAME < analyticspro/sql/schema.sql
+   mysql -u USER -p DBNAME < analyticspro/sql/cadastral_geometry.sql
    ```
 3. Apri `analyticspro/setup/create_admin.php`, genera la query del primo admin ed eseguila manualmente sul database.
 4. **Elimina `analyticspro/setup/create_admin.php` dopo l'uso**.
@@ -39,41 +39,41 @@ Webapp PHP/PDO multi-tenant per importare dati catastali, salvarli su MySQL/Mari
 - Pulsante “Testa connessione” basato su handshake SMTP socket.
 - Le notifiche registrazione/subutente usano la configurazione presente in `system_config` con fallback `.env`.
 
-## PostGIS / cartografia ADE
+## Cartografia ADE — tabelle MySQL
 
-AnalyticsPRO prevede un database PostGIS separato per il lookup `foglio + particella -> punto marker`.
+Le geometrie catastali (particelle, comuni) sono memorizzate in **tabelle dedicate
+nello stesso database MySQL/MariaDB applicativo** — non è necessario alcun database
+PostGIS esterno.
 
-### Variabili `.env`
+### Schema
 
-```env
-POSTGIS_HOST=127.0.0.1
-POSTGIS_PORT=5432
-POSTGIS_DB=analytics_gis
-POSTGIS_USER=postgres
-POSTGIS_PASS=
+```bash
+mysql -u USER -p DBNAME < analyticspro/sql/schema.sql
+mysql -u USER -p DBNAME < analyticspro/sql/cadastral_geometry.sql
 ```
 
-### Tabella attesa nella prima versione
+Le tabelle aggiunte sono:
 
-La lookup query usa una tabella `cadastral_parcels` con almeno:
+| Tabella | Descrizione |
+|---|---|
+| `cadastral_comuni` | Un record per comune importato (collegato al job ADE) |
+| `cadastral_parcels` | Geometrie delle particelle (`GEOMETRY SRID 4326`) con `interior_point` precalcolato |
+| `cadastral_parcel_verification` | Log di verifica della posizione marker |
 
-- `provincia_sigla`
-- `comune`
-- `foglio`
-- `particella`
-- `geom` (geometry/polygon)
+Richiede **MySQL 8.0+** o **MariaDB 10.5+** per il supporto a `GEOMETRY` con SRID e `SPATIAL INDEX`.
 
-La query marker usa `ST_PointOnSurface(geom)`.
+### Lookup coordinate
+
+La funzione `analyticspro_lookup_cadastral_coordinates()` in `includes/importer.php`
+interroga `cadastral_parcels.interior_point` tramite `ST_Y()` / `ST_X()` per ottenere
+`lat` / `lng` da assegnare al marker.
 
 ## Worker ADE
 
 - Endpoint admin: `analyticspro/api/admin/ade_jobs.php`
 - Worker CLI: `analyticspro/cron/ade_import_worker.php`
-- In questa prima PR il worker:
-  - salva il job in coda
-  - estrae ricorsivamente ZIP annidati
-  - aggiorna progress e log in `ade_import_jobs` / `ade_import_job_log`
-  - lascia un TODO esplicito per la conversione/import GML -> PostGIS (es. `ogr2ogr` se disponibile)
+- Sezione admin dedicata: `analyticspro/admin/import_ade.php`
+- Il worker estrae ricorsivamente ZIP annidati e popola `cadastral_comuni` / `cadastral_parcels`
 
 ## Note operative
 

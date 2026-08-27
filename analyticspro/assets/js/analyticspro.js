@@ -236,11 +236,29 @@
     }
 
     function renderMap() {
-        const container = document.getElementById('map-container');
+        const container = document.getElementById('map-fullpage') || document.getElementById('map-container');
         if (!container) return;
         if (!state.map) {
             state.map = L.map(container).setView([41.9, 12.5], 6);
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap' }).addTo(state.map);
+
+            const layerStreets = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+                maxZoom: 19,
+            });
+            const layerSatellite = L.tileLayer(
+                'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+                {
+                    attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
+                    maxZoom: 19,
+                }
+            );
+            layerStreets.addTo(state.map);
+            L.control.layers(
+                { 'Strade': layerStreets, 'Satellite': layerSatellite },
+                {},
+                { position: 'topright' }
+            ).addTo(state.map);
+
             state.markers = L.markerClusterGroup();
             state.map.addLayer(state.markers);
         }
@@ -250,8 +268,8 @@
         points.forEach(property => {
             const marker = L.circleMarker([Number(property.lat), Number(property.lng)], {
                 radius: 8,
-                color: property.colore_marker || '#0d6efd',
-                fillColor: property.colore_marker || '#0d6efd',
+                color: property.colore_marker || '#2A519F',
+                fillColor: property.colore_marker || '#2A519F',
                 fillOpacity: 0.9,
                 weight: 2,
             });

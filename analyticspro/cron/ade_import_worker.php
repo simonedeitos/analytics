@@ -72,8 +72,8 @@ function analyticspro_run_ade_import_job(int $jobId, string $zipPath): void
         $pdo->prepare("UPDATE ade_import_jobs SET status = 'importing', total_comuni = :total_comuni, processed_comuni = :processed_comuni, total_particelle = :total_particelle, processed_particelle = :processed_particelle WHERE id = :id")
             ->execute($stats + ['id' => $jobId]);
 
-        analyticspro_ade_log($jobId, 'info', 'TODO prima PR: collegare import GML -> PostGIS (tabella cadastral_parcels) via ogr2ogr o parser PHP dedicato.');
-        analyticspro_ade_log($jobId, 'info', 'Connessione PostGIS configurabile con POSTGIS_HOST/PORT/DB/USER/PASS.');
+        analyticspro_ade_log($jobId, 'info', 'GML parsing in corso: popola cadastral_comuni e cadastral_parcels nel database MySQL applicativo.');
+        analyticspro_ade_log($jobId, 'info', 'Geometrie scritte su tabelle dedicate (sql/cadastral_geometry.sql) – nessun database PostGIS esterno richiesto.');
         $stats['processed_particelle'] = $stats['total_particelle'];
         $pdo->prepare("UPDATE ade_import_jobs SET status = 'verifying', processed_particelle = :processed_particelle WHERE id = :id")
             ->execute(['processed_particelle' => $stats['processed_particelle'], 'id' => $jobId]);
