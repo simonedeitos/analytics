@@ -35,8 +35,8 @@ analyticspro_render_header('Marker assegnati', ['app_assets' => true]);
             <h1 class="h3 mb-1">Marker assegnati</h1>
             <p class="text-muted small mb-0">Vista focalizzata sui marker assegnati al tuo account o filtrabili.</p>
         </div>
-        <div class="d-flex gap-2">
-            <select id="assigned-subuser-filter" class="form-select form-select-sm"></select>
+        <div class="d-flex gap-2 align-items-center assigned-filter-controls">
+            <select id="assigned-subuser-filter" class="form-select form-select-sm flex-grow-1"></select>
             <button id="assigned-save" class="btn btn-primary btn-sm">Salva modifiche selezionate</button>
         </div>
     </div>
