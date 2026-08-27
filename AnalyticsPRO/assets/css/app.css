@@ -1,0 +1,17 @@
+:root {
+    --ap-brand: #0d6efd;
+    --ap-bg: #f4f7fb;
+}
+body { background: var(--ap-bg); }
+.bg-auth { background: linear-gradient(180deg, #eff4ff 0%, #f7f9fc 100%); min-height: 100vh; }
+.auth-card { border-radius: 1rem; }
+.metric-card { border-left: 4px solid var(--ap-brand); }
+#map-container { min-height: 520px; border-radius: 1rem; overflow: hidden; background: #e9ecef; }
+.table tfoot th { padding: .5rem; }
+.table tfoot input, .table tfoot select { width: 100%; min-width: 90px; }
+.assignment-badge, .owner-badge, .note-badge { display: inline-flex; align-items: center; gap: .35rem; border-radius: 999px; padding: .2rem .55rem; background: #eef3ff; margin: .15rem; font-size: .75rem; }
+.color-dot { width: 14px; height: 14px; display: inline-block; border-radius: 50%; border: 1px solid rgba(0,0,0,.2); vertical-align: middle; }
+.map-popup-table td, .map-popup-table th { font-size: .8rem; }
+.help-steps li { margin-bottom: .55rem; }
+.property-inline-control { min-width: 120px; }
+.small-select[multiple] { min-height: 88px; }
