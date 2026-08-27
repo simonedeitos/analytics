@@ -14,6 +14,7 @@ if (($user['role'] ?? '') === 'subuser' && !empty($user['must_change_password'])
 $subuserPermissions = analyticspro_is_subuser() ? analyticspro_get_subuser_permissions((int) $user['id']) : null;
 $tenantId           = analyticspro_current_tenant_id();
 $selectedTenant     = analyticspro_is_admin() ? (string) analyticspro_get('tenant_id', 'all') : (string) $tenantId;
+$tenants            = analyticspro_is_admin() ? analyticspro_fetch_tenants() : [];
 
 analyticspro_render_header('Mappa', ['app_assets' => true]);
 ?>
@@ -35,9 +36,22 @@ analyticspro_render_header('Mappa', ['app_assets' => true]);
             <h1 class="h3 mb-1">Mappa marker</h1>
             <p class="text-muted small mb-0">Stato, colore, note e assegnazioni sono condivisi all'interno del tenant.</p>
         </div>
-        <button class="btn btn-outline-primary btn-sm" id="refresh-map">
-            <i class="bi bi-arrow-clockwise me-1"></i>Aggiorna dati
-        </button>
+        <div class="d-flex align-items-center gap-2 ms-lg-auto">
+            <?php if (analyticspro_is_admin()): ?>
+                <form method="get" class="d-flex align-items-center gap-2 mb-0">
+                    <label class="form-label mb-0 small text-muted">Vista admin</label>
+                    <select class="form-select form-select-sm" name="tenant_id" onchange="this.form.submit()">
+                        <option value="all" <?= $selectedTenant === 'all' ? 'selected' : '' ?>>Tutti gli utenti</option>
+                        <?php foreach ($tenants as $tenant): ?>
+                            <option value="<?= analyticspro_h((string) $tenant['id']) ?>" <?= $selectedTenant === (string) $tenant['id'] ? 'selected' : '' ?>><?= analyticspro_h(analyticspro_full_name($tenant)) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </form>
+            <?php endif; ?>
+            <button class="btn btn-outline-primary btn-sm" id="refresh-map">
+                <i class="bi bi-arrow-clockwise me-1"></i>Aggiorna dati
+            </button>
+        </div>
     </div>
 
     <!-- Full-page map container; height = viewport minus topbar minus header bar above -->

@@ -66,12 +66,17 @@ function analyticspro_extract_polygon_points_from_parcel(DOMXPath $xpath, DOMNod
         return [];
     }
 
+    $firstPos = $posNodes->item(0);
+    $dimension = ($firstPos instanceof DOMNode ? analyticspro_read_srs_dimension($firstPos) : null)
+        ?? analyticspro_read_srs_dimension($polygonNode)
+        ?? 2;
+
     $coords = [];
     foreach ($posNodes as $posNode) {
         $coords[] = trim((string) $posNode->textContent);
     }
 
-    return analyticspro_parse_gml_coordinate_sequence(implode(' ', $coords), $srsName, 2);
+    return analyticspro_parse_gml_coordinate_sequence(implode(' ', $coords), $srsName, $dimension);
 }
 
 function analyticspro_extract_node_srs_name(DOMNode $node): ?string
@@ -80,8 +85,12 @@ function analyticspro_extract_node_srs_name(DOMNode $node): ?string
         return trim((string) $node->getAttribute('srsName')) ?: null;
     }
 
-    foreach ($node->childNodes as $child) {
-        if ($child instanceof DOMElement && $child->hasAttribute('srsName')) {
+    if ($node instanceof DOMElement) {
+        foreach ($node->getElementsByTagName('*') as $child) {
+            if (!$child->hasAttribute('srsName')) {
+                continue;
+            }
+
             $name = trim((string) $child->getAttribute('srsName'));
             if ($name !== '') {
                 return $name;
@@ -143,9 +152,22 @@ function analyticspro_srs_prefers_lng_lat(?string $srsName): bool
         return false;
     }
 
-    return str_contains($srsName, 'EPSG::3857')
-        || str_contains($srsName, 'EPSG/0/3857')
-        || str_contains($srsName, 'EPSG:3857');
+    $normalized = strtoupper($srsName);
+    return str_contains($normalized, 'EPSG::3857')
+        || str_contains($normalized, 'EPSG/0/3857')
+        || str_contains($normalized, 'EPSG:3857')
+        || str_contains($normalized, 'EPSG::3003')
+        || str_contains($normalized, 'EPSG/0/3003')
+        || str_contains($normalized, 'EPSG:3003')
+        || str_contains($normalized, 'EPSG::3004')
+        || str_contains($normalized, 'EPSG/0/3004')
+        || str_contains($normalized, 'EPSG:3004')
+        || str_contains($normalized, 'EPSG::32632')
+        || str_contains($normalized, 'EPSG/0/32632')
+        || str_contains($normalized, 'EPSG:32632')
+        || str_contains($normalized, 'EPSG::32633')
+        || str_contains($normalized, 'EPSG/0/32633')
+        || str_contains($normalized, 'EPSG:32633');
 }
 
 function analyticspro_looks_like_lat_lng(float $first, float $second): bool

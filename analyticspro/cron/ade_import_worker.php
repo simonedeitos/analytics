@@ -58,12 +58,12 @@ function analyticspro_discover_comune_gml_sets(string $jobDir): array
         }
 
         $filename = $fileInfo->getFilename();
-        if (!preg_match('/_(ple)\.gml$/i', $filename)) {
+        if (!preg_match('/_ple\.gml$/i', $filename)) {
             continue;
         }
 
         $fullPath = $fileInfo->getPathname();
-        $baseWithoutSuffix = preg_replace('/_(ple)\.gml$/i', '', $filename) ?? '';
+        $baseWithoutSuffix = preg_replace('/_ple\.gml$/i', '', $filename) ?? '';
         if ($baseWithoutSuffix === '') {
             continue;
         }
@@ -219,6 +219,9 @@ function analyticspro_run_ade_import_job(int $jobId, string $zipPath): void
                 ]);
 
                 $comuneId = (int) $pdo->lastInsertId();
+                if ($comuneId <= 0) {
+                    throw new RuntimeException("Impossibile risolvere comune_id per {$codCatastale} ({$nomeComune}).");
+                }
                 $insertedForComune = 0;
 
                 foreach ($parcels as $parcel) {
