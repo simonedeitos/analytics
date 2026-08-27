@@ -49,6 +49,9 @@ CREATE TABLE import_batches (
     error_message TEXT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     completed_at DATETIME NULL,
+    enrichment_status ENUM('pending','processing','completed','failed') NOT NULL DEFAULT 'pending',
+    enrichment_processed INT UNSIGNED NOT NULL DEFAULT 0,
+    enrichment_total INT UNSIGNED NOT NULL DEFAULT 0,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (uploaded_by) REFERENCES users(id) ON DELETE CASCADE,
     INDEX idx_user (user_id)

@@ -26,3 +26,10 @@ try {
 } finally {
     @unlink($payloadPath);
 }
+
+// Launch the async coordinate enrichment worker for this batch.
+$enrichWorker = ANALYTICSPRO_ROOT . '/cron/enrich_property_coordinates.php';
+if (!analyticspro_launch_background($enrichWorker, [$batchId])) {
+    // Background launch unavailable — run enrichment synchronously in the same process.
+    analyticspro_enrich_batch_coordinates($batchId);
+}

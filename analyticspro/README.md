@@ -26,10 +26,35 @@ Webapp PHP/PDO multi-tenant per importare dati catastali, salvarli su MySQL/Mari
 - Persistenza server-side con PDO prepared statements.
 - I duplicati su chiave catastale `(user_id, provincia, comune, sezione, foglio, particella, subalterno)` vengono analizzati prima dell'import.
 - Se cambia l'intestatario, il worker crea lo storico su `property_owners` e registra la scelta in `import_duplicate_conflicts`.
-- **Lookup coordinate:** per ogni riga il worker invoca `analyticspro_lookup_cadastral_coordinates()`
-  che usa il lookup WFS on-demand con cache locale (vedi *Lookup WFS on-demand*). Se la
-  particella non viene trovata o il WFS è irraggiungibile, la riga viene comunque importata
-  con `lat/lng = NULL` e `posizione_verificata = 0` — l'import non viene interrotto.
+
+### Flusso a due fasi: persistenza immediata + arricchimento coordinate asincrono
+
+L'import CSV/Excel è suddiviso in due fasi indipendenti:
+
+**Fase 1 — Persistenza dati (sempre garantita)**  
+Il worker `cron/process_import_batch.php` (o il fallback sincrono) scrive **tutte** le righe del
+file in `properties` con `lat = NULL`, `lng = NULL`, `posizione_verificata = 0`,
+senza effettuare alcuna chiamata di rete. Tutti i dati catastali vengono sempre salvati
+indipendentemente dalla disponibilità del servizio WFS. Al completamento della fase 1
+l'interfaccia mostra "Import completato" e il polling si sblocca.
+
+**Fase 2 — Arricchimento coordinate (in background)**  
+Subito dopo il completamento della Fase 1 il worker `cron/enrich_property_coordinates.php`
+viene lanciato in background tramite `analyticspro_launch_background()`. Questo worker:
+
+1. Seleziona da `properties` le righe con `lat IS NULL` per il batch appena importato.
+2. **Deduplica per particella unica** (chiave `provincia|comune|sezione|foglio|particella`):
+   30 righe con 18 particelle uniche producono al massimo 18 chiamate WFS, non 30.
+3. Per ogni particella chiama `analyticspro_wfs_query_service()` (con rate-limiting ≥ 0.5 s
+   tra chiamate live e cache SQLite locale).
+4. Applica le coordinate a **tutte** le righe che condividono quella particella.
+5. Registra il progresso in `import_batches.enrichment_status`,
+   `enrichment_processed`, `enrichment_total`.
+6. Isola gli errori per singola particella senza abortire l'arricchimento.
+
+Se `proc_open`/`shell_exec` non sono disponibili (hosting limitati), il fallback sincrono in
+`cron/process_import_batch.php` esegue l'arricchimento nello stesso processo subito dopo la
+Fase 1. In ogni caso la Fase 1 è sempre atomicamente completata prima di qualsiasi chiamata WFS.
 
 ## Cifratura dati sensibili
 

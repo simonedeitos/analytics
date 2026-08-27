@@ -36,14 +36,117 @@ analyticspro_render_header('Analitiche', ['app_assets' => true]);
 
     <h1 class="h3 mb-4">Analitiche</h1>
 
-    <div class="row g-3">
-        <div class="col-md-6"><div class="card border-0 shadow-sm"><div class="card-body"><h2 class="h6">Contatti</h2><canvas id="chart-contacts"></canvas></div></div></div>
-        <div class="col-md-6"><div class="card border-0 shadow-sm"><div class="card-body"><h2 class="h6">Genere</h2><canvas id="chart-gender"></canvas></div></div></div>
-        <div class="col-12"><div class="card border-0 shadow-sm"><div class="card-body"><h2 class="h6">Età</h2><canvas id="chart-age"></canvas></div></div></div>
-        <div class="col-md-6"><div class="card border-0 shadow-sm"><div class="card-body"><h2 class="h6">Province</h2><canvas id="chart-province"></canvas></div></div></div>
-        <div class="col-md-6"><div class="card border-0 shadow-sm"><div class="card-body"><h2 class="h6">Comuni</h2><canvas id="chart-comune"></canvas></div></div></div>
-        <div class="col-md-6"><div class="card border-0 shadow-sm"><div class="card-body"><h2 class="h6">Categorie</h2><canvas id="chart-categoria"></canvas></div></div></div>
-        <div class="col-md-6"><div class="card border-0 shadow-sm"><div class="card-body"><h2 class="h6">Titolarità</h2><canvas id="chart-titolarita"></canvas></div></div></div>
+    <!-- KPI cards (mirror della sezione Statistiche dell'app root) -->
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-md-3">
+            <div class="card border-0 shadow-sm text-center h-100">
+                <div class="card-body py-3">
+                    <div class="fs-1 text-primary mb-1"><i class="bi bi-people-fill"></i></div>
+                    <div class="fs-3 fw-bold" data-kpi-analytics="total">—</div>
+                    <div class="text-muted small">Intestatari totali</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="card border-0 shadow-sm text-center h-100">
+                <div class="card-body py-3">
+                    <div class="fs-1 text-warning mb-1"><i class="bi bi-telephone-fill"></i></div>
+                    <div class="fs-3 fw-bold" data-kpi-analytics="phone">—</div>
+                    <div class="text-muted small">Con numero telefono</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="card border-0 shadow-sm text-center h-100">
+                <div class="card-body py-3">
+                    <div class="fs-1 text-primary mb-1"><i class="bi bi-envelope-fill"></i></div>
+                    <div class="fs-3 fw-bold" data-kpi-analytics="email">—</div>
+                    <div class="text-muted small">Con email</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="card border-0 shadow-sm text-center h-100">
+                <div class="card-body py-3">
+                    <div class="fs-1 text-warning mb-1"><i class="bi bi-building"></i></div>
+                    <div class="fs-3 fw-bold" data-kpi-analytics="piva">—</div>
+                    <div class="text-muted small">Partite IVA</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Charts row 1: contacts + gender -->
+    <div class="row g-4 mb-4">
+        <div class="col-12 col-md-6">
+            <div class="card border-0 shadow-sm">
+                <div class="card-body">
+                    <h6 class="fw-semibold mb-3"><i class="bi bi-telephone me-1"></i>Disponibilità Contatti</h6>
+                    <canvas id="chart-contacts"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-md-6">
+            <div class="card border-0 shadow-sm">
+                <div class="card-body">
+                    <h6 class="fw-semibold mb-3"><i class="bi bi-gender-ambiguous me-1"></i>Distribuzione Sesso</h6>
+                    <canvas id="chart-gender"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Charts row 2: age distribution -->
+    <div class="row g-4 mb-4">
+        <div class="col-12">
+            <div class="card border-0 shadow-sm">
+                <div class="card-body">
+                    <h6 class="fw-semibold mb-3"><i class="bi bi-bar-chart me-1"></i>Distribuzione per Fasce d'Età</h6>
+                    <canvas id="chart-age"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Charts row 3: province + top comuni -->
+    <div class="row g-4 mb-4">
+        <div class="col-12 col-md-6">
+            <div class="card border-0 shadow-sm">
+                <div class="card-body">
+                    <h6 class="fw-semibold mb-3"><i class="bi bi-geo-alt me-1"></i>Distribuzione per Provincia</h6>
+                    <canvas id="chart-province"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-md-6">
+            <div class="card border-0 shadow-sm">
+                <div class="card-body">
+                    <h6 class="fw-semibold mb-3"><i class="bi bi-pin-map me-1"></i>Top 10 Comuni</h6>
+                    <canvas id="chart-comune"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Charts row 4: category + ownership -->
+    <div class="row g-4 mb-4">
+        <div class="col-12 col-md-6">
+            <div class="card border-0 shadow-sm">
+                <div class="card-body">
+                    <h6 class="fw-semibold mb-3"><i class="bi bi-house me-1"></i>Tipologie Immobili (Categoria)</h6>
+                    <canvas id="chart-categoria"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-md-6">
+            <div class="card border-0 shadow-sm">
+                <div class="card-body">
+                    <h6 class="fw-semibold mb-3"><i class="bi bi-person-check me-1"></i>Titolarità</h6>
+                    <canvas id="chart-titolarita"></canvas>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 <?php analyticspro_render_footer(true); ?>
+

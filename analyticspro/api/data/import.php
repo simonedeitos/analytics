@@ -57,6 +57,12 @@ try {
         $worker = ANALYTICSPRO_ROOT . '/cron/process_import_batch.php';
         if (!analyticspro_launch_background($worker, [$batchId, $payloadPath])) {
             analyticspro_process_import_batch_payload($batchId, $payload);
+            // process_import_batch.php launches enrichment on its own when run as a
+            // background worker; when we use the sync fallback we must do it here.
+            $enrichWorker = ANALYTICSPRO_ROOT . '/cron/enrich_property_coordinates.php';
+            if (!analyticspro_launch_background($enrichWorker, [$batchId])) {
+                analyticspro_enrich_batch_coordinates($batchId);
+            }
         }
 
         analyticspro_json(['ok' => true, 'batch_id' => $batchId]);
