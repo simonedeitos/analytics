@@ -562,6 +562,8 @@ function analyticspro_enrich_batch_coordinates(int $batchId): void
                 'provincia'  => $provincia,
                 'comune'     => $comune,
                 'sezione'    => $sezione,
+                // Use the raw DB values (from SELECT) — the WHERE clause must match
+                // what was stored during import, not the WFS-normalized variants.
                 'foglio'     => $parcel['foglio'],
                 'particella' => $parcel['particella'],
             ];
@@ -581,7 +583,7 @@ function analyticspro_enrich_batch_coordinates(int $batchId): void
     }
 
     if ($batchId > 0) {
-        $enrichmentStatus = ($total > 0 && $errors > 0 && $processed === $errors) ? 'failed' : 'completed';
+        $enrichmentStatus = ($total > 0 && $errors === $total) ? 'failed' : 'completed';
         $pdo->prepare(
             "UPDATE import_batches SET enrichment_status = :status, enrichment_processed = :processed WHERE id = :id"
         )->execute(['status' => $enrichmentStatus, 'processed' => $processed, 'id' => $batchId]);
