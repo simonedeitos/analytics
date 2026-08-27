@@ -286,7 +286,7 @@
             state.map.fitBounds(state.markers.getBounds().pad(0.2));
         }
         setTimeout(() => state.map.invalidateSize(), 150);
-        window.addEventListener('load', () => state.map?.invalidateSize(), { once: true });
+        setTimeout(() => state.map?.invalidateSize(), 600);
     }
 
     function buildPopupHtml(property) {
