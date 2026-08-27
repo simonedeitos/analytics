@@ -52,9 +52,6 @@ require __DIR__ . '/_admin_subnav.php';
             <div class="card-body">
                 <div class="text-muted small">Job ADE in corso</div>
                 <div class="display-6"><?= $runningJobs ?></div>
-                <?php if ($runningJobs > 0): ?>
-                    <a href="<?= analyticspro_h(analyticspro_base_url('admin/import_ade.php')) ?>" class="btn btn-outline-primary btn-sm mt-2">Monitoraggio</a>
-                <?php endif; ?>
             </div>
         </div>
     </div>
@@ -66,7 +63,6 @@ require __DIR__ . '/_admin_subnav.php';
         ['url' => 'admin/registrazioni.php', 'icon' => 'bi-person-check', 'title' => 'Registrazioni', 'desc' => 'Approva o rifiuta nuove richieste'],
         ['url' => 'admin/utenti.php',         'icon' => 'bi-people',        'title' => 'Utenti',         'desc' => 'Gestisci stato e permessi'],
         ['url' => 'admin/smtp.php',           'icon' => 'bi-envelope-gear', 'title' => 'SMTP',           'desc' => 'Configura il server mail'],
-        ['url' => 'admin/import_ade.php',     'icon' => 'bi-cloud-upload',  'title' => 'Import ADE',     'desc' => 'Carica cartografia provinciale'],
     ];
     foreach ($quickLinks as $link): ?>
         <div class="col-sm-6 col-lg-3">
