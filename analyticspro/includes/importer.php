@@ -172,35 +172,46 @@ function analyticspro_find_conflicts(array $rows, int $tenantId): array
     return $conflicts;
 }
 
-function analyticspro_lookup_postgis_coordinates(array $property): array
+function analyticspro_lookup_cadastral_coordinates(array $property): array
 {
-    $pdo = analyticspro_postgis_db();
-    if (!$pdo instanceof PDO) {
-        return ['lat' => null, 'lng' => null, 'verified' => 0];
-    }
+    // Lookup parcel coordinates from the MySQL cadastral tables.
+    // Uses interior_point (pre-computed during ADE import) which represents
+    // a point guaranteed to be inside the polygon boundary.
+    $pdo = analyticspro_db();
 
-    $sql = "SELECT ST_Y(ST_PointOnSurface(geom)) AS lat, ST_X(ST_PointOnSurface(geom)) AS lng FROM cadastral_parcels WHERE provincia_sigla = :provincia AND comune = :comune AND foglio = :foglio AND particella = :particella LIMIT 1";
     try {
-        $stmt = $pdo->prepare($sql);
+        $stmt = $pdo->prepare(
+            'SELECT ST_Y(p.interior_point) AS lat, ST_X(p.interior_point) AS lng
+             FROM cadastral_parcels p
+             JOIN cadastral_comuni c ON c.id = p.comune_id
+             WHERE c.cod_catastale = :cod_catastale
+               AND p.foglio        = :foglio
+               AND p.particella    = :particella
+             LIMIT 1'
+        );
         $stmt->execute([
-            'provincia' => $property['provincia'],
-            'comune' => $property['comune'],
-            'foglio' => $property['foglio'],
-            'particella' => $property['particella'],
+            'cod_catastale' => $property['cod_catastale'],
+            'foglio'        => $property['foglio'],
+            'particella'    => $property['particella'],
         ]);
         $coords = $stmt->fetch();
-        if (!$coords) {
+        if (!$coords || $coords['lat'] === null) {
             return ['lat' => null, 'lng' => null, 'verified' => 0];
         }
-
         return [
-            'lat' => $coords['lat'],
-            'lng' => $coords['lng'],
+            'lat'      => $coords['lat'],
+            'lng'      => $coords['lng'],
             'verified' => 1,
         ];
     } catch (Throwable $exception) {
         return ['lat' => null, 'lng' => null, 'verified' => 0];
     }
+}
+
+/** @deprecated Use analyticspro_lookup_cadastral_coordinates() instead. */
+function analyticspro_lookup_postgis_coordinates(array $property): array
+{
+    return analyticspro_lookup_cadastral_coordinates($property);
 }
 
 function analyticspro_process_import_batch_payload(int $batchId, array $payload): void
@@ -231,7 +242,7 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
                 continue;
             }
 
-            $coords = analyticspro_lookup_postgis_coordinates($property);
+            $coords = analyticspro_lookup_cadastral_coordinates($property);
             $findProperty->execute([
                 'user_id' => $tenantId,
                 'provincia' => $property['provincia'],

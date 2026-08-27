@@ -1,17 +1,264 @@
+/* =====================================================================
+   AnalyticsPRO – App CSS
+   Brand colours: blue #2A519F · orange #f28e0e
+   ===================================================================== */
+
 :root {
-    --ap-brand: #0d6efd;
-    --ap-bg: #f4f7fb;
+    --ap-blue:        #2A519F;
+    --ap-blue-dark:   #1e3d7a;
+    --ap-blue-light:  #e8eef8;
+    --ap-orange:      #f28e0e;
+    --ap-orange-dark: #c97300;
+    --ap-bg:          #f4f7fb;
+    --ap-sidebar-w:   260px;
+    --ap-topbar-h:    56px;
+    --ap-text:        #1a1a2e;
+    --ap-muted:       #6c757d;
+    --ap-border:      #dee2e6;
+    --ap-card-bg:     #ffffff;
 }
-body { background: var(--ap-bg); }
-.bg-auth { background: linear-gradient(180deg, #eff4ff 0%, #f7f9fc 100%); min-height: 100vh; }
+
+/* ----- Reset / Base -------------------------------------------------- */
+*, *::before, *::after { box-sizing: border-box; }
+body {
+    background: var(--ap-bg);
+    color: var(--ap-text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    margin: 0;
+}
+
+/* ----- Auth pages ---------------------------------------------------- */
+.bg-auth {
+    background: linear-gradient(160deg, #e8eef8 0%, #f7f9fc 100%);
+    min-height: 100vh;
+}
 .auth-card { border-radius: 1rem; }
-.metric-card { border-left: 4px solid var(--ap-brand); }
-#map-container { min-height: 520px; border-radius: 1rem; overflow: hidden; background: #e9ecef; }
+
+/* ----- Sidebar ------------------------------------------------------- */
+.ap-sidebar {
+    position: fixed;
+    top: 0; left: 0;
+    width: var(--ap-sidebar-w);
+    height: 100vh;
+    background: var(--ap-blue);
+    color: #fff;
+    display: flex;
+    flex-direction: column;
+    z-index: 1040;
+    overflow-y: auto;
+    overflow-x: hidden;
+    transition: transform .25s ease;
+}
+
+.ap-sidebar-brand {
+    display: flex;
+    align-items: center;
+    gap: .6rem;
+    padding: 1rem 1.25rem;
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: #fff;
+    text-decoration: none;
+    border-bottom: 1px solid rgba(255,255,255,.15);
+    min-height: var(--ap-topbar-h);
+}
+.ap-sidebar-brand:hover { color: var(--ap-orange); }
+.ap-sidebar-brand .brand-icon {
+    color: var(--ap-orange);
+    font-size: 1.4rem;
+}
+
+.ap-nav-section-label {
+    font-size: .65rem;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,.45);
+    padding: .75rem 1.25rem .2rem;
+}
+
+.ap-sidebar nav ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.ap-sidebar nav ul li a,
+.ap-sidebar nav ul li button.ap-nav-link {
+    display: flex;
+    align-items: center;
+    gap: .65rem;
+    padding: .55rem 1.25rem;
+    color: rgba(255,255,255,.85);
+    text-decoration: none;
+    font-size: .9rem;
+    border: none;
+    background: none;
+    width: 100%;
+    text-align: left;
+    cursor: pointer;
+    border-radius: 0;
+    transition: background .15s, color .15s;
+}
+.ap-sidebar nav ul li a:hover,
+.ap-sidebar nav ul li button.ap-nav-link:hover {
+    background: rgba(255,255,255,.12);
+    color: #fff;
+}
+.ap-sidebar nav ul li a.active,
+.ap-sidebar nav ul li a[aria-current="page"] {
+    background: var(--ap-orange);
+    color: #fff;
+    font-weight: 600;
+}
+.ap-sidebar nav ul li a.active i,
+.ap-sidebar nav ul li a[aria-current="page"] i { color: #fff; }
+
+.ap-sidebar nav ul li a i,
+.ap-sidebar nav ul li button.ap-nav-link i {
+    font-size: 1rem;
+    width: 1.25rem;
+    flex-shrink: 0;
+    color: rgba(255,255,255,.6);
+}
+
+/* Submenu (admin) */
+.ap-submenu {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    background: rgba(0,0,0,.15);
+}
+.ap-submenu li a {
+    padding-left: 2.5rem !important;
+    font-size: .85rem !important;
+}
+
+/* ----- Overlay (mobile) --------------------------------------------- */
+.ap-sidebar-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.45);
+    z-index: 1039;
+}
+.ap-sidebar-overlay.show { display: block; }
+
+/* ----- Top Navbar ---------------------------------------------------- */
+.ap-topbar {
+    position: fixed;
+    top: 0;
+    left: var(--ap-sidebar-w);
+    right: 0;
+    height: var(--ap-topbar-h);
+    background: #fff;
+    border-bottom: 1px solid var(--ap-border);
+    display: flex;
+    align-items: center;
+    padding: 0 1.25rem;
+    z-index: 1030;
+    gap: .75rem;
+    box-shadow: 0 1px 4px rgba(0,0,0,.06);
+}
+
+.ap-hamburger {
+    display: none;
+    background: none;
+    border: none;
+    color: var(--ap-blue);
+    font-size: 1.4rem;
+    cursor: pointer;
+    padding: .25rem;
+    line-height: 1;
+}
+
+.ap-topbar-title {
+    font-weight: 600;
+    font-size: 1rem;
+    color: var(--ap-blue);
+    flex: 1;
+}
+
+.ap-topbar-user {
+    font-size: .82rem;
+    color: var(--ap-muted);
+}
+
+/* ----- Main Content -------------------------------------------------- */
+.ap-main {
+    margin-left: var(--ap-sidebar-w);
+    padding-top: var(--ap-topbar-h);
+    min-height: 100vh;
+}
+.ap-content {
+    padding: 1.5rem 1.5rem;
+}
+
+/* ----- Cards --------------------------------------------------------- */
+.metric-card {
+    border-left: 4px solid var(--ap-blue);
+    background: var(--ap-card-bg);
+}
+
+/* ----- Map ----------------------------------------------------------- */
+#map-container {
+    height: calc(100vh - var(--ap-topbar-h) - 56px);
+    min-height: 420px;
+    border-radius: .5rem;
+    overflow: hidden;
+    background: #e9ecef;
+}
+#map-fullpage {
+    height: calc(100vh - var(--ap-topbar-h) - 110px);
+    min-height: 420px;
+    border-radius: .5rem;
+    overflow: hidden;
+    background: #e9ecef;
+}
+
+/* ----- Tables -------------------------------------------------------- */
 .table tfoot th { padding: .5rem; }
 .table tfoot input, .table tfoot select { width: 100%; min-width: 90px; }
-.assignment-badge, .owner-badge, .note-badge { display: inline-flex; align-items: center; gap: .35rem; border-radius: 999px; padding: .2rem .55rem; background: #eef3ff; margin: .15rem; font-size: .75rem; }
-.color-dot { width: 14px; height: 14px; display: inline-block; border-radius: 50%; border: 1px solid rgba(0,0,0,.2); vertical-align: middle; }
+
+/* ----- Misc UI ------------------------------------------------------- */
+.assignment-badge, .owner-badge, .note-badge {
+    display: inline-flex; align-items: center; gap: .35rem;
+    border-radius: 999px; padding: .2rem .55rem;
+    background: var(--ap-blue-light); margin: .15rem; font-size: .75rem;
+}
+.color-dot {
+    width: 14px; height: 14px;
+    display: inline-block; border-radius: 50%;
+    border: 1px solid rgba(0,0,0,.2); vertical-align: middle;
+}
 .map-popup-table td, .map-popup-table th { font-size: .8rem; }
 .help-steps li { margin-bottom: .55rem; }
 .property-inline-control { min-width: 120px; }
 .small-select[multiple] { min-height: 88px; }
+
+/* Admin sub-nav (secondary tabs inside admin pages) */
+.ap-admin-subnav .nav-link { color: var(--ap-blue); }
+.ap-admin-subnav .nav-link.active {
+    background: var(--ap-blue);
+    border-color: var(--ap-blue);
+    color: #fff;
+}
+
+/* ----- Responsive ----------------------------------------------------- */
+@media (max-width: 991.98px) {
+    .ap-sidebar {
+        transform: translateX(calc(-1 * var(--ap-sidebar-w)));
+    }
+    .ap-sidebar.open {
+        transform: translateX(0);
+    }
+    .ap-topbar {
+        left: 0;
+    }
+    .ap-main {
+        margin-left: 0;
+    }
+    .ap-hamburger {
+        display: block;
+    }
+}
