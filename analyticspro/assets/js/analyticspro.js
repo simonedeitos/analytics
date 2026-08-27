@@ -496,7 +496,7 @@
             }
             input.value = '';
             setAdeUploadButtonState(false, false);
-            const latestJob = payload.job_ids?.[payload.job_ids.length - 1];
+            const latestJob = payload.job_ids?.length ? payload.job_ids[payload.job_ids.length - 1] : undefined;
             await refreshAdeJobs(latestJob);
             alert('Import avviato correttamente.');
         } catch (error) {
