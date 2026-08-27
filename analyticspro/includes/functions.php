@@ -301,14 +301,40 @@ function analyticspro_launch_background(string $script, array $arguments = []): 
 {
     $phpBinary = PHP_BINARY ?: 'php';
     $escapedArgs = array_map(static fn ($arg) => escapeshellarg((string) $arg), $arguments);
-    $command = sprintf('%s %s %s > /dev/null 2>&1 &', escapeshellcmd($phpBinary), escapeshellarg($script), implode(' ', $escapedArgs));
+    $command = sprintf('%s %s %s', escapeshellcmd($phpBinary), escapeshellarg($script), implode(' ', $escapedArgs));
 
-    if (!function_exists('shell_exec')) {
-        return false;
+    // Prova con proc_open, che non richiede shell_exec e permette di
+    // staccare realmente il processo figlio dalla richiesta HTTP corrente.
+    if (function_exists('proc_open')) {
+        $descriptors = [
+            0 => ['pipe', 'r'],
+            1 => ['file', ANALYTICSPRO_ROOT . '/storage/logs/ade_worker.log', 'a'],
+            2 => ['file', ANALYTICSPRO_ROOT . '/storage/logs/ade_worker.log', 'a'],
+        ];
+
+        // nohup + redirezione garantisce che il processo sopravviva alla chiusura
+        // della richiesta PHP-FPM/Apache corrente anche se lo script termina.
+        $fullCommand = 'nohup ' . $command . ' > /dev/null 2>&1 &';
+        $process = @proc_open($fullCommand, $descriptors, $pipes, ANALYTICSPRO_ROOT);
+        if (is_resource($process)) {
+            foreach ($pipes as $pipe) {
+                if (is_resource($pipe)) {
+                    fclose($pipe);
+                }
+            }
+            // Non chiamare proc_close(): bloccherebbe fino al termine del processo.
+            // Il processo figlio, disaccoppiato con nohup + '&', prosegue autonomamente.
+            return true;
+        }
     }
 
-    shell_exec($command);
-    return true;
+    // Fallback: shell_exec, se disponibile.
+    if (function_exists('shell_exec') && !in_array('shell_exec', array_map('trim', explode(',', (string) ini_get('disable_functions'))), true)) {
+        shell_exec($command . ' > /dev/null 2>&1 &');
+        return true;
+    }
+
+    return false;
 }
 
 function analyticspro_count_pending_registrations(): int
