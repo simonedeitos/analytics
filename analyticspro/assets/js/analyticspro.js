@@ -82,6 +82,11 @@
 
     async function api(url, options = {}) {
         const response = await fetch(url, options);
+        if (response.status === 401) {
+            const loginUrl = (state.adeJobsEndpoint || state.propertiesEndpoint || '').replace(/\/api\/.*$/, '/login.php') || 'login.php';
+            window.location.href = loginUrl;
+            return new Promise(() => {});
+        }
         const payload = await response.json();
         if (!response.ok || payload.ok === false) {
             throw new Error(payload.error || 'Operazione non riuscita');
@@ -607,6 +612,6 @@
     loadProperties().catch(error => alert(error.message));
     if (document.getElementById('ade-jobs')) {
         refreshAdeJobs().catch(() => {});
-        setInterval(() => refreshAdeJobs().catch(() => {}), 5000);
+        const adePollingInterval = setInterval(() => refreshAdeJobs().catch(() => clearInterval(adePollingInterval)), 5000);
     }
 })();

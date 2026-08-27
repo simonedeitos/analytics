@@ -8,7 +8,7 @@ require_once ANALYTICSPRO_ROOT . '/includes/api_bootstrap.php';
 analyticspro_api_guard();
 require_once ANALYTICSPRO_ROOT . '/includes/property_repository.php';
 
-analyticspro_require_auth();
+analyticspro_api_require_auth();
 
 try {
     $mode = analyticspro_get('mode', 'all');

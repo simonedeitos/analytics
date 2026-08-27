@@ -7,7 +7,7 @@ require_once ANALYTICSPRO_ROOT . '/includes/api_bootstrap.php';
 
 analyticspro_api_guard();
 
-analyticspro_require_auth();
+analyticspro_api_require_auth();
 if (analyticspro_is_subuser()) {
     analyticspro_require_permission('can_import');
 }
