@@ -343,12 +343,23 @@
         const owners = state.properties.flatMap(property => property.owners || []);
         const withPhone = owners.filter(owner => owner.telefono).length;
         const withEmail = owners.filter(owner => owner.email).length;
+        const withPiva  = owners.filter(owner => owner.tipo === 'azienda').length;
         const genders = owners.reduce((acc, owner) => { const key = owner.genere || 'N/D'; acc[key] = (acc[key] || 0) + 1; return acc; }, {});
         const provinces = state.properties.reduce((acc, property) => { const key = property.provincia || 'N/D'; acc[key] = (acc[key] || 0) + 1; return acc; }, {});
         const comuni = state.properties.reduce((acc, property) => { const key = property.comune || 'N/D'; acc[key] = (acc[key] || 0) + 1; return acc; }, {});
         const categories = state.properties.reduce((acc, property) => { const key = property.categoria || 'N/D'; acc[key] = (acc[key] || 0) + 1; return acc; }, {});
         const ownership = state.properties.reduce((acc, property) => { const key = property.titolarita || 'N/D'; acc[key] = (acc[key] || 0) + 1; return acc; }, {});
         const ages = owners.reduce((acc, owner) => { const key = ageGroup(calcAge(owner.data_nascita)); acc[key] = (acc[key] || 0) + 1; return acc; }, {});
+
+        // Populate analytics KPI cards (present only on analitiche.php).
+        const setKpiAnalytics = (key, value) => {
+            const el = document.querySelector(`[data-kpi-analytics="${key}"]`);
+            if (el) el.textContent = value.toLocaleString('it-IT');
+        };
+        setKpiAnalytics('total', owners.length);
+        setKpiAnalytics('phone', withPhone);
+        setKpiAnalytics('email', withEmail);
+        setKpiAnalytics('piva',  withPiva);
 
         pieChart('chart-contacts', ['Con telefono', 'Con email', 'Senza contatti'], [withPhone, withEmail, Math.max(owners.length - Math.max(withPhone, withEmail), 0)]);
         pieChart('chart-gender', Object.keys(genders), Object.values(genders));
@@ -454,7 +465,7 @@
         await pollImport(processPayload.batch_id);
         state.overlay?.hide();
         await loadProperties();
-        alert('Import completato.');
+        alert('Import completato. Geolocalizzazione dei marker in corso in background.');
     }
 
     async function pollImport(batchId) {
