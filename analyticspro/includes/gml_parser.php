@@ -31,10 +31,12 @@ function analyticspro_parse_cadastral_parcels_gml(string $gmlPath): array
     $parcels = [];
     foreach ($parcelNodes as $parcelNode) {
         $points = analyticspro_extract_polygon_points_from_parcel($xpath, $parcelNode);
+        if ($points === []) {
+            continue;
+        }
         $inspireIdLocal = analyticspro_xpath_string($xpath, './/*[local-name()="inspireId"]//*[local-name()="localId"][1]', $parcelNode)
             ?? analyticspro_xpath_string_ci($xpath, 'inspireid_localid', $parcelNode)
-            ?? analyticspro_xpath_string_ci($xpath, 'inspireidlocalid', $parcelNode)
-            ?? analyticspro_xpath_string($xpath, './/*[local-name()="inspireId"][1]', $parcelNode);
+            ?? analyticspro_xpath_string_ci($xpath, 'inspireidlocalid', $parcelNode);
         $inspireIdNamespace = analyticspro_xpath_string($xpath, './/*[local-name()="inspireId"]//*[local-name()="namespace"][1]', $parcelNode)
             ?? analyticspro_xpath_string_ci($xpath, 'inspireid_namespace', $parcelNode)
             ?? analyticspro_xpath_string_ci($xpath, 'inspireidnamespace', $parcelNode);
