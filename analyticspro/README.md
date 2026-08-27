@@ -73,7 +73,13 @@ interroga `cadastral_parcels.interior_point` tramite `ST_Y()` / `ST_X()` per ott
 - Endpoint admin: `analyticspro/api/admin/ade_jobs.php`
 - Worker CLI: `analyticspro/cron/ade_import_worker.php`
 - Sezione admin dedicata: `analyticspro/admin/import_ade.php`
-- Il worker estrae ricorsivamente ZIP annidati e popola `cadastral_comuni` / `cadastral_parcels`
+- Il worker estrae ricorsivamente ZIP annidati e fa parsing reale dei GML `*_map.gml` / `*_ple.gml`
+- Ogni `cp:CadastralParcel` valido viene importato in `cadastral_parcels` con:
+  - `geom` da poligono esterno (fori interni ignorati in questa versione)
+  - `interior_point` calcolato localmente (centroide + fallback point-in-polygon)
+  - `cadastral_parcel_verification.metodo = 'interior_point'`, `verificato = 0`
+- Il parsing dei riferimenti catastali (`sezione/foglio/particella`) è tollerante; particelle non parsabili vengono saltate con warning nei log job
+- La verifica live contro servizi ADE esterni non è ancora implementata (TODO)
 
 ## Note operative
 
