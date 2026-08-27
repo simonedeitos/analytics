@@ -44,9 +44,18 @@ try {
 
             $worker = ANALYTICSPRO_ROOT . '/cron/ade_import_worker.php';
             if (!analyticspro_launch_background($worker, [$jobId, $destination])) {
-                require ANALYTICSPRO_ROOT . '/cron/ade_import_worker.php';
-                analyticspro_run_ade_import_job($jobId, $destination);
-            }
+                // Impossibile avviare un processo separato: NON eseguire il worker in modo
+               // sincrono dentro questa richiesta HTTP, altrimenti per ZIP grandi
+              // (province come Roma/Milano) si va in timeout 504 sul reverse proxy anche
+              // se il worker prosegue lato server. Segnala l'errore in modo esplicito.
+              analyticspro_ade_log($jobId, 'error', 'Impossibile avviare il worker in background (proc_open/shell_exec non disponibili su questo hosting). Contattare l\'amministratore di sistema per abilitare l\'esecuzione di processi in background, oppure configurare un cron job che esegua manualmente: php ' . $worker . ' ' . $jobId . ' ' . $destination);
+             $pdo->prepare("UPDATE ade_import_jobs SET status = 'failed', error_message = :error_message WHERE id = :id")
+             ->execute([
+                   'error_message' => 'Impossibile avviare il worker in background su questo hosting.',
+                  'id' => $jobId,
+               ]);
+              continue;
+            }   
             $createdJobIds[] = $jobId;
         }
 
