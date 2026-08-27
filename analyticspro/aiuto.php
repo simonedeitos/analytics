@@ -22,13 +22,6 @@ analyticspro_render_header('Aiuto');
     </div>
 </div>
 
-<?php if ($role === 'admin'): ?>
-<div class="alert alert-info d-flex align-items-center gap-2 mb-4">
-    <i class="bi bi-info-circle-fill fs-5"></i>
-    <span>Sei autenticato come <strong>amministratore</strong>. Questa guida è rivolta agli utenti principali e ai subutenti. La documentazione dedicata alle funzioni admin è disponibile in una sezione separata del pannello di amministrazione.</span>
-</div>
-<?php endif; ?>
-
 <?php if ($role === 'subuser'): ?>
 <!-- ===== SUBUSER PERMISSIONS BOX ===== -->
 <div class="card border-primary shadow-sm mb-4">
