@@ -8,7 +8,7 @@ require_once ANALYTICSPRO_ROOT . '/includes/api_bootstrap.php';
 analyticspro_api_guard();
 require_once ANALYTICSPRO_ROOT . '/includes/property_repository.php';
 
-analyticspro_require_auth();
+analyticspro_api_require_auth();
 
 try {
     $input = json_decode((string) file_get_contents('php://input'), true, 512, JSON_THROW_ON_ERROR);

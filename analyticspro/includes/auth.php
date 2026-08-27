@@ -19,6 +19,15 @@ function analyticspro_require_auth(): void
     }
 }
 
+function analyticspro_api_require_auth(): array
+{
+    $user = analyticspro_current_user();
+    if (!$user) {
+        analyticspro_json(['ok' => false, 'error' => 'Sessione scaduta. Effettua nuovamente il login.'], 401);
+    }
+    return $user;
+}
+
 function analyticspro_require_guest(): void
 {
     if (analyticspro_current_user()) {
