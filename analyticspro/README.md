@@ -65,8 +65,9 @@ Richiede **MySQL 8.0+** o **MariaDB 10.5+** per il supporto a `GEOMETRY` con SRI
 ### Lookup coordinate
 
 La funzione `analyticspro_lookup_cadastral_coordinates()` in `includes/importer.php`
-interroga `cadastral_parcels.interior_point` tramite `ST_Y()` / `ST_X()` per ottenere
-`lat` / `lng` da assegnare al marker.
+interroga `cadastral_parcels.interior_point` tramite `ST_X()` / `ST_Y()` per ottenere
+`lat` / `lng` da assegnare al marker (le geometrie WKT vengono salvate in ordine `lat lng`
+per compatibilità MySQL/MariaDB con `ST_GeomFromText(wkt, 4326)` a 2 parametri).
 
 ## Worker ADE
 

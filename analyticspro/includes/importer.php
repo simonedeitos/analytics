@@ -177,11 +177,14 @@ function analyticspro_lookup_cadastral_coordinates(array $property): array
     // Lookup parcel coordinates from the MySQL cadastral tables.
     // Uses interior_point (pre-computed during ADE import) which represents
     // a point guaranteed to be inside the polygon boundary.
+    // Le geometrie ADE sono salvate come WKT in ordine (lat, lng) per usare
+    // ST_GeomFromText(wkt, 4326) a 2 parametri (compatibile MySQL/MariaDB):
+    // quindi ST_X() restituisce LAT e ST_Y() restituisce LNG.
     $pdo = analyticspro_db();
 
     try {
         $stmt = $pdo->prepare(
-            'SELECT ST_Y(p.interior_point) AS lat, ST_X(p.interior_point) AS lng
+            'SELECT ST_X(p.interior_point) AS lat, ST_Y(p.interior_point) AS lng
              FROM cadastral_parcels p
              JOIN cadastral_comuni c ON c.id = p.comune_id
              WHERE c.cod_catastale = :cod_catastale

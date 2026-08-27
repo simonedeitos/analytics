@@ -198,7 +198,7 @@ function analyticspro_run_ade_import_job(int $jobId, string $zipPath): void
 
         $upsertParcelStmt = $pdo->prepare(
             "INSERT INTO cadastral_parcels (comune_id, cod_catastale, sezione, foglio, particella, geom, interior_point, area_mq, source_file)
-             VALUES (:comune_id, :cod_catastale, :sezione, :foglio, :particella, ST_GeomFromText(:wkt_polygon, 4326, 'axis-order=long-lat'), ST_GeomFromText(:wkt_point, 4326, 'axis-order=long-lat'), :area_mq, :source_file)
+             VALUES (:comune_id, :cod_catastale, :sezione, :foglio, :particella, ST_GeomFromText(:wkt_polygon, 4326), ST_GeomFromText(:wkt_point, 4326), :area_mq, :source_file)
              ON DUPLICATE KEY UPDATE
                 id = LAST_INSERT_ID(id),
                 geom = VALUES(geom),

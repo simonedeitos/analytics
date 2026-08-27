@@ -54,6 +54,14 @@ $parts = analyticspro_extract_cadastral_parts('D185_090400.1', '1');
 analyticspro_test_assert(is_array($parts), 'riferimento catastale AdE non parsato');
 analyticspro_test_assert(($parts['foglio'] ?? null) === '090400', 'foglio AdE deve preservare il blocco numerico completo');
 analyticspro_test_assert(($parts['particella'] ?? null) === '1', 'particella AdE non estratta');
+analyticspro_test_assert(
+    analyticspro_polygon_to_wkt($parcels[0]['points']) === 'POLYGON((45.7601426 8.769337, 45.76009199 8.7693965, 45.760169 8.769511, 45.7601426 8.769337))',
+    'WKT poligono deve usare ordine coordinate lat lng'
+);
+analyticspro_test_assert(
+    analyticspro_point_to_wkt(['lat' => 45.7601426, 'lng' => 8.769337]) === 'POINT(45.7601426 8.769337)',
+    'WKT punto deve usare ordine coordinate lat lng'
+);
 
 echo "OK\n";
 
