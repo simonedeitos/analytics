@@ -599,7 +599,6 @@
             const latestJobId = payload.job_ids?.length ? payload.job_ids[payload.job_ids.length - 1] : null;
             await refreshAdeJobs();
             if (latestJobId && adeLogModal) {
-                const firstFile = Array.from(input.files || [])[0];
                 adeLogModal.open(latestJobId, `Job #${latestJobId}`);
             }
         } catch (error) {
@@ -643,8 +642,6 @@
 
             if (!files.length) {
                 listEl.innerHTML = '<p class="text-muted small mb-0">Nessun file ZIP presente in <code>storage/manual_upload/</code>.</p>';
-                if (selectAllBtn) selectAllBtn.style.removeProperty('display');
-                if (submitBtn) submitBtn.style.removeProperty('display');
                 selectAllBtn && (selectAllBtn.style.display = 'none');
                 submitBtn && (submitBtn.style.display = 'none');
                 return;

@@ -61,14 +61,12 @@ try {
         if (!$job) {
             throw new RuntimeException('Job non trovato.');
         }
-        $logs = analyticspro_db()->prepare('SELECT id, level, message, created_at FROM ade_import_job_log WHERE job_id = :job_id ORDER BY id ASC');
-        $logs->execute(['job_id' => $jobId]);
-        $allLogs = $logs->fetchAll();
         $afterId = (int) analyticspro_get('after_id', 0);
-        if ($afterId > 0) {
-            $allLogs = array_values(array_filter($allLogs, static fn($row) => (int) $row['id'] > $afterId));
-        }
-        analyticspro_json(['ok' => true, 'job' => $job, 'logs' => $allLogs]);
+        $logsStmt = analyticspro_db()->prepare(
+            'SELECT id, level, message, created_at FROM ade_import_job_log WHERE job_id = :job_id AND id > :after_id ORDER BY id ASC'
+        );
+        $logsStmt->execute(['job_id' => $jobId, 'after_id' => $afterId]);
+        analyticspro_json(['ok' => true, 'job' => $job, 'logs' => $logsStmt->fetchAll()]);
     }
 
     $jobs = analyticspro_db()->query('SELECT * FROM ade_import_jobs ORDER BY id DESC LIMIT 10')->fetchAll();
