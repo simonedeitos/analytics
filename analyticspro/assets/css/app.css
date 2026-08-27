@@ -279,6 +279,11 @@ body {
 }
 
 /* ----- #assigned-save button ----------------------------------------- */
+#assigned-subuser-filter {
+    min-width: 240px;
+    flex: 1 1 240px;
+}
+
 #assigned-save {
     white-space: nowrap;
     flex-shrink: 0;

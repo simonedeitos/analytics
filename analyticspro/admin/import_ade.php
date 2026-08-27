@@ -47,6 +47,9 @@ require __DIR__ . '/_admin_subnav.php';
                         nel database applicativo MySQL.
                     </p>
                     <input id="ade-zips" type="file" class="form-control mb-2" accept=".zip" multiple>
+                    <button id="ade-zips-submit" class="btn btn-primary mt-2" type="button" disabled>
+                        <i class="bi bi-cloud-upload me-1"></i>Importa
+                    </button>
                     <div class="form-text mb-3">Puoi caricare una provincia per volta o più file contemporaneamente.</div>
                     <div id="ade-jobs" class="mt-2"></div>
                 </div>

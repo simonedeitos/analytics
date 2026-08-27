@@ -3,6 +3,7 @@
 
     const root = document.getElementById('analyticspro-app');
     if (!root) return;
+    const importOverlayEl = document.getElementById('import-overlay');
 
     const state = {
         csrfToken: document.querySelector('meta[name="csrf-token"]')?.content || '',
@@ -24,7 +25,7 @@
         markers: null,
         charts: {},
         tables: {},
-        overlay: new bootstrap.Modal(document.getElementById('import-overlay')),
+        overlay: importOverlayEl ? new bootstrap.Modal(importOverlayEl) : null,
     };
 
     const STATE_OPTIONS = {
@@ -430,8 +431,9 @@
             decisions[conflict.row_index] = confirmUpdate ? 'updated' : 'kept_old';
         }
 
-        state.overlay.show();
-        document.getElementById('import-progress-text').textContent = 'Avvio import...';
+        state.overlay?.show();
+        const progressText = document.getElementById('import-progress-text');
+        if (progressText) progressText.textContent = 'Avvio import...';
         const processPayload = await api(state.importEndpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -444,7 +446,7 @@
             }),
         });
         await pollImport(processPayload.batch_id);
-        state.overlay.hide();
+        state.overlay?.hide();
         await loadProperties();
         alert('Import completato.');
     }
@@ -454,11 +456,49 @@
             const payload = await api(`${state.importProgressEndpoint}?batch_id=${batchId}`);
             const batch = payload.batch;
             const percent = batch.progress_percent || 0;
-            document.getElementById('import-progress-bar').style.width = `${percent}%`;
-            document.getElementById('import-progress-text').textContent = `${percent}% · ${batch.processed_rows}/${batch.total_rows} righe`;
+            const progressBar = document.getElementById('import-progress-bar');
+            const progressText = document.getElementById('import-progress-text');
+            if (progressBar) progressBar.style.width = `${percent}%`;
+            if (progressText) progressText.textContent = `${percent}% · ${batch.processed_rows}/${batch.total_rows} righe`;
             if (batch.status === 'completed') return;
             if (batch.status === 'failed') throw new Error(batch.error_message || 'Import fallito');
             await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+    }
+
+    function setAdeUploadButtonState(isUploading = false, hasFilesOverride = null) {
+        const input = document.getElementById('ade-zips');
+        const button = document.getElementById('ade-zips-submit');
+        if (!input || !button) return;
+        const hasFiles = typeof hasFilesOverride === 'boolean' ? hasFilesOverride : Boolean(input.files?.length);
+        button.disabled = isUploading || !hasFiles;
+        button.innerHTML = isUploading
+            ? '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Caricamento...'
+            : '<i class="bi bi-cloud-upload me-1"></i>Importa';
+    }
+
+    async function submitAdeUpload() {
+        const input = document.getElementById('ade-zips');
+        if (!input?.files?.length) return;
+        const formData = new FormData();
+        formData.append('csrf_token', state.csrfToken);
+        Array.from(input.files).forEach(file => formData.append('files[]', file));
+
+        setAdeUploadButtonState(true);
+        try {
+            const response = await fetch(withTenant(state.adeJobsEndpoint), { method: 'POST', body: formData });
+            const payload = await response.json();
+            if (!response.ok || !payload.ok) {
+                throw new Error(payload.error || 'Upload fallito');
+            }
+            input.value = '';
+            setAdeUploadButtonState(false, false);
+            const latestJob = payload.job_ids?.[payload.job_ids.length - 1];
+            await refreshAdeJobs(latestJob);
+            alert('Import avviato correttamente.');
+        } catch (error) {
+            setAdeUploadButtonState(false);
+            alert(error.message);
         }
     }
 
@@ -484,7 +524,7 @@
     document.addEventListener('change', event => {
         if (event.target.id === 'import-files' && event.target.files?.length) {
             runImport(event.target.files).catch(error => {
-                state.overlay.hide();
+                state.overlay?.hide();
                 alert(error.message);
             });
         }
@@ -500,18 +540,8 @@
                 renderAssignedTable();
             }).catch(error => alert(error.message));
         }
-        if (event.target.id === 'ade-zips' && event.target.files?.length) {
-            const formData = new FormData();
-            formData.append('csrf_token', state.csrfToken);
-            Array.from(event.target.files).forEach(file => formData.append('files[]', file));
-            fetch(withTenant(state.adeJobsEndpoint), { method: 'POST', body: formData })
-                .then(response => response.json())
-                .then(payload => {
-                    if (!payload.ok) throw new Error(payload.error || 'Upload fallito');
-                    const latestJob = payload.job_ids?.[payload.job_ids.length - 1];
-                    refreshAdeJobs(latestJob).catch(console.error);
-                })
-                .catch(error => alert(error.message));
+        if (event.target.id === 'ade-zips') {
+            setAdeUploadButtonState(false);
         }
     });
 
@@ -523,6 +553,9 @@
         }
         if (event.target.id === 'refresh-map') {
             loadProperties().catch(error => alert(error.message));
+        }
+        if (event.target.id === 'ade-zips-submit') {
+            submitAdeUpload();
         }
     });
 
@@ -551,7 +584,7 @@
                 return;
             }
             runImport(files).catch(error => {
-                state.overlay.hide();
+                state.overlay?.hide();
                 alert(error.message);
             });
         });
