@@ -357,9 +357,11 @@ function analyticspro_polygon_to_wkt(array $polygonPoints): ?string
         return null;
     }
 
+    // Le geometrie sono salvate in ordine (lat, lng) per compatibilità con
+    // ST_GeomFromText(wkt, 4326) a 2 parametri su MySQL/MariaDB (asse EPSG:4326 nativo).
     $pairs = [];
     foreach ($points as $point) {
-        $pairs[] = analyticspro_format_coord((float) $point['lng']) . ' ' . analyticspro_format_coord((float) $point['lat']);
+        $pairs[] = analyticspro_format_coord((float) $point['lat']) . ' ' . analyticspro_format_coord((float) $point['lng']);
     }
 
     return 'POLYGON((' . implode(', ', $pairs) . '))';
@@ -377,7 +379,8 @@ function analyticspro_point_to_wkt(array $point): ?string
         return null;
     }
 
-    return 'POINT(' . analyticspro_format_coord($lng) . ' ' . analyticspro_format_coord($lat) . ')';
+    // Convenzione condivisa con analyticspro_polygon_to_wkt(): coordinate WKT (lat lng).
+    return 'POINT(' . analyticspro_format_coord($lat) . ' ' . analyticspro_format_coord($lng) . ')';
 }
 
 function analyticspro_format_coord(float $value): string
