@@ -3,6 +3,9 @@
 declare(strict_types=1);
 
 require dirname(__DIR__, 2) . '/includes/bootstrap.php';
+require_once ANALYTICSPRO_ROOT . '/includes/api_bootstrap.php';
+
+analyticspro_api_guard();
 require_once ANALYTICSPRO_ROOT . '/includes/property_repository.php';
 
 analyticspro_require_auth();
