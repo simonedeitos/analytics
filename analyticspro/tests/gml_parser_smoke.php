@@ -54,6 +54,18 @@ $parts = analyticspro_extract_cadastral_parts('D185_090400.1', '1');
 analyticspro_test_assert(is_array($parts), 'riferimento catastale AdE non parsato');
 analyticspro_test_assert(($parts['foglio'] ?? null) === '090400', 'foglio AdE deve preservare il blocco numerico completo');
 analyticspro_test_assert(($parts['particella'] ?? null) === '1', 'particella AdE non estratta');
+
+$partsWithSection = analyticspro_extract_cadastral_parts('M393B000300.369', '369');
+analyticspro_test_assert(is_array($partsWithSection), 'riferimento catastale con sezione censuaria attaccata non parsato');
+analyticspro_test_assert(($partsWithSection['sezione'] ?? null) === 'B', 'sezione censuaria non estratta');
+analyticspro_test_assert(($partsWithSection['foglio'] ?? null) === '000300', 'foglio con sezione censuaria non estratto');
+analyticspro_test_assert(($partsWithSection['particella'] ?? null) === '369', 'particella con sezione censuaria non estratta');
+
+$legacyParts = analyticspro_extract_cadastral_parts('B.12.34', '34');
+analyticspro_test_assert(is_array($legacyParts), 'riferimento catastale legacy con separatori non parsato');
+analyticspro_test_assert(($legacyParts['sezione'] ?? null) === 'B', 'sezione legacy non deve essere alterata dal nuovo fallback');
+analyticspro_test_assert(($legacyParts['foglio'] ?? null) === '12', 'foglio legacy non estratto');
+analyticspro_test_assert(($legacyParts['particella'] ?? null) === '34', 'particella legacy non estratta');
 analyticspro_test_assert(
     analyticspro_polygon_to_wkt($parcels[0]['points']) === 'POLYGON((45.7601426 8.769337, 45.76009199 8.7693965, 45.760169 8.769511, 45.7601426 8.769337))',
     'WKT poligono deve usare ordine coordinate lat lng'

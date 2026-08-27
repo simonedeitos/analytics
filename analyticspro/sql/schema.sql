@@ -212,7 +212,7 @@ CREATE TABLE ade_import_job_log (
     message TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (job_id) REFERENCES ade_import_jobs(id) ON DELETE CASCADE,
-    INDEX idx_job (job_id)
+    INDEX idx_job_id_id (job_id, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE user_sessions (
