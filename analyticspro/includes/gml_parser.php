@@ -32,9 +32,10 @@ function analyticspro_parse_cadastral_parcels_gml(string $gmlPath): array
 
         $parcels[] = [
             'inspire_id' => analyticspro_xpath_string($xpath, './/*[local-name()="inspireId"]//*[local-name()="localId"][1]', $parcelNode)
+                ?? analyticspro_xpath_string($xpath, './/*[local-name()="INSPIREID_LOCALID"][1]', $parcelNode)
                 ?? analyticspro_xpath_string($xpath, './/*[local-name()="inspireId"][1]', $parcelNode),
-            'label' => analyticspro_xpath_string($xpath, './/*[local-name()="label"][1]', $parcelNode),
-            'national_reference' => analyticspro_xpath_string($xpath, './/*[local-name()="nationalCadastralReference"][1]', $parcelNode),
+            'label' => analyticspro_xpath_string($xpath, './/*[local-name()="label" or local-name()="LABEL"][1]', $parcelNode),
+            'national_reference' => analyticspro_xpath_string($xpath, './/*[local-name()="nationalCadastralReference" or local-name()="NATIONALCADASTRALREFERENCE"][1]', $parcelNode),
             'area_mq' => analyticspro_xpath_float($xpath, './/*[local-name()="areaValue"][1]', $parcelNode),
             'points' => $points,
         ];
@@ -45,7 +46,7 @@ function analyticspro_parse_cadastral_parcels_gml(string $gmlPath): array
 
 function analyticspro_extract_polygon_points_from_parcel(DOMXPath $xpath, DOMNode $parcelNode): array
 {
-    $polygonNode = $xpath->query('.//*[local-name()="geometry"]//*[local-name()="Polygon"][1]', $parcelNode)?->item(0);
+    $polygonNode = $xpath->query('.//*[local-name()="geometry" or local-name()="msGeometry"]//*[local-name()="Polygon"][1]', $parcelNode)?->item(0);
     if (!$polygonNode instanceof DOMNode) {
         $polygonNode = $xpath->query('.//*[local-name()="MultiSurface"]//*[local-name()="surfaceMember"]//*[local-name()="Polygon"][1]', $parcelNode)?->item(0);
     }
