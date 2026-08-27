@@ -64,17 +64,19 @@ require __DIR__ . '/_admin_subnav.php';
                         </td>
                         <td><?= !empty($row['can_view_phone']) ? '<span class="text-success">Sì</span>' : 'No' ?></td>
                         <td>
-                            <form method="post" class="d-flex gap-2 align-items-center flex-wrap">
+                            <form method="post" class="d-flex gap-3 align-items-center flex-wrap">
                                 <input type="hidden" name="csrf_token" value="<?= analyticspro_h(analyticspro_csrf_token()) ?>">
                                 <input type="hidden" name="target_user_id" value="<?= analyticspro_h((string) $row['id']) ?>">
-                                <select class="form-select form-select-sm" name="status">
-                                    <option value="active" <?= $row['status'] === 'active' ? 'selected' : '' ?>>Active</option>
-                                    <option value="disabled" <?= $row['status'] === 'disabled' ? 'selected' : '' ?>>Disabled</option>
-                                </select>
-                                <select class="form-select form-select-sm" name="can_view_phone">
-                                    <option value="0" <?= empty($row['can_view_phone']) ? 'selected' : '' ?>>Tel OFF</option>
-                                    <option value="1" <?= !empty($row['can_view_phone']) ? 'selected' : '' ?>>Tel ON</option>
-                                </select>
+                                <div class="form-check form-switch mb-0">
+                                    <input class="form-check-input" type="checkbox" role="switch" name="status" value="active"
+                                           <?= $row['status'] === 'active' ? 'checked' : '' ?> id="status-<?= (int) $row['id'] ?>">
+                                    <label class="form-check-label small" for="status-<?= (int) $row['id'] ?>">Attivo</label>
+                                </div>
+                                <div class="form-check form-switch mb-0">
+                                    <input class="form-check-input" type="checkbox" role="switch" name="can_view_phone" value="1"
+                                           <?= !empty($row['can_view_phone']) ? 'checked' : '' ?> id="phone-<?= (int) $row['id'] ?>">
+                                    <label class="form-check-label small" for="phone-<?= (int) $row['id'] ?>">Tel</label>
+                                </div>
                                 <button class="btn btn-outline-primary btn-sm" type="submit">Salva</button>
                             </form>
                         </td>
