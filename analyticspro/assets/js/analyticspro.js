@@ -14,12 +14,12 @@
         canExport: root.dataset.canExport === '1',
         canViewReports: root.dataset.canViewReports === '1',
         canViewAnalytics: root.dataset.canViewAnalytics === '1',
-        propertiesEndpoint: root.dataset.propertiesEndpoint,
-        propertyUpdateEndpoint: root.dataset.propertyUpdateEndpoint,
-        importEndpoint: root.dataset.importEndpoint,
-        importProgressEndpoint: root.dataset.importProgressEndpoint,
-        adeJobsEndpoint: root.dataset.adeJobsEndpoint,
-        adeManualFilesEndpoint: root.dataset.adeManualFilesEndpoint,
+        propertiesEndpoint: root.dataset.propertiesEndpoint || '',
+        propertyUpdateEndpoint: root.dataset.propertyUpdateEndpoint || '',
+        importEndpoint: root.dataset.importEndpoint || '',
+        importProgressEndpoint: root.dataset.importProgressEndpoint || '',
+        adeJobsEndpoint: root.dataset.adeJobsEndpoint || '',
+        adeManualFilesEndpoint: root.dataset.adeManualFilesEndpoint || '',
         properties: [],
         subusers: [],
         map: null,
@@ -632,7 +632,13 @@
         const listEl = document.getElementById('ade-server-files-list');
         const selectAllBtn = document.getElementById('ade-server-select-all');
         const submitBtn = document.getElementById('ade-server-submit');
-        if (!listEl || !state.adeManualFilesEndpoint) return;
+        if (!listEl) return;
+        if (!state.adeManualFilesEndpoint) {
+            listEl.innerHTML = '<p class="text-danger small mb-0">Endpoint lista file non configurato.</p>';
+            selectAllBtn && (selectAllBtn.style.display = 'none');
+            submitBtn && (submitBtn.style.display = 'none');
+            return;
+        }
 
         listEl.innerHTML = '<div class="text-muted small">Caricamento…</div>';
 
@@ -808,9 +814,28 @@
         });
     })();
 
-    loadProperties().catch(error => alert(error.message));
+    if (state.propertiesEndpoint) {
+        loadProperties().catch(error => alert(error.message));
+    }
     if (document.getElementById('ade-jobs')) {
-        state.adeManualFilesEndpoint = root.dataset.adeManualFilesEndpoint;
+        if (!state.adeManualFilesEndpoint && state.adeJobsEndpoint) {
+            try {
+                const jobsUrl = new URL(state.adeJobsEndpoint, window.location.origin);
+                const replacedPathname = jobsUrl.pathname.replace(/ade_jobs\.php$/, 'ade_manual_files.php');
+                if (replacedPathname !== jobsUrl.pathname) {
+                    jobsUrl.pathname = replacedPathname;
+                    jobsUrl.search = '';
+                    jobsUrl.hash = '';
+                    state.adeManualFilesEndpoint = jobsUrl.toString();
+                } else {
+                    const fallbackEndpoint = state.adeJobsEndpoint.replace(/ade_jobs\.php(?:\?.*)?(?:#.*)?$/, 'ade_manual_files.php');
+                    state.adeManualFilesEndpoint = fallbackEndpoint !== state.adeJobsEndpoint ? fallbackEndpoint : '';
+                }
+            } catch (_) {
+                const fallbackEndpoint = state.adeJobsEndpoint.replace(/ade_jobs\.php(?:\?.*)?(?:#.*)?$/, 'ade_manual_files.php');
+                state.adeManualFilesEndpoint = fallbackEndpoint !== state.adeJobsEndpoint ? fallbackEndpoint : '';
+            }
+        }
         refreshAdeJobs().catch(() => {});
         loadAdeServerFiles().catch(() => {});
         // Load server files when the tab is shown

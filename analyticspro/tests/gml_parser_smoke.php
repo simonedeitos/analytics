@@ -37,7 +37,7 @@ XML;
 
 $tmpPath = tempnam(sys_get_temp_dir(), 'gml_mapserver_');
 if ($tmpPath === false) {
-    fwrite(STDERR, "FAIL: impossibile creare file temporaneo\n");
+    fwrite(STDERR, "FAIL: could not create temporary file\n");
     exit(1);
 }
 file_put_contents($tmpPath, $mapserverGml);
@@ -87,7 +87,7 @@ XML;
 
 $tmpInspirePath = tempnam(sys_get_temp_dir(), 'gml_inspire_');
 if ($tmpInspirePath === false) {
-    fwrite(STDERR, "FAIL: impossibile creare file temporaneo inspire\n");
+    fwrite(STDERR, "FAIL: could not create temporary INSPIRE file\n");
     exit(1);
 }
 file_put_contents($tmpInspirePath, $inspireGml);
