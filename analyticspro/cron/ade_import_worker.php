@@ -15,6 +15,79 @@ function analyticspro_ade_log(int $jobId, string $level, string $message): void
         ]);
 }
 
+function analyticspro_ade_collect_warning(array &$warningSummary, string $key, ?string $example = null, ?string $detail = null): void
+{
+    if (!isset($warningSummary[$key])) {
+        $warningSummary[$key] = [
+            'count' => 0,
+            'examples' => [],
+            'detail' => $detail,
+        ];
+    }
+
+    $warningSummary[$key]['count']++;
+    if ($detail !== null && $detail !== '') {
+        $warningSummary[$key]['detail'] = $detail;
+    }
+
+    if ($example === null || $example === '') {
+        return;
+    }
+
+    if (!in_array($example, $warningSummary[$key]['examples'], true) && count($warningSummary[$key]['examples']) < 5) {
+        $warningSummary[$key]['examples'][] = $example;
+    }
+}
+
+function analyticspro_ade_warning_examples(array $examples): string
+{
+    return $examples === [] ? '' : ' (esempi: ' . implode(', ', $examples) . ')';
+}
+
+function analyticspro_ade_flush_warning_summary(int $jobId, string $codCatastale, string $nomeComune, array $warningSummary): void
+{
+    foreach ($warningSummary as $key => $entry) {
+        $count = (int) ($entry['count'] ?? 0);
+        if ($count <= 0) {
+            continue;
+        }
+
+        $formattedCount = number_format($count, 0, ',', '.');
+        $examples = analyticspro_ade_warning_examples($entry['examples'] ?? []);
+
+        switch ($key) {
+            case 'unparseable_reference':
+                $message = "{$formattedCount} particelle scartate nel comune {$codCatastale} ({$nomeComune}) per riferimento catastale non parsabile{$examples}.";
+                break;
+            case 'invalid_polygon':
+                $message = "{$formattedCount} particelle scartate nel comune {$codCatastale} ({$nomeComune}) per poligono non valido{$examples}.";
+                break;
+            case 'invalid_polygon_wkt':
+                $message = "{$formattedCount} particelle scartate nel comune {$codCatastale} ({$nomeComune}) per WKT poligono non valido{$examples}.";
+                break;
+            case 'missing_interior_point':
+                $message = "{$formattedCount} particelle scartate nel comune {$codCatastale} ({$nomeComune}) perché impossibile calcolare l'interior point{$examples}.";
+                break;
+            case 'invalid_interior_point_wkt':
+                $message = "{$formattedCount} particelle scartate nel comune {$codCatastale} ({$nomeComune}) per WKT interior point non valido{$examples}.";
+                break;
+            default:
+                if (str_starts_with($key, 'interior_point_fallback:')) {
+                    $strategy = (string) ($entry['detail'] ?? 'fallback');
+                    $message = "{$formattedCount} particelle nel comune {$codCatastale} ({$nomeComune}) usano fallback interior point ({$strategy}){$examples}.";
+                } elseif (str_starts_with($key, 'parcel_exception:')) {
+                    $detail = (string) ($entry['detail'] ?? 'errore sconosciuto');
+                    $message = "{$formattedCount} particelle scartate nel comune {$codCatastale} ({$nomeComune}) per errore in import: {$detail}{$examples}.";
+                } else {
+                    $message = "{$formattedCount} warning aggregati nel comune {$codCatastale} ({$nomeComune}){$examples}.";
+                }
+                break;
+        }
+
+        analyticspro_ade_log($jobId, 'warning', $message);
+    }
+}
+
 function analyticspro_extract_nested_zip(int $jobId, string $zipPath, string $targetDir, array &$stats): void
 {
     $zip = new ZipArchive();
@@ -236,6 +309,7 @@ function analyticspro_run_ade_import_job(int $jobId, string $zipPath): void
             $stats['total_particelle'] += count($parcels);
             analyticspro_update_ade_job_progress($jobId, $stats);
 
+            $warningSummary = [];
             try {
                 $pdo->beginTransaction();
 
@@ -257,39 +331,41 @@ function analyticspro_run_ade_import_job(int $jobId, string $zipPath): void
                 foreach ($parcels as $parcel) {
                     $parts = analyticspro_extract_cadastral_parts($parcel['national_reference'] ?? null, $parcel['label'] ?? null);
                     if ($parts === null) {
-                        $label = (string) ($parcel['label'] ?? 'N/D');
-                        $reference = (string) ($parcel['national_reference'] ?? 'N/D');
-                        analyticspro_ade_log($jobId, 'warning', "Riferimento catastale non parsabile ({$codCatastale}): label={$label}, ref={$reference}");
+                        $reference = trim((string) ($parcel['national_reference'] ?? ''));
+                        $label = trim((string) ($parcel['label'] ?? ''));
+                        $example = $reference !== '' ? $reference : ($label !== '' ? 'label=' . $label : null);
+                        analyticspro_ade_collect_warning($warningSummary, 'unparseable_reference', $example);
                         continue;
                     }
 
                     $polygonPoints = $parcel['points'] ?? [];
                     if (!is_array($polygonPoints) || count($polygonPoints) < 4) {
-                        analyticspro_ade_log($jobId, 'warning', "Poligono non valido saltato per {$codCatastale} {$parts['foglio']}/{$parts['particella']}");
+                        analyticspro_ade_collect_warning($warningSummary, 'invalid_polygon', "{$parts['foglio']}/{$parts['particella']}");
                         continue;
                     }
 
                     $wktPolygon = analyticspro_polygon_to_wkt($polygonPoints);
                     if ($wktPolygon === null) {
-                        analyticspro_ade_log($jobId, 'warning', "WKT poligono non valido per {$codCatastale} {$parts['foglio']}/{$parts['particella']}");
+                        analyticspro_ade_collect_warning($warningSummary, 'invalid_polygon_wkt', "{$parts['foglio']}/{$parts['particella']}");
                         continue;
                     }
 
                     $interior = analyticspro_compute_polygon_interior_point($polygonPoints);
                     $interiorPoint = $interior['point'] ?? null;
                     if (!is_array($interiorPoint)) {
-                        analyticspro_ade_log($jobId, 'warning', "Impossibile calcolare interior point per {$codCatastale} {$parts['foglio']}/{$parts['particella']}");
+                        analyticspro_ade_collect_warning($warningSummary, 'missing_interior_point', "{$parts['foglio']}/{$parts['particella']}");
                         continue;
                     }
 
                     $wktPoint = analyticspro_point_to_wkt($interiorPoint);
                     if ($wktPoint === null) {
-                        analyticspro_ade_log($jobId, 'warning', "WKT interior point non valido per {$codCatastale} {$parts['foglio']}/{$parts['particella']}");
+                        analyticspro_ade_collect_warning($warningSummary, 'invalid_interior_point_wkt', "{$parts['foglio']}/{$parts['particella']}");
                         continue;
                     }
 
                     if (($interior['inside'] ?? false) !== true) {
-                        analyticspro_ade_log($jobId, 'warning', "Centroide fuori poligono, uso fallback {$interior['strategy']} per {$codCatastale} {$parts['foglio']}/{$parts['particella']}");
+                        $strategy = (string) ($interior['strategy'] ?? 'fallback');
+                        analyticspro_ade_collect_warning($warningSummary, 'interior_point_fallback:' . $strategy, "{$parts['foglio']}/{$parts['particella']}", $strategy);
                     }
 
                     try {
@@ -315,10 +391,12 @@ function analyticspro_run_ade_import_job(int $jobId, string $zipPath): void
                         $stats['processed_particelle']++;
                         $insertedForComune++;
                     } catch (Throwable $parcelException) {
-                        analyticspro_ade_log(
-                            $jobId,
-                            'warning',
-                            "Particella scartata {$codCatastale} {$parts['foglio']}/{$parts['particella']}: {$parcelException->getMessage()}"
+                        $detail = $parcelException->getMessage();
+                        analyticspro_ade_collect_warning(
+                            $warningSummary,
+                            'parcel_exception:' . md5($detail),
+                            "{$parts['foglio']}/{$parts['particella']}",
+                            $detail
                         );
                         continue;
                     }
@@ -342,6 +420,7 @@ function analyticspro_run_ade_import_job(int $jobId, string $zipPath): void
                 $pdo->commit();
                 $stats['processed_comuni']++;
                 analyticspro_update_ade_job_progress($jobId, $stats);
+                analyticspro_ade_flush_warning_summary($jobId, $codCatastale, $nomeComune, $warningSummary);
 
                 analyticspro_ade_log(
                     $jobId,
@@ -359,6 +438,7 @@ function analyticspro_run_ade_import_job(int $jobId, string $zipPath): void
                 }
                 $stats['processed_comuni']++;
                 analyticspro_update_ade_job_progress($jobId, $stats);
+                analyticspro_ade_flush_warning_summary($jobId, $codCatastale, $nomeComune, $warningSummary);
                 analyticspro_ade_log($jobId, 'warning', "Errore import comune {$codCatastale} ({$nomeComune}): {$exception->getMessage()}");
                 continue;
             }

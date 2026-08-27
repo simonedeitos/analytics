@@ -326,6 +326,17 @@ function analyticspro_extract_cadastral_parts(?string $nationalReference, ?strin
             ];
         }
 
+        // Dialetto AdE osservato: {cod_catastale}{sezione}{foglio}.{particella}
+        // senza separatore tra sezione censuaria e blocco foglio, ad es.
+        // M393B000300.369 -> sezione=B, foglio=000300, particella=369.
+        if (preg_match('/^(?:[A-Z0-9]{4})?(?<sezione>[A-Z]{1,4})(?<foglio>\d{2,6})[._\/-](?<particella>[A-Z0-9]{1,20})$/', $candidate, $parts)) {
+            return [
+                'sezione' => (string) $parts['sezione'],
+                'foglio' => (string) $parts['foglio'],
+                'particella' => (string) $parts['particella'],
+            ];
+        }
+
         $tokens = preg_split('/[._\/-]+/', $candidate, -1, PREG_SPLIT_NO_EMPTY);
         if (!is_array($tokens) || count($tokens) < 2) {
             continue;
