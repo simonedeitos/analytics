@@ -467,9 +467,11 @@
         await loadProperties();
         const savedRows = processPayload.saved_rows ?? processPayload.total_rows ?? rows.length;
         alert(`Import completato: ${savedRows} righe salvate. Geolocalizzazione dei marker in corso in background.`);
-        // Phase 2 (coordinate enrichment) runs in the background; poll informatively
-        // but do not block the user — any enrichment failure will not block them.
-        pollImport(processPayload.batch_id).catch(() => {});
+        // Phase 2 (coordinate enrichment) runs in the background; poll enrichment status
+        // so the user can see real progress, and reload the map silently when done.
+        if (processPayload.batch_id) {
+            pollEnrichment(processPayload.batch_id).catch(() => {});
+        }
     }
 
     async function pollImport(batchId) {
@@ -484,6 +486,55 @@
             if (batch.status === 'completed') return;
             if (batch.status === 'failed') throw new Error(batch.error_message || 'Import fallito');
             await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+    }
+
+    async function pollEnrichment(batchId) {
+        // Show the enrichment status container if present in the page.
+        const container = document.getElementById('enrichment-status-container');
+        const bar       = document.getElementById('enrichment-progress-bar');
+        const text      = document.getElementById('enrichment-progress-text');
+        if (container) container.style.display = '';
+
+        while (true) {
+            let batch;
+            try {
+                const payload = await api(`${state.importProgressEndpoint}?batch_id=${batchId}`);
+                batch = payload.batch;
+            } catch {
+                await new Promise(resolve => setTimeout(resolve, 3000));
+                continue;
+            }
+
+            const status    = batch.enrichment_status    ?? null;
+            const processed = batch.enrichment_processed ?? 0;
+            const total     = batch.enrichment_total     ?? 0;
+            const pct       = total > 0 ? Math.round((processed / total) * 100) : 0;
+
+            if (bar)  bar.style.width    = `${pct}%`;
+            if (text) text.textContent   = `Geolocalizzazione: ${processed}/${total} marker (${pct}%)`;
+
+            if (status === 'completed') {
+                if (text) text.textContent = `Geolocalizzazione completata: ${processed}/${total} marker.`;
+                if (bar)  bar.style.width  = '100%';
+                // Silently refresh the map so newly geocoded markers appear.
+                try { await loadProperties(); } catch { /* ignore */ }
+                // Hide status bar after a brief delay.
+                if (container) setTimeout(() => { container.style.display = 'none'; }, 4000);
+                return;
+            }
+
+            if (status === 'failed') {
+                if (text) {
+                    text.textContent = 'Geolocalizzazione non riuscita. Verifica la configurazione di Zornade/WFS nel file .env.';
+                    text.classList.add('text-danger');
+                }
+                if (bar) bar.classList.replace('bg-primary', 'bg-danger');
+                return;
+            }
+
+            // Still processing — poll again after 2.5 s.
+            await new Promise(resolve => setTimeout(resolve, 2500));
         }
     }
 

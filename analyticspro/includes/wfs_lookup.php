@@ -70,10 +70,20 @@ function analyticspro_wfs_open_cache_db(): SQLite3
         lat REAL NOT NULL,
         lng REAL NOT NULL,
         area_mq REAL,
+        source VARCHAR(20) DEFAULT \'WFS-AdE\',
         cached_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(cod_catastale, foglio, particella)
     )');
     $db->exec('CREATE INDEX IF NOT EXISTS idx_particelle_cache_lookup ON particelle_cache(cod_catastale, foglio, particella)');
+
+    // Migration 003: add `source` column to existing databases that were created before
+    // this column was introduced.  SQLite will raise an error if the column already
+    // exists; we catch and ignore that specific condition.
+    try {
+        @$db->exec("ALTER TABLE particelle_cache ADD COLUMN source VARCHAR(20) DEFAULT 'WFS-AdE'");
+    } catch (Throwable) {
+        // Column already exists — safe to ignore.
+    }
 
     return $db;
 }
@@ -85,7 +95,7 @@ function analyticspro_wfs_open_cache_db(): SQLite3
  */
 function analyticspro_wfs_get_cached_particella(SQLite3 $db, string $codCatastale, string $foglio, string $particella): ?array
 {
-    $stmt = $db->prepare('SELECT lat, lng, area_mq FROM particelle_cache WHERE cod_catastale = :cod AND foglio = :foglio AND particella = :part LIMIT 1');
+    $stmt = $db->prepare('SELECT lat, lng, area_mq, source FROM particelle_cache WHERE cod_catastale = :cod AND foglio = :foglio AND particella = :part LIMIT 1');
     if (!$stmt) {
         return null;
     }
@@ -105,7 +115,7 @@ function analyticspro_wfs_get_cached_particella(SQLite3 $db, string $codCatastal
         'lat'          => (float) $row['lat'],
         'lng'          => (float) $row['lng'],
         'area_mq'      => $row['area_mq'] !== null ? (float) $row['area_mq'] : null,
-        'source'       => 'Cache',
+        'source'       => $row['source'] !== null ? (string) $row['source'] : 'WFS-AdE',
         'cod_catastale'=> $codCatastale,
         'foglio'       => $foglio,
         'particella'   => $particella,
@@ -117,7 +127,7 @@ function analyticspro_wfs_get_cached_particella(SQLite3 $db, string $codCatastal
  */
 function analyticspro_wfs_save_cached_particella(SQLite3 $db, string $codCatastale, string $foglio, string $particella, array $data): void
 {
-    $stmt = $db->prepare('INSERT OR REPLACE INTO particelle_cache (cod_catastale, foglio, particella, lat, lng, area_mq) VALUES (:cod, :foglio, :part, :lat, :lng, :area)');
+    $stmt = $db->prepare('INSERT OR REPLACE INTO particelle_cache (cod_catastale, foglio, particella, lat, lng, area_mq, source) VALUES (:cod, :foglio, :part, :lat, :lng, :area, :source)');
     if (!$stmt) {
         return;
     }
@@ -128,6 +138,7 @@ function analyticspro_wfs_save_cached_particella(SQLite3 $db, string $codCatasta
     $stmt->bindValue(':lat',    (float) ($data['lat'] ?? 0), SQLITE3_FLOAT);
     $stmt->bindValue(':lng',    (float) ($data['lng'] ?? 0), SQLITE3_FLOAT);
     $stmt->bindValue(':area',   isset($data['area_mq']) && $data['area_mq'] !== null ? (float) $data['area_mq'] : null, SQLITE3_FLOAT);
+    $stmt->bindValue(':source', $data['source'] ?? 'WFS-AdE', SQLITE3_TEXT);
     $stmt->execute();
 }
 

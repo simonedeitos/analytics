@@ -73,3 +73,12 @@ analyticspro_render_header('Importa dati', ['app_assets' => true]);
     </div>
 </div>
 <?php analyticspro_render_footer(true); ?>
+<!-- Enrichment status bar: shown by pollEnrichment() after import completes -->
+<div id="enrichment-status-container" class="container mt-3" style="display:none">
+    <div class="alert alert-info py-2 mb-0">
+        <div class="progress mb-2" style="height:8px">
+            <div id="enrichment-progress-bar" class="progress-bar bg-primary progress-bar-striped progress-bar-animated" style="width:0%"></div>
+        </div>
+        <p id="enrichment-progress-text" class="small mb-0">Geolocalizzazione marker in corso...</p>
+    </div>
+</div>

@@ -174,43 +174,50 @@ function analyticspro_find_conflicts(array $rows, int $tenantId): array
 
 function analyticspro_lookup_cadastral_coordinates(array $property): array
 {
-    // Lookup parcel coordinates via the on-demand WFS public service (AdE INSPIRE).
-    // Results are cached in a local SQLite database so that repeated lookups for the
-    // same parcel are instantaneous.  When the WFS is unreachable or the parcel is not
-    // found the function returns nulls so the import can continue without aborting.
-    static $lastWfsCallAt = 0.0;
+    // Lookup parcel coordinates: tries Zornade first (if configured), then falls back
+    // to the public AdE INSPIRE WFS service.  Results are cached in a local SQLite
+    // database.  When both providers fail the function returns nulls so the import
+    // can continue without aborting.
+    static $lastWfsCallAt    = 0.0;
+    static $lastZornadeCallAt = 0.0;
 
     require_once __DIR__ . '/wfs_lookup.php';
+    require_once __DIR__ . '/zornade_lookup.php';
 
     $codCatastale = (string) ($property['cod_catastale'] ?? '');
+    $comune       = (string) ($property['comune']       ?? '');
+    $provincia    = (string) ($property['provincia']    ?? '');
     $foglio       = analyticspro_wfs_normalize_token((string) ($property['foglio']     ?? ''));
     $particella   = analyticspro_wfs_normalize_token((string) ($property['particella'] ?? ''));
+    $sezione      = isset($property['sezione']) && $property['sezione'] !== '' ? (string) $property['sezione'] : null;
 
     // Resolve codice catastale from comune+provincia if not supplied directly.
-    if ($codCatastale === '' && isset($property['comune'], $property['provincia'])) {
-        $codCatastale = analyticspro_wfs_lookup_cod_catastale(
-            (string) $property['comune'],
-            (string) $property['provincia']
-        ) ?? '';
+    if ($codCatastale === '' && $comune !== '' && $provincia !== '') {
+        $codCatastale = analyticspro_wfs_lookup_cod_catastale($comune, $provincia) ?? '';
     }
 
-    if ($codCatastale === '' || $foglio === '' || $particella === '') {
+    if ($foglio === '' || $particella === '') {
         return ['lat' => null, 'lng' => null, 'verified' => 0];
     }
 
     try {
-        require_once __DIR__ . '/wfs_lookup.php';
-
-        // Check the cache first so we only apply the rate-limiter when a live
-        // WFS call is actually needed.
+        // --- Cache check (shared SQLite) ---
+        $db     = null;
         $cached = null;
         try {
             $db     = analyticspro_wfs_open_cache_db();
-            $cached = analyticspro_wfs_get_cached_particella($db, $codCatastale, $foglio, $particella);
+            $cached = $codCatastale !== ''
+                ? analyticspro_wfs_get_cached_particella($db, $codCatastale, $foglio, $particella)
+                : null;
+            // Also check the Zornade-keyed cache entry if comune/provincia are available.
+            if ($cached === null && $comune !== '' && $provincia !== '') {
+                $cached = analyticspro_zornade_get_cached_particella($db, $comune, $provincia, $foglio, $particella);
+            }
             if ($cached !== null) {
                 $db->close();
+                $db = null;
             }
-        } catch (Throwable $cacheEx) {
+        } catch (Throwable) {
             $db = null;
         }
 
@@ -222,36 +229,69 @@ function analyticspro_lookup_cadastral_coordinates(array $property): array
             ];
         }
 
-        // Apply a minimum delay between consecutive live WFS calls to avoid
-        // rate-limiting by the public AdE service.
-        $now     = microtime(true);
-        $elapsed = $now - $lastWfsCallAt;
-        $minGap  = 0.5; // seconds
-        if ($lastWfsCallAt > 0.0 && $elapsed < $minGap) {
-            usleep((int) (($minGap - $elapsed) * 1_000_000));
+        // --- Provider 1: Zornade (primary, if API key configured) ---
+        $resolvedData = null;
+        if ($comune !== '' && $provincia !== '') {
+            $now      = microtime(true);
+            $elapsed  = $now - $lastZornadeCallAt;
+            $minGap   = 0.18; // ~180 ms gap → stays well within 10 000 req/h
+            if ($lastZornadeCallAt > 0.0 && $elapsed < $minGap) {
+                usleep((int) (($minGap - $elapsed) * 1_000_000));
+            }
+            $zornade = analyticspro_zornade_lookup_particella($comune, $provincia, $foglio, $particella, $sezione);
+            $lastZornadeCallAt = microtime(true);
+            if ($zornade !== null && ($zornade['ok'] ?? false)) {
+                $resolvedData = $zornade;
+            }
         }
 
-        $wfsData = analyticspro_wfs_query_service($codCatastale, $foglio, $particella);
-        $lastWfsCallAt = microtime(true);
-
-        if ($wfsData !== null && ($wfsData['ok'] ?? false) && isset($db)) {
-            analyticspro_wfs_save_cached_particella($db, $codCatastale, $foglio, $particella, $wfsData);
+        // --- Provider 2: WFS-AdE fallback ---
+        if ($resolvedData === null && $codCatastale !== '') {
+            $now     = microtime(true);
+            $elapsed = $now - $lastWfsCallAt;
+            $minGap  = 0.5;
+            if ($lastWfsCallAt > 0.0 && $elapsed < $minGap) {
+                usleep((int) (($minGap - $elapsed) * 1_000_000));
+            }
+            $wfsData       = analyticspro_wfs_query_service($codCatastale, $foglio, $particella);
+            $lastWfsCallAt = microtime(true);
+            if ($wfsData !== null && ($wfsData['ok'] ?? false)) {
+                $resolvedData = $wfsData;
+            }
         }
-        if (isset($db)) {
+
+        // --- Persist resolved result in cache ---
+        if ($resolvedData !== null && ($resolvedData['ok'] ?? false)) {
+            if ($db === null) {
+                try {
+                    $db = analyticspro_wfs_open_cache_db();
+                } catch (Throwable) {
+                    $db = null;
+                }
+            }
+            if ($db !== null) {
+                $source = $resolvedData['source'] ?? 'WFS-AdE';
+                if ($source === 'Zornade' && $comune !== '' && $provincia !== '') {
+                    analyticspro_zornade_save_cached_particella($db, $comune, $provincia, $foglio, $particella, $resolvedData);
+                } elseif ($codCatastale !== '') {
+                    analyticspro_wfs_save_cached_particella($db, $codCatastale, $foglio, $particella, $resolvedData);
+                }
+                $db->close();
+                $db = null;
+            }
+            return [
+                'lat'      => (float) $resolvedData['lat'],
+                'lng'      => (float) $resolvedData['lng'],
+                'verified' => 1,
+            ];
+        }
+
+        if ($db !== null) {
             $db->close();
         }
-
-        if ($wfsData === null || !($wfsData['ok'] ?? false)) {
-            return ['lat' => null, 'lng' => null, 'verified' => 0];
-        }
-
-        return [
-            'lat'      => (float) $wfsData['lat'],
-            'lng'      => (float) $wfsData['lng'],
-            'verified' => 1,
-        ];
+        return ['lat' => null, 'lng' => null, 'verified' => 0];
     } catch (Throwable $exception) {
-        error_log('[WFS import] Lookup failed for ' . $codCatastale . '/' . $foglio . '/' . $particella . ': ' . $exception->getMessage());
+        error_log('[import lookup] Failed for ' . $codCatastale . '/' . $foglio . '/' . $particella . ': ' . $exception->getMessage());
         return ['lat' => null, 'lng' => null, 'verified' => 0];
     }
 }
@@ -424,6 +464,7 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
 function analyticspro_enrich_batch_coordinates(int $batchId): void
 {
     require_once __DIR__ . '/wfs_lookup.php';
+    require_once __DIR__ . '/zornade_lookup.php';
 
     $pdo = analyticspro_db();
 
@@ -486,9 +527,10 @@ function analyticspro_enrich_batch_coordinates(int $batchId): void
         ? $pdo->prepare('UPDATE import_batches SET enrichment_processed = :processed WHERE id = :id')
         : null;
 
-    $lastWfsCallAt = 0.0;
-    $processed     = 0;
-    $errors        = 0;
+    $lastWfsCallAt    = 0.0;
+    $lastZornadeCallAt = 0.0;
+    $processed        = 0;
+    $errors           = 0;
 
     foreach ($uniqueParcels as $parcel) {
         $provincia  = (string) ($parcel['provincia']     ?? '');
@@ -527,31 +569,63 @@ function analyticspro_enrich_batch_coordinates(int $batchId): void
                 $lng      = (float) $cached['lng'];
                 $verified = 1;
             } else {
-                $now     = microtime(true);
-                $elapsed = $now - $lastWfsCallAt;
-                $minGap  = 0.5;
-                if ($lastWfsCallAt > 0.0 && $elapsed < $minGap) {
-                    usleep((int) (($minGap - $elapsed) * 1_000_000));
+                // Provider 1: Zornade (primary).
+                $resolvedData = null;
+                if ($comune !== '' && $provincia !== '') {
+                    $now     = microtime(true);
+                    $elapsed = $now - $lastZornadeCallAt;
+                    $minGap  = 0.18;
+                    if ($lastZornadeCallAt > 0.0 && $elapsed < $minGap) {
+                        usleep((int) (($minGap - $elapsed) * 1_000_000));
+                    }
+                    $zornade = analyticspro_zornade_lookup_particella(
+                        $comune, $provincia, $foglio, $particella
+                    );
+                    $lastZornadeCallAt = microtime(true);
+                    if ($zornade !== null && ($zornade['ok'] ?? false)) {
+                        $resolvedData = $zornade;
+                    }
                 }
 
-                $wfsData       = analyticspro_wfs_query_service($codCat, $foglio, $particella);
-                $lastWfsCallAt = microtime(true);
+                // Provider 2: WFS-AdE fallback.
+                if ($resolvedData === null && $codCat !== '') {
+                    $now     = microtime(true);
+                    $elapsed = $now - $lastWfsCallAt;
+                    $minGap  = 0.5;
+                    if ($lastWfsCallAt > 0.0 && $elapsed < $minGap) {
+                        usleep((int) (($minGap - $elapsed) * 1_000_000));
+                    }
+                    $wfsData       = analyticspro_wfs_query_service($codCat, $foglio, $particella);
+                    $lastWfsCallAt = microtime(true);
+                    if ($wfsData !== null && ($wfsData['ok'] ?? false)) {
+                        $resolvedData = $wfsData;
+                    }
+                }
 
-                if ($wfsData !== null && ($wfsData['ok'] ?? false) && $db !== null) {
-                    analyticspro_wfs_save_cached_particella($db, $codCat, $foglio, $particella, $wfsData);
+                // Persist resolved result in cache.
+                if ($resolvedData !== null && ($resolvedData['ok'] ?? false)) {
+                    if ($db !== null) {
+                        $source = $resolvedData['source'] ?? 'WFS-AdE';
+                        if ($source === 'Zornade' && $comune !== '' && $provincia !== '') {
+                            analyticspro_zornade_save_cached_particella($db, $comune, $provincia, $foglio, $particella, $resolvedData);
+                        } elseif ($codCat !== '') {
+                            analyticspro_wfs_save_cached_particella($db, $codCat, $foglio, $particella, $resolvedData);
+                        }
+                    }
                 }
                 if ($db !== null) {
                     $db->close();
+                    $db = null;
                 }
 
-                if ($wfsData === null || !($wfsData['ok'] ?? false)) {
+                if ($resolvedData === null || !($resolvedData['ok'] ?? false)) {
                     $processed++;
                     $updateBatchProgress?->execute(['processed' => $processed, 'id' => $batchId]);
                     continue;
                 }
 
-                $lat      = (float) $wfsData['lat'];
-                $lng      = (float) $wfsData['lng'];
+                $lat      = (float) $resolvedData['lat'];
+                $lng      = (float) $resolvedData['lng'];
                 $verified = 1;
             }
 

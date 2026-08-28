@@ -32,6 +32,13 @@ try {
     }
 
     $batch['progress_percent'] = (int) round(((int) $batch['processed_rows'] / max((int) $batch['total_rows'], 1)) * 100);
+
+    // Expose enrichment progress fields so the frontend can poll and display
+    // background geocoding status.
+    $batch['enrichment_status']    = $batch['enrichment_status']    ?? null;
+    $batch['enrichment_processed'] = (int) ($batch['enrichment_processed'] ?? 0);
+    $batch['enrichment_total']     = (int) ($batch['enrichment_total']     ?? 0);
+
     analyticspro_json(['ok' => true, 'batch' => $batch]);
 } catch (Throwable $exception) {
     analyticspro_json(['ok' => false, 'error' => $exception->getMessage()], 404);
