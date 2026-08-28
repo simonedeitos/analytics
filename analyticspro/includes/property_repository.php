@@ -23,14 +23,19 @@ function analyticspro_visible_property_scope(array $user, string $mode, ?int $fi
     }
 
     if ($mode === 'assigned') {
-        $joins[] = 'INNER JOIN property_assignments pa_filter ON pa_filter.property_id = p.id';
         if (($user['role'] ?? '') === 'subuser') {
+            // Subuser: vede solo i propri immobili assegnati
+            $joins[] = 'INNER JOIN property_assignments pa_filter ON pa_filter.property_id = p.id';
             $where[] = 'pa_filter.subuser_id = :assignment_subuser';
             $params['assignment_subuser'] = (int) $user['id'];
         } elseif ($filterSubuserId) {
+            // Tenant con filtro specifico: vede gli immobili di quel subutente
+            $joins[] = 'INNER JOIN property_assignments pa_filter ON pa_filter.property_id = p.id';
             $where[] = 'pa_filter.subuser_id = :assignment_subuser';
             $params['assignment_subuser'] = $filterSubuserId;
         }
+        // Tenant senza filtro subutente: vede TUTTI gli immobili (assegnati e non)
+        // così può assegnarli ai subutenti direttamente dalla pagina "Marker assegnati"
     }
 
     return [$joins, $where, $params];
@@ -138,6 +143,7 @@ function analyticspro_fetch_properties_payload(array $user, string $mode = 'all'
         $record['assignments'] = $assignments;
         $record['tenant_name'] = trim(($property['tenant_nome'] ?? '') . ' ' . ($property['tenant_cognome'] ?? ''));
         $record['can_edit'] = analyticspro_property_can_edit($user, $record);
+        $record['is_assigned'] = !empty($record['assignments']);
         $payload[] = $record;
     }
 

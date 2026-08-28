@@ -490,3 +490,160 @@ php analyticspro/tests/gml_catalog_smoke.php  # lookup/normalizzazione GML
 php analyticspro/tests/gml_resolution_smoke.php
 php analyticspro/tests/ade_sql_import_smoke.php
 ```
+
+---
+
+## Enrichment sincrono in fase di import
+
+Le coordinate vengono risolte **durante la stessa richiesta HTTP** di import (Fase 2), senza
+dipendere da un worker in background.
+
+- `api/data/import.php` in modalità `process`: esegue la Fase 1 (persistenza dati) e poi
+  tenta di avviare il worker in background tramite `analyticspro_launch_background()`.
+- Se `proc_open`/`shell_exec` non sono disponibili (hosting condiviso), imposta
+  `enrichment_sync = 1` sul batch e il frontend passa automaticamente alla modalità
+  chunk-based via `api/data/enrich_chunk.php`.
+- La funzione `analyticspro_enrich_batch_coordinates_chunk()` è condivisa tra il pulsante
+  "Rigenera coordinate mancanti" (`batch_id=0`) e l'import (`batch_id>0`): nessuna
+  duplicazione di logica.
+
+### Risposta di errore strutturata di enrich_chunk
+
+`api/data/enrich_chunk.php` restituisce sempre un JSON strutturato:
+
+```json
+{ "ok": false, "error_code": "batch_not_found", "error": "Batch non trovato…" }
+```
+
+I codici macchina (`error_code`) sono:
+- `invalid_param` — parametro mancante o non valido
+- `auth_error` — tenant non disponibile
+- `batch_not_found` — batch inesistente o non autorizzato
+- `transient` — errore temporaneo, il frontend può riprovare
+- `internal_error` — errore interno, il frontend deve fermarsi
+
+Il frontend si ferma al primo errore non recuperabile (codice ≠ `transient`) invece di
+riprovare all'infinito.
+
+---
+
+## Nuova UI dell'importatore
+
+- L'alert "Import completato: N righe salvate. Geolocalizzazione dei marker in corso" è stato
+  rimosso. Le stesse informazioni appaiono nel container `#enrichment-status-container`.
+- Il loop `enrichChunkLoop` si ferma immediatamente su errori non recuperabili mostrando
+  il messaggio di errore nell'UI con sfondo rosso.
+
+---
+
+## Pagina Marker assegnati
+
+La pagina `assegnati.php` mostra ora **tutti gli immobili** del tenant (assegnati e non),
+non solo quelli con un'assegnazione attiva.
+
+- Il filtro **"Tutti / Assegnati / Non assegnati"** permette di filtrare lato client.
+- Il filtro per subutente (select `#assigned-subuser-filter`) filtra server-side.
+- Il campo `is_assigned` (`true`/`false`) è incluso nel payload delle API.
+- I subutenti vedono solo i propri immobili assegnati (comportamento invariato).
+
+---
+
+## Cluster mappa a grafico a torta
+
+I cluster di marker sulla mappa usano un'icona **donut SVG inline** generata da
+`iconCreateFunction` in `analyticspro.js`:
+
+- Ogni fetta è proporzionale al numero di marker del relativo colore nel cluster.
+- Il numero totale è mostrato al centro.
+- Nessuna libreria aggiuntiva richiesta.
+- I colori sono validati con regex `/^#[0-9a-fA-F]{3,8}$/` prima di essere inclusi nell'SVG.
+
+---
+
+## Permesso "Telefono OFF"
+
+Quando `analyticspro_tenant_phone_visibility()` restituisce `false`:
+
+- Il KPI "telefoni" nella dashboard è nascosto.
+- Il badge telefono nel popup della mappa non viene renderizzato.
+- La colonna "Telefono" nel popup degli intestatari sparisce.
+- La chiave `telefono` è assente dal payload JSON degli intestatari (server-side in
+  `property_repository.php`).
+
+---
+
+## Migration MySQL 8
+
+Le migration 006 e 007 sono state riscritte in forma portabile per MySQL 8 (la sintassi
+`ADD COLUMN IF NOT EXISTS` è MariaDB-only):
+
+```sql
+DROP PROCEDURE IF EXISTS _analyticspro_migration_006;
+DELIMITER $$
+CREATE PROCEDURE _analyticspro_migration_006()
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME   = 'import_batches'
+          AND COLUMN_NAME  = 'enrichment_report'
+    ) THEN
+        ALTER TABLE import_batches ADD COLUMN enrichment_report LONGTEXT NULL AFTER enrichment_total;
+    END IF;
+END$$
+DELIMITER ;
+CALL _analyticspro_migration_006();
+DROP PROCEDURE IF EXISTS _analyticspro_migration_006;
+```
+
+---
+
+## Pagina diagnostica
+
+`analyticspro/admin/diagnostica_import.php` (solo admin) permette di:
+
+- Verificare la presenza di ogni colonna/tabella attesa dalle migration 001-007.
+- Testare la risoluzione `nome comune → Belfiore` mostrando quale livello della catena ha risposto.
+- Eseguire `enrich_chunk` in-process per un batch specifico, mostrando l'eccezione completa
+  con stack trace invece del 422 opaco.
+- Elencare i batch recenti con tutti i campi `enrichment_*`.
+
+> ⚠️ Rimuovere la pagina dopo il debug.
+
+---
+
+## Test aggiuntivi
+
+```bash
+php analyticspro/tests/test_cointestatari_grouping.php    # raggruppamento per unità immobiliare
+php analyticspro/tests/test_assignment_reconciliation.php # riconciliazione assegnazioni
+php analyticspro/tests/test_cluster_fractions.php         # fette cluster SVG
+php analyticspro/tests/test_phone_visibility.php          # telefono assente con permesso OFF
+php analyticspro/tests/test_enrich_chunk_error.php        # error_code strutturato
+```
+
+## Aggiornamenti UI e import
+
+### Enrichment sincrono in fase di import
+
+Quando il worker background non può essere avviato (hosting con `proc_open` / `shell_exec` disabilitati), l'importatore passa automaticamente alla modalità sincrona a chunk tramite `api/data/enrich_chunk.php`. Il frontend mostra lo stato della geolocalizzazione nello stesso pannello di avanzamento e interrompe i retry su errori non transitori.
+
+### Nuova UI dell'importatore
+
+L'esito della persistenza non viene più mostrato con `alert()`: il numero di righe salvate viene scritto nel riquadro di stato enrichment, che poi continua con polling background o chunk sincroni. Questo evita popup bloccanti e mantiene tutta la telemetria del flusso nello stesso punto della pagina.
+
+### Pagina Marker assegnati
+
+`assegnati.php` ora supporta la gestione completa delle assegnazioni: per tenant senza filtro subutente la vista include sia immobili assegnati sia non assegnati, così l'assegnazione può essere fatta direttamente dalla pagina. È disponibile anche un filtro rapido client-side **Tutti / Assegnati / Non assegnati**.
+
+### Editor popup condiviso
+
+L'editor inline usato in tabella e nel popup mappa continua a condividere la stessa logica di modifica stato, colore, note e assegnazioni. Il payload proprietà espone anche `is_assigned` per distinguere rapidamente gli immobili già assegnati nella UI.
+
+### Cluster a torta
+
+I cluster Leaflet usano un'icona SVG “donut” che mostra la composizione dei marker per colore e il totale al centro. In questo modo la mappa comunica subito la distribuzione degli stati anche a zoom bassi.
+
+### Gestione permesso telefono
+
+Quando il tenant disattiva la visibilità telefono, il dato non viene esposto nel payload owner, il KPI dedicato viene nascosto e il badge/tooltip nei popup non mostra più il numero. La UI usa quindi lo stesso permesso sia lato API sia lato frontend.
