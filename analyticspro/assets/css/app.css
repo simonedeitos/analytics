@@ -240,6 +240,34 @@ body {
 .help-steps li { margin-bottom: .55rem; }
 .property-inline-control { min-width: 120px; }
 .small-select[multiple] { min-height: 88px; }
+.report-filter-bar {
+    background: #f8f9fb;
+    border: 1px solid #e8edf5;
+    border-radius: .5rem;
+    padding: .65rem .75rem;
+}
+.report-filter-bar .form-label {
+    color: var(--ap-muted);
+}
+.map-popup-professional {
+    max-width: 420px;
+}
+.map-popup-professional .card {
+    border: 1px solid #e8edf5;
+}
+.map-popup-professional .property-owner-row + .property-owner-row {
+    border-top: 1px dashed #e8edf5;
+    margin-top: .5rem;
+    padding-top: .5rem;
+}
+.map-popup-professional .owner-meta {
+    color: var(--ap-muted);
+    font-size: .75rem;
+}
+.property-detail-wrapper {
+    max-width: 420px;
+    margin: 0 auto;
+}
 
 /* ----- Drop Zone (importa.php) --------------------------------------- */
 .drop-zone {

@@ -40,7 +40,35 @@ analyticspro_render_header('Report in griglia', ['app_assets' => true]);
     <div class="card border-0 shadow-sm">
         <div class="card-body">
             <p class="text-muted small">Vista generale di tutti gli immobili del tenant con filtri su ogni colonna, incluso colore e stato.</p>
-            <table id="report-table" class="table table-striped table-hover w-100">
+            <div id="report-filters" class="report-filter-bar mb-3">
+                <div class="row g-2 align-items-end">
+                    <div class="col-12 col-md-2">
+                        <label for="report-filter-color" class="form-label form-label-sm small mb-1">Colore</label>
+                        <select id="report-filter-color" class="form-select form-select-sm">
+                            <option value="">Tutti</option>
+                        </select>
+                    </div>
+                    <div class="col-12 col-md-2">
+                        <label for="report-filter-comune" class="form-label form-label-sm small mb-1">Comune</label>
+                        <input id="report-filter-comune" class="form-control form-control-sm" placeholder="Comune">
+                    </div>
+                    <div class="col-12 col-md-2">
+                        <label for="report-filter-foglio" class="form-label form-label-sm small mb-1">Foglio/Particella</label>
+                        <input id="report-filter-foglio" class="form-control form-control-sm" placeholder="F. / P.">
+                    </div>
+                    <div class="col-12 col-md-2">
+                        <label for="report-filter-stato" class="form-label form-label-sm small mb-1">Stato</label>
+                        <select id="report-filter-stato" class="form-select form-select-sm">
+                            <option value="">Tutti</option>
+                        </select>
+                    </div>
+                    <div class="col-12 col-md-4">
+                        <label for="report-filter-assigned" class="form-label form-label-sm small mb-1">Assegnato a</label>
+                        <input id="report-filter-assigned" class="form-control form-control-sm" placeholder="Nome subutente">
+                    </div>
+                </div>
+            </div>
+            <table id="report-table" class="table table-sm table-striped table-hover w-100">
                 <thead></thead>
                 <tfoot></tfoot>
                 <tbody></tbody>
