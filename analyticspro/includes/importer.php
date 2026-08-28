@@ -492,6 +492,15 @@ function analyticspro_enrich_batch_coordinates(int $batchId): void
     $processed         = 0;
     $errors            = 0;
 
+    // Open the SQLite cache once for the whole batch to avoid re-opening per parcel.
+    $cacheDb = null;
+    try {
+        $cacheDb = analyticspro_wfs_open_cache_db();
+    } catch (Throwable) {
+        $cacheDb = null;
+    }
+
+    try {
     foreach ($uniqueParcels as $parcel) {
         $provincia  = (string) ($parcel['provincia']     ?? '');
         $comune     = (string) ($parcel['comune']        ?? '');
@@ -511,18 +520,9 @@ function analyticspro_enrich_batch_coordinates(int $batchId): void
         }
 
         try {
-            $cached = null;
-            $db     = null;
-            try {
-                $db     = analyticspro_wfs_open_cache_db();
-                $cached = analyticspro_wfs_get_cached_particella($db, $codCat, $foglio, $particella);
-                if ($cached !== null) {
-                    $db->close();
-                    $db = null;
-                }
-            } catch (Throwable) {
-                $db = null;
-            }
+            $cached = $cacheDb !== null
+                ? analyticspro_wfs_get_cached_particella($cacheDb, $codCat, $foglio, $particella)
+                : null;
 
             if ($cached !== null && ($cached['ok'] ?? false)) {
                 $lat      = (float) $cached['lat'];
@@ -535,10 +535,8 @@ function analyticspro_enrich_batch_coordinates(int $batchId): void
 
                 if ($zornadeData !== null && ($zornadeData['ok'] ?? false)) {
                     // Zornade succeeded.
-                    if ($db !== null) {
-                        analyticspro_wfs_save_cached_particella($db, $codCat, $foglio, $particella, $zornadeData);
-                        $db->close();
-                        $db = null;
+                    if ($cacheDb !== null) {
+                        analyticspro_wfs_save_cached_particella($cacheDb, $codCat, $foglio, $particella, $zornadeData);
                     }
                     $lat      = (float) $zornadeData['lat'];
                     $lng      = (float) $zornadeData['lng'];
@@ -555,11 +553,8 @@ function analyticspro_enrich_batch_coordinates(int $batchId): void
                     $wfsData       = analyticspro_wfs_query_service($codCat, $foglio, $particella);
                     $lastWfsCallAt = microtime(true);
 
-                    if ($wfsData !== null && ($wfsData['ok'] ?? false) && $db !== null) {
-                        analyticspro_wfs_save_cached_particella($db, $codCat, $foglio, $particella, $wfsData);
-                    }
-                    if ($db !== null) {
-                        $db->close();
+                    if ($wfsData !== null && ($wfsData['ok'] ?? false) && $cacheDb !== null) {
+                        analyticspro_wfs_save_cached_particella($cacheDb, $codCat, $foglio, $particella, $wfsData);
                     }
 
                     if ($wfsData === null || !($wfsData['ok'] ?? false)) {
@@ -599,6 +594,11 @@ function analyticspro_enrich_batch_coordinates(int $batchId): void
 
         $processed++;
         $updateBatchProgress?->execute(['processed' => $processed, 'id' => $batchId]);
+    }
+    } finally {
+        if ($cacheDb !== null) {
+            $cacheDb->close();
+        }
     }
 
     if ($batchId > 0) {
