@@ -42,7 +42,7 @@ analyticspro_render_header('Marker assegnati', ['app_assets' => true]);
                 <option value="unassigned">Non assegnati</option>
             </select>
             <select id="assigned-subuser-filter" class="form-select form-select-sm flex-grow-1"></select>
-            <button id="assigned-save" class="btn btn-primary btn-sm">Salva modifiche selezionate</button>
+            <button id="assigned-save" class="btn btn-outline-primary btn-sm">Aggiorna elenco</button>
         </div>
     </div>
 

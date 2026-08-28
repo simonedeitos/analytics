@@ -96,8 +96,9 @@ foreach ($names as $i => $rawName) {
     }
 }
 
-// Rigenera il catalogo dopo l'upload
+// Invalida esplicitamente cache catalogo/indice inverso dopo upload o estrazione ZIP
 if ($saved !== [] || $replaced !== []) {
+    analyticspro_gml_invalidate_catalog_cache();
     analyticspro_gml_build_catalog(true);
 }
 

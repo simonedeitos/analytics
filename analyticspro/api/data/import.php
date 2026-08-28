@@ -68,7 +68,7 @@ try {
 
         // Phase 2: enrichment nella stessa richiesta HTTP (sincrono), con soglia
         // di sicurezza sulle particelle uniche per evitare timeout.
-        $syncLimit = (int) (analyticspro_env('IMPORT_SYNC_MAX_UNIQUE', '2000') ?? '2000');
+        $syncLimit = (int) (analyticspro_env('IMPORT_SYNC_MAX_UNIQUE', '50000') ?? '50000');
         $syncLimit = max(1, $syncLimit);
         if (function_exists('set_time_limit')) {
             @set_time_limit(30);
