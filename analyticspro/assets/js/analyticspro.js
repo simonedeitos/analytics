@@ -16,7 +16,6 @@
         altro: 'Altro',
     };
 
-    // Inizializzazione state con mapStatiFilter garantito
     var state = {
         csrfToken: document.querySelector('meta[name="csrf-token"]') ? document.querySelector('meta[name="csrf-token"]').content : '',
         role: root.dataset.role,
@@ -45,7 +44,6 @@
         mapStatiFilter: null,
     };
 
-    // Assegnazione separata e sicura di mapStatiFilter
     state.mapStatiFilter = Object.keys(STATE_OPTIONS).slice();
 
     function getStatiFilter() {
@@ -132,16 +130,13 @@
     }
 
     async function loadProperties() {
-        var urls = [
+        var results = await Promise.all([
             api(withTenant(state.propertiesEndpoint + '?mode=all')),
             api(withTenant(state.propertiesEndpoint + '?mode=assigned' + (state.role !== 'subuser' ? '&subuser_id=' : ''))),
-        ];
-        var results = await Promise.all(urls);
-        var allPayload = results[0];
-        var assignedPayload = results[1];
-        state.properties = allPayload.properties || [];
-        state.subusers = allPayload.subusers || [];
-        state.assignedProperties = assignedPayload.properties || [];
+        ]);
+        state.properties = results[0].properties || [];
+        state.subusers = results[0].subusers || [];
+        state.assignedProperties = results[1].properties || [];
         updateKpis();
         renderMap();
         renderAssignedTable();
@@ -151,11 +146,11 @@
     }
 
     function updateKpis() {
-        var ownerCount = state.properties.reduce(function (sum, property) { return sum + (property.owners ? property.owners.length : 0); }, 0);
+        var ownerCount = state.properties.reduce(function (sum, p) { return sum + (p.owners ? p.owners.length : 0); }, 0);
         var phoneCount = 0;
         if (state.canViewPhone) {
-            phoneCount = state.properties.reduce(function (sum, property) {
-                return sum + (property.owners || []).filter(function (o) { return o.telefono; }).length;
+            phoneCount = state.properties.reduce(function (sum, p) {
+                return sum + (p.owners || []).filter(function (o) { return o.telefono; }).length;
             }, 0);
         }
         var assignedCount = state.role === 'subuser'
@@ -182,8 +177,7 @@
 
     function buildOwnerSummary(property) {
         var names = (property.owners || []).map(function (owner) {
-            var fullName = ((owner.cognome || '') + ' ' + (owner.nome || '')).trim();
-            return fullName || 'Intestatario';
+            return ((owner.cognome || '') + ' ' + (owner.nome || '')).trim() || 'Intestatario';
         });
         return escapeHtml(names.join(', '));
     }
@@ -203,9 +197,7 @@
         var action = canManage
             ? '<button type="button" class="btn btn-outline-secondary btn-sm ms-1 assignment-picker-btn" data-property-id="' + property.id + '" title="Assegna/Modifica assegnazioni"><i class="bi bi-person-plus"></i></button>'
             : '';
-        if (!names.length) {
-            return '<span class="small text-muted">Non assegnato</span>' + action;
-        }
+        if (!names.length) return '<span class="small text-muted">Non assegnato</span>' + action;
         return '<span class="small">' + escapeHtml(names.join(', ')) + '</span>' + action;
     }
 
@@ -353,21 +345,14 @@
         var stateSelect = document.getElementById('report-filter-stato');
         if (colorSelect) {
             var selectedColor = colorSelect.value;
-            var colors = [];
-            var seen = {};
-            state.properties.forEach(function (p) {
-                if (p.colore_marker && !seen[p.colore_marker]) { seen[p.colore_marker] = true; colors.push(p.colore_marker); }
-            });
-            colorSelect.innerHTML = '<option value="">Tutti</option>' + colors.map(function (c) {
-                return '<option value="' + escapeHtml(c) + '">' + escapeHtml(c) + '</option>';
-            }).join('');
+            var colors = [], seen = {};
+            state.properties.forEach(function (p) { if (p.colore_marker && !seen[p.colore_marker]) { seen[p.colore_marker] = true; colors.push(p.colore_marker); } });
+            colorSelect.innerHTML = '<option value="">Tutti</option>' + colors.map(function (c) { return '<option value="' + escapeHtml(c) + '">' + escapeHtml(c) + '</option>'; }).join('');
             colorSelect.value = (selectedColor && seen[selectedColor]) ? selectedColor : '';
         }
         if (stateSelect) {
             var selectedStato = stateSelect.value;
-            stateSelect.innerHTML = '<option value="">Tutti</option>' + Object.keys(STATE_OPTIONS).map(function (v) {
-                return '<option value="' + escapeHtml(STATE_OPTIONS[v]) + '">' + escapeHtml(STATE_OPTIONS[v]) + '</option>';
-            }).join('');
+            stateSelect.innerHTML = '<option value="">Tutti</option>' + Object.keys(STATE_OPTIONS).map(function (v) { return '<option value="' + escapeHtml(STATE_OPTIONS[v]) + '">' + escapeHtml(STATE_OPTIONS[v]) + '</option>'; }).join('');
             stateSelect.value = selectedStato;
         }
     }
@@ -388,6 +373,89 @@
         table.draw();
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Raggruppa le properties per stesso subalterno catastale (foglio+particella+subalterno)
+    // restituisce array di "gruppi": ogni gruppo ha una property principale (first)
+    // con la lista owners unificata di tutte le properties del gruppo.
+    // ─────────────────────────────────────────────────────────────────────────
+    function groupPropertiesByUnit(properties) {
+        var groups = {};
+        var order  = [];
+
+        for (var i = 0; i < properties.length; i++) {
+            var p = properties[i];
+            var foglio     = String(p.foglio     || '');
+            var particella = String(p.particella || '');
+            var subalterno = String(p.subalterno || '');
+            var unitKey    = foglio + '|' + particella + '|' + subalterno + '|' + String(p.user_id || '');
+
+            if (!groups[unitKey]) {
+                // Prima property del gruppo: diventa la "principale"
+                groups[unitKey] = {
+                    primary:    JSON.parse(JSON.stringify(p)), // copia profonda
+                    properties: [],
+                };
+                order.push(unitKey);
+            }
+            groups[unitKey].properties.push(p);
+        }
+
+        // Per ogni gruppo, unifica gli owners e segna quali properties compongono il gruppo
+        var result = [];
+        for (var ki = 0; ki < order.length; ki++) {
+            var key   = order[ki];
+            var group = groups[key];
+            var prim  = group.primary;
+
+            // Unifica owners da tutte le properties del gruppo (evita duplicati per CF)
+            var allOwners = [];
+            var seenCf    = {};
+            for (var pi = 0; pi < group.properties.length; pi++) {
+                var owners = group.properties[pi].owners || [];
+                for (var oi = 0; oi < owners.length; oi++) {
+                    var ownerCf = owners[oi].codice_fiscale || ('__idx_' + allOwners.length);
+                    if (!seenCf[ownerCf]) {
+                        seenCf[ownerCf] = true;
+                        allOwners.push(owners[oi]);
+                    }
+                }
+            }
+            prim.owners = allOwners;
+
+            // Unifica assignments
+            var allAssignments = [];
+            var seenAss = {};
+            for (var pi2 = 0; pi2 < group.properties.length; pi2++) {
+                var assignments = group.properties[pi2].assignments || [];
+                for (var ai = 0; ai < assignments.length; ai++) {
+                    var assKey = String(assignments[ai].subuser_id);
+                    if (!seenAss[assKey]) {
+                        seenAss[assKey] = true;
+                        allAssignments.push(assignments[ai]);
+                    }
+                }
+            }
+            prim.assignments = allAssignments;
+
+            // Unifica notes
+            var allNotes = [];
+            for (var pi3 = 0; pi3 < group.properties.length; pi3++) {
+                var notes = group.properties[pi3].notes || [];
+                for (var ni = 0; ni < notes.length; ni++) {
+                    allNotes.push(notes[ni]);
+                }
+            }
+            prim.notes = allNotes;
+
+            // Elenco degli id di tutte le properties nel gruppo (per uso futuro)
+            prim._groupIds = group.properties.map(function (gp) { return gp.id; });
+
+            result.push(prim);
+        }
+
+        return result;
+    }
+
     function renderMap() {
         var container = document.getElementById('map-fullpage') || document.getElementById('map-container');
         if (!container) return;
@@ -402,17 +470,10 @@
             });
             var layerSatellite = L.tileLayer(
                 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-                {
-                    attribution: 'Tiles &copy; Esri',
-                    maxZoom: 19,
-                }
+                { attribution: 'Tiles &copy; Esri', maxZoom: 19 }
             );
             layerStreets.addTo(state.map);
-            L.control.layers(
-                { 'Strade': layerStreets, 'Satellite': layerSatellite },
-                {},
-                { position: 'topright' }
-            ).addTo(state.map);
+            L.control.layers({ 'Strade': layerStreets, 'Satellite': layerSatellite }, {}, { position: 'topright' }).addTo(state.map);
 
             state.markers = L.markerClusterGroup({
                 spiderfyOnMaxZoom: true,
@@ -422,37 +483,27 @@
                 iconCreateFunction: function (cluster) {
                     var childMarkers = cluster.getAllChildMarkers();
                     var total = childMarkers.length;
-                    if (!total) {
-                        return L.divIcon({ html: '', className: 'analyticspro-cluster-icon', iconSize: L.point(40, 40) });
-                    }
+                    if (!total) return L.divIcon({ html: '', className: 'analyticspro-cluster-icon', iconSize: L.point(40, 40) });
                     var counts = {};
                     for (var i = 0; i < childMarkers.length; i++) {
-                        var opts = childMarkers[i].options || {};
+                        var opts  = childMarkers[i].options || {};
                         var color = opts.fillColor || opts.color || '#808080';
                         counts[color] = (counts[color] || 0) + 1;
                     }
                     var colorKeys = Object.keys(counts).sort();
-                    var cacheKey = total + '|' + colorKeys.map(function (c) { return c + ':' + counts[c]; }).join('|');
-                    if (state.clusterIconCache && state.clusterIconCache.has(cacheKey)) {
-                        return state.clusterIconCache.get(cacheKey);
-                    }
-                    var r = 1;
-                    var startAngle = -Math.PI / 2;
-                    var paths = '';
+                    var cacheKey  = total + '|' + colorKeys.map(function (c) { return c + ':' + counts[c]; }).join('|');
+                    if (state.clusterIconCache && state.clusterIconCache.has(cacheKey)) return state.clusterIconCache.get(cacheKey);
+                    var r = 1, startAngle = -Math.PI / 2, paths = '';
                     if (colorKeys.length === 1) {
                         var sc = /^#[0-9a-fA-F]{3,8}$/.test(colorKeys[0]) ? colorKeys[0] : '#808080';
                         paths = '<circle cx="0" cy="0" r="' + r + '" fill="' + sc + '"></circle>';
                     } else {
                         for (var j = 0; j < colorKeys.length; j++) {
-                            var col = colorKeys[j];
-                            var cnt = counts[col];
-                            var pct = cnt / total;
+                            var col = colorKeys[j], cnt = counts[col], pct = cnt / total;
                             var endAngle = startAngle + Math.PI * 2 * pct;
-                            var safeCol = /^#[0-9a-fA-F]{3,8}$/.test(col) ? col : '#808080';
-                            var x1 = (Math.cos(startAngle) * r).toFixed(6);
-                            var y1 = (Math.sin(startAngle) * r).toFixed(6);
-                            var x2 = (Math.cos(endAngle) * r).toFixed(6);
-                            var y2 = (Math.sin(endAngle) * r).toFixed(6);
+                            var safeCol  = /^#[0-9a-fA-F]{3,8}$/.test(col) ? col : '#808080';
+                            var x1 = (Math.cos(startAngle) * r).toFixed(6), y1 = (Math.sin(startAngle) * r).toFixed(6);
+                            var x2 = (Math.cos(endAngle)   * r).toFixed(6), y2 = (Math.sin(endAngle)   * r).toFixed(6);
                             var largeArc = pct > 0.5 ? 1 : 0;
                             paths += '<path d="M 0 0 L ' + x1 + ' ' + y1 + ' A ' + r + ' ' + r + ' 0 ' + largeArc + ' 1 ' + x2 + ' ' + y2 + ' Z" fill="' + safeCol + '"></path>';
                             startAngle = endAngle;
@@ -464,47 +515,34 @@
                         + '<circle cx="0" cy="0" r="0.44" fill="rgba(255,255,255,0.92)"></circle>'
                         + '<text x="0" y="0.16" text-anchor="middle" dominant-baseline="middle" font-size="0.44" font-weight="700" font-family="sans-serif" fill="#222">' + total + '</text>'
                         + '</svg>';
-                    var icon = L.divIcon({
-                        html: svg,
-                        className: 'analyticspro-cluster-icon',
-                        iconSize: L.point(40, 40),
-                        iconAnchor: L.point(20, 20),
-                    });
+                    var icon = L.divIcon({ html: svg, className: 'analyticspro-cluster-icon', iconSize: L.point(40, 40), iconAnchor: L.point(20, 20) });
                     if (state.clusterIconCache) state.clusterIconCache.set(cacheKey, icon);
                     return icon;
                 },
             });
 
-            state.markers.on('spiderfied', function () {
-                state.map.closePopup();
-            });
-
+            state.markers.on('spiderfied', function () { state.map.closePopup(); });
             state.map.addLayer(state.markers);
         }
 
-        // Lettura SICURA del filtro stati — nessun .includes su undefined possibile
         var statiFilter = getStatiFilter();
-
         state.markers.clearLayers();
         var points = [];
 
-        for (var pi = 0; pi < state.properties.length; pi++) {
-            var property = state.properties[pi];
+        // ── Raggruppa per unità catastale (foglio+particella+subalterno) ──────
+        var unitGroups = groupPropertiesByUnit(state.properties);
+
+        for (var ui = 0; ui < unitGroups.length; ui++) {
+            var property = unitGroups[ui];
             if (!property.lat || !property.lng) continue;
             var lat = Number(property.lat);
             var lng = Number(property.lng);
             if (!isFinite(lat) || !isFinite(lng)) continue;
 
-            // stato può essere null — normalizza sempre a stringa
-            var statoVal = '';
-            if (property.stato !== null && property.stato !== undefined) {
-                statoVal = String(property.stato);
-            }
-
-            // Controllo con indexOf — più compatibile di .includes()
+            var statoVal = (property.stato !== null && property.stato !== undefined) ? String(property.stato) : '';
             if (statiFilter.indexOf(statoVal) === -1) continue;
 
-            var color = property.colore_marker || '#2A519F';
+            var color  = property.colore_marker || '#2A519F';
             var marker = L.circleMarker([lat, lng], {
                 radius: 9,
                 color: color,
@@ -512,43 +550,49 @@
                 fillOpacity: 0.92,
                 weight: 2,
             });
-            marker.bindPopup(buildPopupHtml([property]), { maxWidth: 430 });
+            marker.bindPopup(buildPopupHtml(property), { maxWidth: 460 });
             state.markers.addLayer(marker);
             points.push(property);
         }
 
-        if (points.length) {
-            state.map.fitBounds(state.markers.getBounds().pad(0.2));
-        }
+        if (points.length) state.map.fitBounds(state.markers.getBounds().pad(0.2));
         setTimeout(function () { if (state.map) state.map.invalidateSize(); }, 150);
         setTimeout(function () { if (state.map) state.map.invalidateSize(); }, 600);
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Righe intestatari per il popup
+    // ─────────────────────────────────────────────────────────────────────────
     function ownerDetailRows(property) {
         var owners = property.owners || [];
-        if (!owners.length) {
-            return '<div class="text-muted small">Nessun intestatario disponibile.</div>';
-        }
+        if (!owners.length) return '<div class="text-muted small">Nessun intestatario disponibile.</div>';
         return owners.map(function (owner) {
             var fullName = ((owner.cognome || '') + ' ' + (owner.nome || '')).trim() || 'Intestatario';
             var identityParts = [];
             if (owner.codice_fiscale) identityParts.push('CF/P.IVA: ' + owner.codice_fiscale);
-            if (owner.email) identityParts.push('\u2709 ' + owner.email);
-            if (owner.indirizzo) identityParts.push('\uD83D\uDCCD ' + owner.indirizzo);
-            var identity = escapeHtml(identityParts.join(' | '));
+            if (owner.email)          identityParts.push('\u2709 ' + owner.email);
+            if (owner.indirizzo)      identityParts.push('\uD83D\uDCCD ' + owner.indirizzo);
             var profileParts = [];
-            if (owner.data_nascita) profileParts.push('Nato il: ' + owner.data_nascita);
-            if (owner.genere) profileParts.push('Genere: ' + owner.genere);
-            if (state.canViewPhone && owner.telefono) profileParts.push('\u260E ' + owner.telefono);
-            var profile = escapeHtml(profileParts.join(' | '));
-            var quota = property.quota ? ' (' + escapeHtml(property.quota) + ')' : '';
+            if (owner.data_nascita)                      profileParts.push('Nato il: ' + owner.data_nascita);
+            if (owner.genere)                            profileParts.push('Genere: ' + owner.genere);
+            if (state.canViewPhone && owner.telefono)    profileParts.push('\u260E ' + owner.telefono);
+            var quota      = property.quota      ? ' (' + escapeHtml(property.quota)      + ')' : '';
             var titolarita = property.titolarita ? ' \u2013 ' + escapeHtml(property.titolarita) : '';
             return '<div class="property-owner-row">'
                 + '<div class="fw-semibold">' + escapeHtml(fullName) + quota + titolarita + '</div>'
-                + (identity ? '<div class="owner-meta">' + identity + '</div>' : '')
-                + (profile ? '<div class="owner-meta">' + profile + '</div>' : '')
+                + (identityParts.length ? '<div class="owner-meta">' + escapeHtml(identityParts.join(' | ')) + '</div>' : '')
+                + (profileParts.length  ? '<div class="owner-meta">' + escapeHtml(profileParts.join(' | '))  + '</div>' : '')
                 + '</div>';
         }).join('');
+    }
+
+    // Nomi brevi degli owners per il titolo header
+    function ownerNamesShort(property) {
+        var owners = property.owners || [];
+        if (!owners.length) return '';
+        return owners.map(function (o) {
+            return ((o.cognome || '') + ' ' + (o.nome || '')).trim() || 'Intestatario';
+        }).join(', ');
     }
 
     function propertyNotesHtml(property) {
@@ -559,13 +603,18 @@
         }).join('');
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Card HTML professionale del popup — ora con owners nel titolo
+    // ─────────────────────────────────────────────────────────────────────────
     function buildPropertyCardHtml(property, options) {
         options = options || {};
-        var mapMode = options.mapMode === true;
+        var mapMode      = options.mapMode === true;
         var addressLabel = ((property.indirizzo || '') + ' ' + (property.civico || '')).trim() || 'Immobile';
-        var aNames = assignmentNames(property);
+        var ownersShort  = ownerNamesShort(property);
+
+        var aNames         = assignmentNames(property);
         var assignmentText = aNames.length ? escapeHtml(aNames.join(', ')) : '<span class="text-muted">Non assegnato</span>';
-        var assignmentBtn = (state.role !== 'subuser' && state.subusers.length)
+        var assignmentBtn  = (state.role !== 'subuser' && state.subusers.length)
             ? '<button type="button" class="btn btn-outline-secondary btn-sm assignment-picker-btn" data-property-id="' + property.id + '" title="Assegna/Modifica assegnazioni"><i class="bi bi-person-plus"></i></button>'
             : '';
         var editAction = property.can_edit
@@ -580,10 +629,17 @@
             : '';
 
         return '<div class="card map-popup-card mb-2" data-property-id="' + property.id + '">'
+            // ── HEADER: indirizzo + unità + nomi proprietari ──────────────
             + '<div class="card-header py-2 px-3">'
             + '<div class="fw-semibold">\uD83C\uDFE0 ' + escapeHtml(addressLabel) + ' \u2013 ' + escapeHtml(unitLabel(property)) + '</div>'
-            + '<div class="small mt-1"><span class="color-dot me-1" style="background:' + escapeHtml(property.colore_marker || '#0d6efd') + '"></span>' + escapeHtml(property.comune || '') + statoBadge + '</div>'
+            + (ownersShort ? '<div class="popup-owners-summary mt-1">' + escapeHtml(ownersShort) + '</div>' : '')
+            + '<div class="small mt-1">'
+            + '<span class="color-dot me-1" style="background:' + escapeHtml(property.colore_marker || '#0d6efd') + '"></span>'
+            + escapeHtml(property.comune || '')
+            + statoBadge
             + '</div>'
+            + '</div>'
+            // ── BODY ──────────────────────────────────────────────────────
             + '<div class="card-body py-2 px-3">'
             + '<div class="popup-section-label">Intestatari</div>'
             + ownerDetailRows(property)
@@ -596,17 +652,15 @@
             + assignmentBtn
             + '</div>'
             + '</div>'
+            // ── FOOTER ────────────────────────────────────────────────────
             + '<div class="card-footer py-2 px-3 d-flex align-items-center justify-content-between gap-2 flex-wrap">'
-            + editAction
-            + closeAction
+            + editAction + closeAction
             + '</div>'
             + '</div>';
     }
 
-    function buildPopupHtml(propertiesAtPoint) {
-        var list = Array.isArray(propertiesAtPoint) ? propertiesAtPoint : [propertiesAtPoint];
-        var cards = list.map(function (p) { return buildPropertyCardHtml(p, { mapMode: true }); }).join('');
-        return '<div class="map-popup-wrapper">' + cards + '</div>';
+    function buildPopupHtml(property) {
+        return '<div class="map-popup-wrapper">' + buildPropertyCardHtml(property, { mapMode: true }) + '</div>';
     }
 
     function destroyCharts() {
@@ -617,21 +671,13 @@
     function pieChart(id, labels, data) {
         var ctx = document.getElementById(id);
         if (!ctx) return;
-        state.charts[id] = new Chart(ctx, {
-            type: 'pie',
-            data: { labels: labels, datasets: [{ data: data }] },
-            options: { responsive: true },
-        });
+        state.charts[id] = new Chart(ctx, { type: 'pie', data: { labels: labels, datasets: [{ data: data }] }, options: { responsive: true } });
     }
 
     function barChart(id, labels, data, label) {
         var ctx = document.getElementById(id);
         if (!ctx) return;
-        state.charts[id] = new Chart(ctx, {
-            type: 'bar',
-            data: { labels: labels, datasets: [{ label: label, data: data, backgroundColor: '#0d6efd' }] },
-            options: { responsive: true, plugins: { legend: { display: false } } },
-        });
+        state.charts[id] = new Chart(ctx, { type: 'bar', data: { labels: labels, datasets: [{ label: label, data: data, backgroundColor: '#0d6efd' }] }, options: { responsive: true, plugins: { legend: { display: false } } } });
     }
 
     function renderCharts() {
@@ -672,7 +718,7 @@
             pieChart('chart-contacts', ['Con email', 'Senza contatti'], [withEmail, Math.max(owners.length - withEmail, 0)]);
         }
         pieChart('chart-gender',    Object.keys(genders),    Object.keys(genders).map(function(k){return genders[k];}));
-        barChart('chart-age',       Object.keys(ages),       Object.keys(ages).map(function(k){return ages[k];}),       'Intestatari');
+        barChart('chart-age',       Object.keys(ages),       Object.keys(ages).map(function(k){return ages[k];}), 'Intestatari');
         pieChart('chart-province',  Object.keys(provinces),  Object.keys(provinces).map(function(k){return provinces[k];}));
         barChart('chart-comune',    Object.keys(comuni).slice(0,10), Object.keys(comuni).slice(0,10).map(function(k){return comuni[k];}), 'Immobili');
         pieChart('chart-categoria', Object.keys(categories), Object.keys(categories).map(function(k){return categories[k];}));
@@ -704,13 +750,13 @@
     }
 
     async function saveProperty(button) {
-        var wrapper = button.closest('[data-property-id]') || button.closest('tr');
+        var wrapper    = button.closest('[data-property-id]') || button.closest('tr');
         var propertyId = Number(button.dataset.propertyId || (wrapper && wrapper.dataset.propertyId) || 0);
         if (!propertyId) return;
-        var property = findPropertyById(propertyId);
-        var stateSelect = wrapper && wrapper.querySelector('.state-select');
-        var colorInput = wrapper && wrapper.querySelector('.color-input');
-        var noteInput = wrapper && wrapper.querySelector('.note-input');
+        var property        = findPropertyById(propertyId);
+        var stateSelect     = wrapper && wrapper.querySelector('.state-select');
+        var colorInput      = wrapper && wrapper.querySelector('.color-input');
+        var noteInput       = wrapper && wrapper.querySelector('.note-input');
         var customStateInput = wrapper && wrapper.querySelector('.custom-state-input');
         var assignmentSelect = wrapper && wrapper.querySelector('.assignment-select');
         var assignments = assignmentSelect ? Array.from(assignmentSelect.selectedOptions).map(function (o) { return Number(o.value); }) : undefined;
@@ -719,7 +765,7 @@
             await savePropertyPayload({
                 property_id: propertyId,
                 stato: (stateSelect && stateSelect.value) || (property && property.stato),
-                stato_personalizzato: (customStateInput && customStateInput.value !== undefined ? customStateInput.value : (property && property.stato_personalizzato || '')),
+                stato_personalizzato: (customStateInput ? customStateInput.value : (property && property.stato_personalizzato || '')),
                 colore_marker: (colorInput && colorInput.value) || (property && property.colore_marker),
                 note: (noteInput && noteInput.value) || '',
                 assignments: assignments,
@@ -734,15 +780,15 @@
     async function parseFiles(files) {
         var parsedRows = [];
         for (var fi = 0; fi < files.length; fi++) {
-            var file = files[fi];
+            var file   = files[fi];
             var buffer = await file.arrayBuffer();
             var workbook = XLSX.read(buffer, { type: 'array', raw: false, dateNF: 'yyyy-mm-dd' });
             var sheet = workbook.Sheets[workbook.SheetNames[0]];
-            var rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', blankrows: false, raw: false });
+            var rows  = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', blankrows: false, raw: false });
             if (!rows.length) continue;
             var headers = rows[0].map(function (v) { return String(v).trim(); });
             for (var ri = 1; ri < rows.length; ri++) {
-                var current = rows[ri];
+                var current    = rows[ri];
                 var rowPayload = {};
                 headers.forEach(function (header, ci) { rowPayload[header] = current[ci] !== undefined ? String(current[ci]).trim() : ''; });
                 parsedRows.push(rowPayload);
@@ -754,15 +800,15 @@
     function importLoggerReset() {
         var container = document.getElementById('enrichment-status-container');
         var phase = document.getElementById('import-phase');
-        var bar = document.getElementById('import-progress-bar');
-        var text = document.getElementById('import-progress-text');
-        var log = document.getElementById('import-log-console');
+        var bar   = document.getElementById('import-progress-bar');
+        var text  = document.getElementById('import-progress-text');
+        var log   = document.getElementById('import-log-console');
         var reportEl = document.getElementById('enrichment-report');
         if (container) container.style.display = '';
-        if (phase) phase.textContent = 'Lettura file';
-        if (bar) bar.style.width = '0%';
-        if (text) text.textContent = 'Preparazione import...';
-        if (log) log.textContent = '';
+        if (phase)  phase.textContent  = 'Lettura file';
+        if (bar)    bar.style.width    = '0%';
+        if (text)   text.textContent   = 'Preparazione import...';
+        if (log)    log.textContent    = '';
         if (reportEl) { reportEl.className = 'small d-none'; reportEl.innerHTML = ''; }
     }
 
@@ -776,10 +822,10 @@
 
     function setImportPhase(phaseLabel, percent, statusText) {
         var phase = document.getElementById('import-phase');
-        var bar = document.getElementById('import-progress-bar');
-        var text = document.getElementById('import-progress-text');
+        var bar   = document.getElementById('import-progress-bar');
+        var text  = document.getElementById('import-progress-text');
         if (phase) phase.textContent = phaseLabel;
-        if (bar && Number.isFinite(percent)) { bar.style.width = Math.max(0, Math.min(100, Number(percent))) + '%'; }
+        if (bar && Number.isFinite(percent)) bar.style.width = Math.max(0, Math.min(100, Number(percent))) + '%';
         if (text && statusText) text.textContent = statusText;
     }
 
@@ -808,8 +854,8 @@
         await loadProperties();
         renderEnrichmentReport({ coord_source: processPayload.coord_source || {}, failure_codes: processPayload.failure_codes || {}, unresolved_rows: processPayload.unresolved_rows || [], truncated: !!processPayload.unresolved_truncated });
         if (processPayload.batch_id) {
-            if (processPayload.enrichment_done) { setImportPhase('Completato', 100, 'Completato: ' + (processPayload.saved_rows || rows.length) + ' righe salvate'); importLog('info', 'Geolocalizzazione completata.'); }
-            else { importLog('warning', 'Particelle residue: ' + (processPayload.remaining_unique_parcels || 0) + '.'); await enrichChunkLoop(processPayload.batch_id); }
+            if (processPayload.enrichment_done) { setImportPhase('Completato', 100, 'Completato: ' + (processPayload.saved_rows || rows.length) + ' righe'); importLog('info', 'Geolocalizzazione completata.'); }
+            else { importLog('warning', 'Particelle residue: ' + (processPayload.remaining_unique_parcels || 0)); await enrichChunkLoop(processPayload.batch_id); }
         }
     }
 
@@ -824,21 +870,19 @@
         while (iterations < maxIterations) {
             iterations++;
             var batch;
-            try { var p2 = await api(state.importProgressEndpoint + '?batch_id=' + batchId); batch = p2.batch; } catch { await new Promise(function(r){setTimeout(r,3000);}); continue; }
-            var status = batch.enrichment_status || null;
-            var processed = batch.enrichment_processed || 0;
-            var total = batch.enrichment_total || 0;
+            try { var p2 = await api(state.importProgressEndpoint + '?batch_id=' + batchId); batch = p2.batch; } catch(e) { await new Promise(function(r){setTimeout(r,3000);}); continue; }
+            var status = batch.enrichment_status || null, processed = batch.enrichment_processed || 0, total = batch.enrichment_total || 0;
             var pct = total > 0 ? Math.round(processed / total * 100) : 0;
             renderEnrichmentReport(batch.enrichment_report);
             if (bar) bar.style.width = Math.max(80, pct) + '%';
-            if (text) text.textContent = 'Geolocalizzazione: ' + processed + '/' + total + ' marker (' + pct + '%)';
-            if (status === 'completed') { if (text) text.textContent = 'Completata: ' + processed + '/' + total + ' marker.'; if (bar) bar.style.width = '100%'; setImportPhase('Completato', 100, 'Completato'); try { await loadProperties(); } catch(e){} if (container) setTimeout(function(){container.style.display='none';}, 4000); return; }
+            if (text) text.textContent = 'Geolocalizzazione: ' + processed + '/' + total + ' (' + pct + '%)';
+            if (status === 'completed') { if (text) text.textContent = 'Completata.'; if (bar) bar.style.width = '100%'; setImportPhase('Completato', 100, 'Completato'); try { await loadProperties(); } catch(e){} if (container) setTimeout(function(){container.style.display='none';},4000); return; }
             if (status === 'failed') { if (text) { text.textContent = 'Geolocalizzazione non riuscita.'; text.classList.add('text-danger'); } if (bar) bar.classList.replace('bg-primary','bg-danger'); return; }
-            if (status === 'pending' && processed === 0) { stalledSince++; if (stalledSince >= 6 && state.enrichChunkEndpoint) { if (text) text.textContent = 'Worker non disponibile — sincrono...'; enrichChunkLoop(batchId).catch(function(){}); return; } }
+            if (status === 'pending' && processed === 0) { stalledSince++; if (stalledSince >= 6 && state.enrichChunkEndpoint) { enrichChunkLoop(batchId).catch(function(){}); return; } }
             else if (processed !== lastProcessed) { stalledSince = 0; lastProcessed = processed; }
             await new Promise(function(r){setTimeout(r,2500);});
         }
-        if (text) text.textContent = 'Timeout. Usa "Rigenera coordinate mancanti" per riprovare.';
+        if (text) text.textContent = 'Timeout. Usa "Rigenera coordinate mancanti".';
     }
 
     async function enrichChunkLoop(batchId) {
@@ -849,7 +893,7 @@
         if (container) container.style.display = '';
         if (reportEl) { reportEl.className = 'small mt-2 d-none'; reportEl.innerHTML = ''; }
         var maxChunks = 500, calls = 0;
-        setImportPhase('Geolocalizzazione', 80, 'Geolocalizzazione sincrona in corso...');
+        setImportPhase('Geolocalizzazione', 80, 'Geolocalizzazione sincrona...');
         importLog('info', 'Avvio fallback chunk sincrono');
         while (calls < maxChunks) {
             calls++;
@@ -863,30 +907,30 @@
                 if (bar) bar.classList.replace('bg-primary','bg-danger');
                 return;
             }
-            var processed2 = result.processed || 0, total2 = result.total || 0;
-            var pct2 = total2 > 0 ? Math.round(processed2 / total2 * 100) : (result.done ? 100 : 0);
+            var p2 = result.processed || 0, t2 = result.total || 0;
+            var pct2 = t2 > 0 ? Math.round(p2 / t2 * 100) : (result.done ? 100 : 0);
             renderEnrichmentReport(result.enrichment_report);
             if (bar) bar.style.width = pct2 + '%';
-            if (text) text.textContent = 'Geolocalizzazione: ' + processed2 + '/' + total2 + ' (' + pct2 + '%)';
-            importLog('info', 'Chunk ' + calls + ': ' + processed2 + '/' + total2);
-            if (result.done || result.status === 'completed') { if (text) text.textContent = 'Completata: ' + processed2 + '/' + total2 + ' marker.'; if (bar) bar.style.width = '100%'; setImportPhase('Completato', 100, 'Completato'); importLog('info', 'Completato.'); try { await loadProperties(); } catch(e){} if (container) setTimeout(function(){container.style.display='none';},4000); return; }
-            if (result.status === 'failed') { if (text) { text.textContent = 'Geolocalizzazione non riuscita.'; text.classList.add('text-danger'); } if (bar) bar.classList.replace('bg-primary','bg-danger'); return; }
+            if (text) text.textContent = 'Geolocalizzazione: ' + p2 + '/' + t2 + ' (' + pct2 + '%)';
+            importLog('info', 'Chunk ' + calls + ': ' + p2 + '/' + t2);
+            if (result.done || result.status === 'completed') { if (text) text.textContent = 'Completata: ' + p2 + '/' + t2 + '.'; if (bar) bar.style.width = '100%'; setImportPhase('Completato', 100, 'Completato'); importLog('info', 'Completato.'); try { await loadProperties(); } catch(e){} if (container) setTimeout(function(){container.style.display='none';},4000); return; }
+            if (result.status === 'failed') { if (text) { text.textContent = 'Non riuscita.'; text.classList.add('text-danger'); } if (bar) bar.classList.replace('bg-primary','bg-danger'); return; }
             await new Promise(function(r){setTimeout(r,200);});
         }
-        if (text) text.textContent = 'Limite chunk raggiunto. Usa "Rigenera coordinate mancanti" per continuare.';
+        if (text) text.textContent = 'Limite chunk raggiunto. Usa "Rigenera coordinate mancanti".';
     }
 
     function renderEnrichmentReport(report) {
         var el = document.getElementById('enrichment-report');
         if (!el || !report || typeof report !== 'object') { if (el) { el.className = 'small mt-2 d-none'; el.innerHTML = ''; } return; }
-        var sourceEntries = Object.keys(report.coord_source || {}).filter(function(k){return Number(report.coord_source[k])>0;});
+        var sourceEntries  = Object.keys(report.coord_source  || {}).filter(function(k){return Number(report.coord_source[k])>0;});
         var failureEntries = Object.keys(report.failure_codes || {}).filter(function(k){return Number(report.failure_codes[k])>0;});
-        var unresolved = Array.isArray(report.unresolved_rows) ? report.unresolved_rows : [];
+        var unresolved     = Array.isArray(report.unresolved_rows) ? report.unresolved_rows : [];
         if (!sourceEntries.length && !failureEntries.length && !unresolved.length) { el.className = 'small mt-2 d-none'; el.innerHTML = ''; return; }
         var html = [];
-        if (sourceEntries.length) html.push('<div><strong>Sorgenti:</strong> ' + sourceEntries.map(function(k){return escapeHtml(k)+'='+escapeHtml(String(report.coord_source[k]));}).join(' &middot; ') + '</div>');
+        if (sourceEntries.length)  html.push('<div><strong>Sorgenti:</strong> '   + sourceEntries.map(function(k){return escapeHtml(k)+'='+escapeHtml(String(report.coord_source[k]));}).join(' &middot; ')  + '</div>');
         if (failureEntries.length) html.push('<div class="mt-1"><strong>Fallimenti:</strong> ' + failureEntries.map(function(k){return escapeHtml(k)+'='+escapeHtml(String(report.failure_codes[k]));}).join(' &middot; ') + '</div>');
-        if (unresolved.length) html.push('<ul class="mb-0 mt-2 ps-3">' + unresolved.map(function(i){return '<li>'+escapeHtml(String(i))+'</li>';}).join('') + (report.truncated ? '<li>&hellip; troncato &hellip;</li>' : '') + '</ul>');
+        if (unresolved.length)     html.push('<ul class="mb-0 mt-2 ps-3">' + unresolved.map(function(i){return '<li>'+escapeHtml(String(i))+'</li>';}).join('') + (report.truncated ? '<li>&hellip;</li>' : '') + '</ul>');
         el.className = 'small';
         el.innerHTML = html.join('');
     }
@@ -953,7 +997,7 @@
         ensureSharedModals();
         var property = findPropertyById(propertyId);
         var modalEl = document.getElementById('property-detail-modal');
-        var bodyEl = document.getElementById('property-detail-content');
+        var bodyEl  = document.getElementById('property-detail-content');
         if (!property || !modalEl || !bodyEl) return;
         bodyEl.innerHTML = buildPropertyCardHtml(property, { mapMode: false });
         bootstrap.Modal.getOrCreateInstance(modalEl).show();
@@ -962,10 +1006,10 @@
     function openAssignmentPicker(propertyId) {
         ensureSharedModals();
         var property = findPropertyById(propertyId);
-        var modalEl = document.getElementById('assignment-picker-modal');
-        var listEl = document.getElementById('assignment-picker-list');
-        var metaEl = document.getElementById('assignment-picker-meta');
-        var saveBtn = document.getElementById('assignment-picker-save');
+        var modalEl  = document.getElementById('assignment-picker-modal');
+        var listEl   = document.getElementById('assignment-picker-list');
+        var metaEl   = document.getElementById('assignment-picker-meta');
+        var saveBtn  = document.getElementById('assignment-picker-save');
         if (!property || !modalEl || !listEl || !metaEl || !saveBtn) return;
         if (state.role === 'subuser') return;
         setModalError('assignment-picker-error', '');
@@ -980,40 +1024,31 @@
         bootstrap.Modal.getOrCreateInstance(modalEl).show();
     }
 
-    // ---- ADE log modal ----
     var adeLogModal = (function () {
         var modalEl = document.getElementById('ade-log-modal');
         if (!modalEl) return null;
-        var bsModal = new bootstrap.Modal(modalEl);
-        var bodyEl = document.getElementById('ade-log-modal-body');
+        var bsModal  = new bootstrap.Modal(modalEl);
+        var bodyEl   = document.getElementById('ade-log-modal-body');
         var statusEl = document.getElementById('ade-log-modal-status');
         var footerEl = document.getElementById('ade-log-modal-footer');
-        var titleEl = document.getElementById('ade-log-modal-label');
+        var titleEl  = document.getElementById('ade-log-modal-label');
         var currentJobId = null, lastLogId = 0, pollingTimer = null, userScrolled = false;
         var STATUS_COLORS = { queued: 'secondary', extracting: 'info', importing: 'primary', verifying: 'warning', completed: 'success', failed: 'danger' };
-        var LOG_COLORS = { error: 'text-danger', warning: 'text-warning', info: 'text-light' };
-        function formatSize(bytes) {
-            if (bytes >= 1048576) return (bytes / 1048576).toFixed(1) + ' MB';
-            if (bytes >= 1024) return (bytes / 1024).toFixed(1) + ' KB';
-            return bytes + ' B';
-        }
+        var LOG_COLORS    = { error: 'text-danger', warning: 'text-warning', info: 'text-light' };
+        function formatSize(bytes) { if (bytes >= 1048576) return (bytes/1048576).toFixed(1)+' MB'; if (bytes >= 1024) return (bytes/1024).toFixed(1)+' KB'; return bytes+' B'; }
         function appendLogs(logs) {
             if (!bodyEl || !logs.length) return;
             var wasAtBottom = bodyEl.scrollHeight - bodyEl.scrollTop <= bodyEl.clientHeight + 40;
             logs.forEach(function (log) {
                 var div = document.createElement('div');
-                div.className = LOG_COLORS[log.level] || 'text-light';
+                div.className   = LOG_COLORS[log.level] || 'text-light';
                 div.textContent = '[' + log.created_at + '] ' + (log.level || 'info').toUpperCase().padEnd(7) + ' ' + log.message;
                 bodyEl.appendChild(div);
                 if (log.id) lastLogId = Math.max(lastLogId, Number(log.id));
             });
             if (!userScrolled || wasAtBottom) bodyEl.scrollTop = bodyEl.scrollHeight;
         }
-        function updateStatus(job) {
-            if (!statusEl) return;
-            var color = STATUS_COLORS[job.status] || 'secondary';
-            statusEl.innerHTML = '<span class="badge bg-' + escapeHtml(color) + ' me-2">' + escapeHtml(job.status) + '</span>' + formatAdeJobProgress(job);
-        }
+        function updateStatus(job) { if (!statusEl) return; var color = STATUS_COLORS[job.status] || 'secondary'; statusEl.innerHTML = '<span class="badge bg-' + escapeHtml(color) + ' me-2">' + escapeHtml(job.status) + '</span>' + formatAdeJobProgress(job); }
         async function poll() {
             if (!currentJobId) return;
             try {
@@ -1024,26 +1059,18 @@
                 var done = job && (job.status === 'completed' || job.status === 'failed');
                 if (done) { stopPolling(); if (footerEl) footerEl.textContent = job.status === 'completed' ? 'Job completato.' : 'Job fallito: ' + (job.error_message || 'errore sconosciuto'); }
                 else pollingTimer = setTimeout(poll, 1500);
-            } catch { pollingTimer = setTimeout(poll, 3000); }
+            } catch(e) { pollingTimer = setTimeout(poll, 3000); }
         }
         function stopPolling() { if (pollingTimer) { clearTimeout(pollingTimer); pollingTimer = null; } }
         if (bodyEl) bodyEl.addEventListener('scroll', function () { userScrolled = bodyEl.scrollHeight - bodyEl.scrollTop > bodyEl.clientHeight + 60; });
         modalEl.addEventListener('hidden.bs.modal', stopPolling);
         return {
-            open: function (jobId, label) {
-                currentJobId = jobId; lastLogId = 0; userScrolled = false;
-                if (bodyEl) bodyEl.innerHTML = '';
-                if (titleEl) titleEl.textContent = label || 'Job #' + jobId;
-                if (statusEl) statusEl.innerHTML = '';
-                if (footerEl) footerEl.textContent = 'Connessione in corso\u2026';
-                bsModal.show(); poll();
-            },
+            open: function (jobId, label) { currentJobId = jobId; lastLogId = 0; userScrolled = false; if (bodyEl) bodyEl.innerHTML = ''; if (titleEl) titleEl.textContent = label || 'Job #' + jobId; if (statusEl) statusEl.innerHTML = ''; if (footerEl) footerEl.textContent = 'Connessione\u2026'; bsModal.show(); poll(); },
             formatSize: formatSize,
         };
     })();
 
     function isAdeSqlJob(job) { return String((job && job.zip_filename) || '').toLowerCase().endsWith('.sql'); }
-
     function formatAdeJobProgress(job) {
         if (isAdeSqlJob(job)) return 'INSERT comuni ' + escapeHtml(String(job.processed_comuni)) + '/' + escapeHtml(String(job.total_comuni)) + ' &middot; INSERT particelle ' + escapeHtml(String(job.processed_particelle)) + '/' + escapeHtml(String(job.total_particelle));
         return 'Comuni ' + escapeHtml(String(job.processed_comuni)) + '/' + escapeHtml(String(job.total_comuni)) + ' &middot; Particelle ' + escapeHtml(String(job.processed_particelle)) + '/' + escapeHtml(String(job.total_particelle));
@@ -1051,8 +1078,7 @@
 
     function setAdeUploadButtonState(inputId, buttonId, idleHtml, loadingHtml, isUploading, hasFilesOverride) {
         isUploading = isUploading === true;
-        var input = document.getElementById(inputId);
-        var button = document.getElementById(buttonId);
+        var input = document.getElementById(inputId), button = document.getElementById(buttonId);
         if (!input || !button) return;
         var hasFiles = typeof hasFilesOverride === 'boolean' ? hasFilesOverride : Boolean(input.files && input.files.length);
         button.disabled = isUploading || !hasFiles;
@@ -1069,8 +1095,7 @@
         setAdeUploadButtonState(inputId, buttonId, idleHtml, loadingHtml, true);
         try {
             var response = await fetch(withTenant(state.adeJobsEndpoint), { method: 'POST', body: formData });
-            var payload = null;
-            try { payload = await response.json(); } catch (e) {}
+            var payload = null; try { payload = await response.json(); } catch(e) {}
             if (!response.ok || !payload || !payload.ok) throw new Error((payload && payload.error) || 'Upload fallito (' + response.status + ')');
             input.value = '';
             setAdeUploadButtonState(inputId, buttonId, idleHtml, loadingHtml, false, false);
@@ -1093,191 +1118,122 @@
 
     async function loadAdeServerFiles(options) {
         options = options || {};
-        var type = options.type || 'zip';
-        var listId = options.listId || 'ade-server-files-list';
-        var selectAllId = options.selectAllId || 'ade-server-select-all';
-        var submitId = options.submitId || 'ade-server-submit';
-        var emptyLabel = options.emptyLabel || 'Nessun file presente in <code>storage/manual_upload/</code>.';
-        var listEl = document.getElementById(listId);
-        var selectAllBtn = document.getElementById(selectAllId);
-        var submitBtn = document.getElementById(submitId);
+        var type = options.type || 'zip', listId = options.listId || 'ade-server-files-list', selectAllId = options.selectAllId || 'ade-server-select-all', submitId = options.submitId || 'ade-server-submit';
+        var emptyLabel = options.emptyLabel || 'Nessun file presente.';
+        var listEl = document.getElementById(listId), selectAllBtn = document.getElementById(selectAllId), submitBtn = document.getElementById(submitId);
         if (!listEl) return;
-        if (!state.adeManualFilesEndpoint) {
-            listEl.innerHTML = '<p class="text-danger small mb-0">Endpoint lista file non configurato.</p>';
-            if (selectAllBtn) selectAllBtn.style.display = 'none';
-            if (submitBtn) submitBtn.style.display = 'none';
-            return;
-        }
+        if (!state.adeManualFilesEndpoint) { listEl.innerHTML = '<p class="text-danger small mb-0">Endpoint non configurato.</p>'; if (selectAllBtn) selectAllBtn.style.display = 'none'; if (submitBtn) submitBtn.style.display = 'none'; return; }
         listEl.innerHTML = '<div class="text-muted small">Caricamento\u2026</div>';
         try {
             var payload = await api(state.adeManualFilesEndpoint + '?type=' + encodeURIComponent(type));
             var files = payload.files || [];
-            if (!files.length) {
-                listEl.innerHTML = '<p class="text-muted small mb-0">' + emptyLabel + '</p>';
-                if (selectAllBtn) selectAllBtn.style.display = 'none';
-                if (submitBtn) submitBtn.style.display = 'none';
-                return;
-            }
-            listEl.innerHTML = '<div class="list-group list-group-flush border rounded mb-2">' + files.map(function (f) {
-                return '<label class="list-group-item list-group-item-action py-2 px-3 d-flex align-items-center gap-2"><input type="checkbox" class="form-check-input ade-server-file-check" value="' + escapeHtml(f.name) + '"><span class="flex-grow-1 text-truncate font-monospace small">' + escapeHtml(f.name) + '</span><span class="text-muted small text-nowrap">' + escapeHtml((adeLogModal && adeLogModal.formatSize(f.size)) || String(f.size)) + '</span></label>';
-            }).join('') + '</div>';
+            if (!files.length) { listEl.innerHTML = '<p class="text-muted small mb-0">' + emptyLabel + '</p>'; if (selectAllBtn) selectAllBtn.style.display = 'none'; if (submitBtn) submitBtn.style.display = 'none'; return; }
+            listEl.innerHTML = '<div class="list-group list-group-flush border rounded mb-2">' + files.map(function (f) { return '<label class="list-group-item list-group-item-action py-2 px-3 d-flex align-items-center gap-2"><input type="checkbox" class="form-check-input ade-server-file-check" value="' + escapeHtml(f.name) + '"><span class="flex-grow-1 text-truncate font-monospace small">' + escapeHtml(f.name) + '</span><span class="text-muted small text-nowrap">' + escapeHtml((adeLogModal && adeLogModal.formatSize(f.size)) || String(f.size)) + '</span></label>'; }).join('') + '</div>';
             if (selectAllBtn) selectAllBtn.style.removeProperty('display');
             if (submitBtn) { submitBtn.style.removeProperty('display'); submitBtn.disabled = true; }
-            listEl.querySelectorAll('.ade-server-file-check').forEach(function (cb) {
-                cb.addEventListener('change', function () {
-                    var anyChecked = !!listEl.querySelector('.ade-server-file-check:checked');
-                    if (submitBtn) submitBtn.disabled = !anyChecked;
-                });
-            });
+            listEl.querySelectorAll('.ade-server-file-check').forEach(function (cb) { cb.addEventListener('change', function () { if (submitBtn) submitBtn.disabled = !listEl.querySelector('.ade-server-file-check:checked'); }); });
         } catch (error) { listEl.innerHTML = '<p class="text-danger small mb-0">Errore: ' + escapeHtml(error.message) + '</p>'; }
     }
 
     async function submitAdeServerFiles(options) {
         options = options || {};
-        var type = options.type || 'zip';
-        var listId = options.listId || 'ade-server-files-list';
-        var submitId = options.submitId || 'ade-server-submit';
+        var type = options.type || 'zip', listId = options.listId || 'ade-server-files-list', submitId = options.submitId || 'ade-server-submit';
         var idleHtml = options.idleHtml || '<i class="bi bi-play-fill me-1"></i>Importa selezionati';
         var loadingHtml = options.loadingHtml || '<span class="spinner-border spinner-border-sm me-1"></span>Elaborazione\u2026';
         var reloadOptions = options.reloadOptions || options;
-        var listEl = document.getElementById(listId);
-        var submitBtn = document.getElementById(submitId);
+        var listEl = document.getElementById(listId), submitBtn = document.getElementById(submitId);
         if (!listEl || !state.adeManualFilesEndpoint) return;
         var checked = Array.from(listEl.querySelectorAll('.ade-server-file-check:checked')).map(function (cb) { return cb.value; });
         if (!checked.length) return;
         if (submitBtn) { submitBtn.disabled = true; submitBtn.innerHTML = loadingHtml; }
         try {
-            var formData = new FormData();
-            formData.append('csrf_token', state.csrfToken);
-            formData.append('type', type);
-            checked.forEach(function (name) { formData.append('files[]', name); });
+            var formData = new FormData(); formData.append('csrf_token', state.csrfToken); formData.append('type', type); checked.forEach(function (name) { formData.append('files[]', name); });
             var response = await fetch(state.adeManualFilesEndpoint, { method: 'POST', body: formData });
-            var payload = null;
-            try { payload = await response.json(); } catch (e) {}
+            var payload = null; try { payload = await response.json(); } catch(e) {}
             if (!response.ok || !payload || !payload.ok) throw new Error((payload && payload.error) || 'Errore (' + response.status + ')');
-            await loadAdeServerFiles(reloadOptions);
-            await refreshAdeJobs();
+            await loadAdeServerFiles(reloadOptions); await refreshAdeJobs();
             var latestJobId = (payload.job_ids && payload.job_ids.length) ? payload.job_ids[payload.job_ids.length - 1] : null;
             if (latestJobId && adeLogModal) adeLogModal.open(latestJobId, 'Job #' + latestJobId);
-        } catch (error) {
-            alert(error.message);
-            if (submitBtn) { submitBtn.disabled = false; submitBtn.innerHTML = idleHtml; }
-        }
+        } catch (error) { alert(error.message); if (submitBtn) { submitBtn.disabled = false; submitBtn.innerHTML = idleHtml; } }
     }
 
     document.addEventListener('change', function (event) {
-        if (event.target.id === 'import-files' && event.target.files && event.target.files.length) {
-            runImport(event.target.files).catch(function (error) { if (state.overlay) state.overlay.hide(); alert(error.message); });
-        }
-        if (event.target.classList.contains('state-select')) {
-            var wrapper = event.target.closest('[data-property-id]') || event.target.closest('tr');
-            var colorInput = wrapper && wrapper.querySelector('.color-input');
-            if (colorInput) colorInput.value = defaultColorForState(event.target.value);
-        }
-        if (event.target.id === 'assigned-subuser-filter') {
-            var subuserId = event.target.value;
-            api(withTenant(state.propertiesEndpoint + '?mode=assigned' + (subuserId ? '&subuser_id=' + subuserId : ''))).then(function (payload) {
-                state.assignedProperties = payload.properties || [];
-                renderAssignedTable();
-            }).catch(function (error) { alert(error.message); });
-        }
+        if (event.target.id === 'import-files' && event.target.files && event.target.files.length) { runImport(event.target.files).catch(function (e) { if (state.overlay) state.overlay.hide(); alert(e.message); }); }
+        if (event.target.classList.contains('state-select')) { var wr = event.target.closest('[data-property-id]') || event.target.closest('tr'); var ci = wr && wr.querySelector('.color-input'); if (ci) ci.value = defaultColorForState(event.target.value); }
+        if (event.target.id === 'assigned-subuser-filter') { var sid = event.target.value; api(withTenant(state.propertiesEndpoint + '?mode=assigned' + (sid ? '&subuser_id=' + sid : ''))).then(function (p) { state.assignedProperties = p.properties || []; renderAssignedTable(); }).catch(function (e) { alert(e.message); }); }
         if (event.target.id === 'assigned-assignment-filter') renderAssignedTable();
         if (event.target.id === 'report-filter-color' || event.target.id === 'report-filter-stato') applyReportFilters();
-        if (event.target.id === 'ade-zips') setAdeUploadButtonState('ade-zips', 'ade-zips-submit', '<i class="bi bi-cloud-upload me-1"></i>Importa', '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Importazione\u2026', false);
-        if (event.target.id === 'ade-sql-files') setAdeUploadButtonState('ade-sql-files', 'ade-sql-submit', '<i class="bi bi-cloud-upload me-1"></i>Importa SQL', '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Importazione\u2026', false);
+        if (event.target.id === 'ade-zips')      setAdeUploadButtonState('ade-zips',      'ade-zips-submit',  '<i class="bi bi-cloud-upload me-1"></i>Importa',     '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Importazione\u2026', false);
+        if (event.target.id === 'ade-sql-files') setAdeUploadButtonState('ade-sql-files', 'ade-sql-submit',   '<i class="bi bi-cloud-upload me-1"></i>Importa SQL', '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Importazione\u2026', false);
     });
 
     document.addEventListener('click', function (event) {
-        var closeMapPopupBtn = event.target.closest('.close-map-popup');
-        if (closeMapPopupBtn) { event.preventDefault(); if (state.map) state.map.closePopup(); return; }
-        var closeDetailBtn = event.target.closest('.close-detail-modal');
-        if (closeDetailBtn) { event.preventDefault(); var dm = bootstrap.Modal.getInstance(document.getElementById('property-detail-modal')); if (dm) dm.hide(); return; }
-        var detailBtn = event.target.closest('.open-detail-modal');
-        if (detailBtn) { event.preventDefault(); openDetailModal(Number(detailBtn.dataset.propertyId || 0)); return; }
-        var editorBtn = event.target.closest('.open-editor-modal');
-        if (editorBtn) { event.preventDefault(); openEditorModal(Number(editorBtn.dataset.propertyId || 0)); return; }
-        var assignmentBtn = event.target.closest('.assignment-picker-btn');
-        if (assignmentBtn) { event.preventDefault(); openAssignmentPicker(Number(assignmentBtn.dataset.propertyId || 0)); return; }
-        if (event.target.id === 'editor-assignments-open') { event.preventDefault(); openAssignmentPicker(Number(event.target.dataset.propertyId || 0)); return; }
-        if (event.target.id === 'assignment-picker-save') {
+        var t = event.target;
+        if (t.closest('.close-map-popup'))    { event.preventDefault(); if (state.map) state.map.closePopup(); return; }
+        if (t.closest('.close-detail-modal')) { event.preventDefault(); var dm = bootstrap.Modal.getInstance(document.getElementById('property-detail-modal')); if (dm) dm.hide(); return; }
+        var detailBtn = t.closest('.open-detail-modal');   if (detailBtn)     { event.preventDefault(); openDetailModal(Number(detailBtn.dataset.propertyId || 0)); return; }
+        var editorBtn = t.closest('.open-editor-modal');   if (editorBtn)     { event.preventDefault(); openEditorModal(Number(editorBtn.dataset.propertyId || 0)); return; }
+        var assignBtn = t.closest('.assignment-picker-btn'); if (assignBtn)   { event.preventDefault(); openAssignmentPicker(Number(assignBtn.dataset.propertyId || 0)); return; }
+        if (t.id === 'editor-assignments-open') { event.preventDefault(); openAssignmentPicker(Number(t.dataset.propertyId || 0)); return; }
+        if (t.id === 'assignment-picker-save') {
             event.preventDefault();
-            var propertyId = Number(event.target.dataset.propertyId || 0);
-            var property = findPropertyById(propertyId);
-            if (!property) return;
+            var pid = Number(t.dataset.propertyId || 0), prop = findPropertyById(pid); if (!prop) return;
             var checks = Array.from(document.querySelectorAll('#assignment-picker-list .assignment-picker-check:checked'));
             var assignments = checks.map(function (c) { return Number(c.value); }).filter(Number.isFinite);
-            event.target.disabled = true;
-            savePropertyPayload({ property_id: propertyId, stato: property.stato, stato_personalizzato: property.stato_personalizzato || '', colore_marker: property.colore_marker, note: '', assignments: assignments })
-                .then(function () {
-                    var m = bootstrap.Modal.getInstance(document.getElementById('assignment-picker-modal')); if (m) m.hide();
-                    var updated = findPropertyById(propertyId); if (updated) refreshEditorAssignmentSummary(updated);
-                }).catch(function (error) { setModalError('assignment-picker-error', error.message); }).finally(function () { event.target.disabled = false; });
+            t.disabled = true;
+            savePropertyPayload({ property_id: pid, stato: prop.stato, stato_personalizzato: prop.stato_personalizzato || '', colore_marker: prop.colore_marker, note: '', assignments: assignments })
+                .then(function () { var m = bootstrap.Modal.getInstance(document.getElementById('assignment-picker-modal')); if (m) m.hide(); var upd = findPropertyById(pid); if (upd) refreshEditorAssignmentSummary(upd); })
+                .catch(function (e) { setModalError('assignment-picker-error', e.message); })
+                .finally(function () { t.disabled = false; });
             return;
         }
-        if (event.target.id === 'editor-save-btn') {
+        if (t.id === 'editor-save-btn') {
             event.preventDefault();
-            var propertyId2 = Number(event.target.dataset.propertyId || 0);
-            var property2 = findPropertyById(propertyId2);
-            if (!property2) return;
-            var stateEl = document.getElementById('editor-state');
-            var colorEl = document.getElementById('editor-color');
-            var customStateEl = document.getElementById('editor-custom-state');
-            var noteEl = document.getElementById('editor-note');
-            event.target.disabled = true;
-            setModalError('property-editor-error', '');
-            savePropertyPayload({ property_id: propertyId2, stato: (stateEl && stateEl.value) || property2.stato, stato_personalizzato: (customStateEl && customStateEl.value) || '', colore_marker: (colorEl && colorEl.value) || property2.colore_marker, note: (noteEl && noteEl.value) || '' })
+            var pid2 = Number(t.dataset.propertyId || 0), prop2 = findPropertyById(pid2); if (!prop2) return;
+            var se = document.getElementById('editor-state'), ce = document.getElementById('editor-color'), cse = document.getElementById('editor-custom-state'), ne = document.getElementById('editor-note');
+            t.disabled = true; setModalError('property-editor-error', '');
+            savePropertyPayload({ property_id: pid2, stato: (se && se.value) || prop2.stato, stato_personalizzato: (cse && cse.value) || '', colore_marker: (ce && ce.value) || prop2.colore_marker, note: (ne && ne.value) || '' })
                 .then(function () { var m = bootstrap.Modal.getInstance(document.getElementById('property-editor-modal')); if (m) m.hide(); })
-                .catch(function (error) { setModalError('property-editor-error', error.message); })
-                .finally(function () { event.target.disabled = false; });
+                .catch(function (e) { setModalError('property-editor-error', e.message); })
+                .finally(function () { t.disabled = false; });
             return;
         }
-        var saveButton = event.target.closest('.property-save');
-        if (saveButton) { event.preventDefault(); saveProperty(saveButton); }
-        if (event.target.id === 'refresh-map') loadProperties().catch(function (error) { alert(error.message); });
-        if (event.target.id === 'btn-apply-filter') {
-            var checkboxes = document.querySelectorAll('.map-stato-filter:checked');
-            var newFilter = Array.from(checkboxes).map(function (cb) { return cb.value; });
-            state.mapStatiFilter = newFilter.length > 0 ? newFilter : Object.keys(STATE_OPTIONS).slice();
+        var saveButton = t.closest('.property-save'); if (saveButton) { event.preventDefault(); saveProperty(saveButton); }
+        if (t.id === 'refresh-map') loadProperties().catch(function (e) { alert(e.message); });
+        if (t.id === 'btn-apply-filter') {
+            var cbs = document.querySelectorAll('.map-stato-filter:checked');
+            var nf  = Array.from(cbs).map(function (cb) { return cb.value; });
+            state.mapStatiFilter = nf.length > 0 ? nf : Object.keys(STATE_OPTIONS).slice();
             renderMap();
         }
-        if (event.target.id === 'btn-select-all-stati') {
-            var checkboxes2 = document.querySelectorAll('.map-stato-filter');
-            var allChecked = Array.from(checkboxes2).every(function (cb) { return cb.checked; });
-            checkboxes2.forEach(function (cb) { cb.checked = !allChecked; });
-        }
-        if (event.target.id === 'ade-zips-submit') submitAdeUpload('ade-zips', 'ade-zips-submit', 'zip', '<i class="bi bi-cloud-upload me-1"></i>Importa', '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Importazione\u2026').catch(function (e) { alert(e.message); });
-        if (event.target.id === 'ade-sql-submit') submitAdeUpload('ade-sql-files', 'ade-sql-submit', 'sql', '<i class="bi bi-cloud-upload me-1"></i>Importa SQL', '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Importazione\u2026').catch(function (e) { alert(e.message); });
-        if (event.target.id === 'ade-server-submit') submitAdeServerFiles({ type: 'zip', listId: 'ade-server-files-list', submitId: 'ade-server-submit', idleHtml: '<i class="bi bi-play-fill me-1"></i>Importa selezionati', loadingHtml: '<span class="spinner-border spinner-border-sm me-1"></span>Elaborazione\u2026', reloadOptions: { type: 'zip', listId: 'ade-server-files-list', selectAllId: 'ade-server-select-all', submitId: 'ade-server-submit', emptyLabel: 'Nessun file ZIP presente in <code>storage/manual_upload/</code>.' } }).catch(function (e) { alert(e.message); });
-        if (event.target.id === 'ade-server-sql-submit') submitAdeServerFiles({ type: 'sql', listId: 'ade-server-sql-files-list', submitId: 'ade-server-sql-submit', idleHtml: '<i class="bi bi-play-fill me-1"></i>Importa SQL selezionati', loadingHtml: '<span class="spinner-border spinner-border-sm me-1"></span>Elaborazione\u2026', reloadOptions: { type: 'sql', listId: 'ade-server-sql-files-list', selectAllId: 'ade-server-sql-select-all', submitId: 'ade-server-sql-submit', emptyLabel: 'Nessun file SQL presente in <code>storage/manual_upload/</code>.' } }).catch(function (e) { alert(e.message); });
-        if (event.target.id === 'ade-server-select-all') { var le1 = document.getElementById('ade-server-files-list'); var sb1 = document.getElementById('ade-server-submit'); var ac1 = le1 ? le1.querySelectorAll('.ade-server-file-check') : []; var allC1 = Array.from(ac1).every(function(cb){return cb.checked;}); ac1.forEach(function(cb){cb.checked=!allC1;}); if(sb1) sb1.disabled=allC1; }
-        if (event.target.id === 'ade-server-sql-select-all') { var le2 = document.getElementById('ade-server-sql-files-list'); var sb2 = document.getElementById('ade-server-sql-submit'); var ac2 = le2 ? le2.querySelectorAll('.ade-server-file-check') : []; var allC2 = Array.from(ac2).every(function(cb){return cb.checked;}); ac2.forEach(function(cb){cb.checked=!allC2;}); if(sb2) sb2.disabled=allC2; }
-        var logBtn = event.target.closest('.ade-open-log-btn');
-        if (logBtn && adeLogModal) { var jobId = logBtn.dataset.jobId; var label = logBtn.dataset.jobLabel || 'Job #' + jobId; adeLogModal.open(Number(jobId), label); }
+        if (t.id === 'btn-select-all-stati') { var cbs2 = document.querySelectorAll('.map-stato-filter'); var allC = Array.from(cbs2).every(function(cb){return cb.checked;}); cbs2.forEach(function(cb){cb.checked=!allC;}); }
+        if (t.id === 'ade-zips-submit')      submitAdeUpload('ade-zips',      'ade-zips-submit',  'zip', '<i class="bi bi-cloud-upload me-1"></i>Importa',     '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Importazione\u2026').catch(function(e){alert(e.message);});
+        if (t.id === 'ade-sql-submit')       submitAdeUpload('ade-sql-files', 'ade-sql-submit',   'sql', '<i class="bi bi-cloud-upload me-1"></i>Importa SQL', '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Importazione\u2026').catch(function(e){alert(e.message);});
+        if (t.id === 'ade-server-submit')     submitAdeServerFiles({ type:'zip', listId:'ade-server-files-list',     submitId:'ade-server-submit',     idleHtml:'<i class="bi bi-play-fill me-1"></i>Importa selezionati',     loadingHtml:'<span class="spinner-border spinner-border-sm me-1"></span>Elaborazione\u2026', reloadOptions:{type:'zip', listId:'ade-server-files-list',     selectAllId:'ade-server-select-all',     submitId:'ade-server-submit',     emptyLabel:'Nessun file ZIP presente in <code>storage/manual_upload/</code>.'} }).catch(function(e){alert(e.message);});
+        if (t.id === 'ade-server-sql-submit') submitAdeServerFiles({ type:'sql', listId:'ade-server-sql-files-list', submitId:'ade-server-sql-submit', idleHtml:'<i class="bi bi-play-fill me-1"></i>Importa SQL selezionati', loadingHtml:'<span class="spinner-border spinner-border-sm me-1"></span>Elaborazione\u2026', reloadOptions:{type:'sql', listId:'ade-server-sql-files-list', selectAllId:'ade-server-sql-select-all', submitId:'ade-server-sql-submit', emptyLabel:'Nessun file SQL presente in <code>storage/manual_upload/</code>.'} }).catch(function(e){alert(e.message);});
+        if (t.id === 'ade-server-select-all')     { var le1=document.getElementById('ade-server-files-list');     var sb1=document.getElementById('ade-server-submit');     var ac1=le1?le1.querySelectorAll('.ade-server-file-check'):[]; var allC1=Array.from(ac1).every(function(cb){return cb.checked;}); ac1.forEach(function(cb){cb.checked=!allC1;}); if(sb1)sb1.disabled=allC1; }
+        if (t.id === 'ade-server-sql-select-all') { var le2=document.getElementById('ade-server-sql-files-list'); var sb2=document.getElementById('ade-server-sql-submit'); var ac2=le2?le2.querySelectorAll('.ade-server-file-check'):[]; var allC2=Array.from(ac2).every(function(cb){return cb.checked;}); ac2.forEach(function(cb){cb.checked=!allC2;}); if(sb2)sb2.disabled=allC2; }
+        var logBtn = t.closest('.ade-open-log-btn'); if (logBtn && adeLogModal) { adeLogModal.open(Number(logBtn.dataset.jobId), logBtn.dataset.jobLabel || 'Job #' + logBtn.dataset.jobId); }
     });
 
     var assignedSaveBtn = document.getElementById('assigned-save');
     if (assignedSaveBtn) assignedSaveBtn.addEventListener('click', async function () { await loadProperties(); });
+    ['report-filter-comune','report-filter-foglio','report-filter-assigned'].forEach(function (id) { var el = document.getElementById(id); if (el) el.addEventListener('input', function () { applyReportFilters(); }); });
 
-    ['report-filter-comune', 'report-filter-foglio', 'report-filter-assigned'].forEach(function (id) {
-        var el = document.getElementById(id);
-        if (el) el.addEventListener('input', function () { applyReportFilters(); });
-    });
-
-    // Drop-zone
     (function () {
         var zone = document.getElementById('import-drop-zone');
         if (!zone) return;
-        zone.addEventListener('dragover', function (e) { e.preventDefault(); zone.classList.add('dragover'); });
-        zone.addEventListener('dragleave', function () { zone.classList.remove('dragover'); });
+        zone.addEventListener('dragover',  function (e) { e.preventDefault(); zone.classList.add('dragover'); });
+        zone.addEventListener('dragleave', function ()  { zone.classList.remove('dragover'); });
         zone.addEventListener('drop', function (e) {
             e.preventDefault(); zone.classList.remove('dragover');
-            var validExts = ['.csv', '.xlsx', '.xls'];
+            var validExts = ['.csv','.xlsx','.xls'];
             var files = Array.from(e.dataTransfer.files).filter(function (f) { return validExts.some(function (ext) { return f.name.toLowerCase().endsWith(ext); }); });
             if (!files.length) { alert('Nessun file valido. Formati: .csv, .xlsx, .xls'); return; }
-            runImport(files).catch(function (error) { if (state.overlay) state.overlay.hide(); alert(error.message); });
+            runImport(files).catch(function (e2) { if (state.overlay) state.overlay.hide(); alert(e2.message); });
         });
-        zone.addEventListener('click', function (e) { if (!e.target.closest('label')) { var inp = document.getElementById('import-files'); if (inp) inp.click(); } });
-        zone.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); var inp = document.getElementById('import-files'); if (inp) inp.click(); } });
+        zone.addEventListener('click',   function (e) { if (!e.target.closest('label')) { var inp=document.getElementById('import-files'); if(inp)inp.click(); } });
+        zone.addEventListener('keydown', function (e) { if (e.key==='Enter'||e.key===' ') { e.preventDefault(); var inp=document.getElementById('import-files'); if(inp)inp.click(); } });
     })();
 
     ensureSharedModals();
@@ -1290,21 +1246,18 @@
         if (!state.adeManualFilesEndpoint && state.adeJobsEndpoint) {
             try {
                 var jobsUrl = new URL(state.adeJobsEndpoint, window.location.origin);
-                var replacedPathname = jobsUrl.pathname.replace(/ade_jobs\.php$/, 'ade_manual_files.php');
-                if (replacedPathname !== jobsUrl.pathname) { jobsUrl.pathname = replacedPathname; jobsUrl.search = ''; jobsUrl.hash = ''; state.adeManualFilesEndpoint = jobsUrl.toString(); }
+                var rp = jobsUrl.pathname.replace(/ade_jobs\.php$/, 'ade_manual_files.php');
+                if (rp !== jobsUrl.pathname) { jobsUrl.pathname = rp; jobsUrl.search = ''; jobsUrl.hash = ''; state.adeManualFilesEndpoint = jobsUrl.toString(); }
                 else { var fe = state.adeJobsEndpoint.replace(/ade_jobs\.php(?:\?.*)?(?:#.*)?$/, 'ade_manual_files.php'); state.adeManualFilesEndpoint = fe !== state.adeJobsEndpoint ? fe : ''; }
-            } catch (_) { var fe2 = state.adeJobsEndpoint.replace(/ade_jobs\.php(?:\?.*)?(?:#.*)?$/, 'ade_manual_files.php'); state.adeManualFilesEndpoint = fe2 !== state.adeJobsEndpoint ? fe2 : ''; }
+            } catch(_) { var fe2 = state.adeJobsEndpoint.replace(/ade_jobs\.php(?:\?.*)?(?:#.*)?$/, 'ade_manual_files.php'); state.adeManualFilesEndpoint = fe2 !== state.adeJobsEndpoint ? fe2 : ''; }
         }
         refreshAdeJobs().catch(function(){});
-        loadAdeServerFiles({ type: 'zip', listId: 'ade-server-files-list', selectAllId: 'ade-server-select-all', submitId: 'ade-server-submit', emptyLabel: 'Nessun file ZIP presente in <code>storage/manual_upload/</code>.' }).catch(function(){});
-        var tabServerBtn = document.getElementById('tab-server-btn');
-        if (tabServerBtn) tabServerBtn.addEventListener('shown.bs.tab', function () { loadAdeServerFiles({ type: 'zip', listId: 'ade-server-files-list', selectAllId: 'ade-server-select-all', submitId: 'ade-server-submit', emptyLabel: 'Nessun file ZIP presente in <code>storage/manual_upload/</code>.' }).catch(function(){}); });
-        var tabSqlBtn = document.getElementById('tab-sql-btn');
-        if (tabSqlBtn) tabSqlBtn.addEventListener('shown.bs.tab', function () { loadAdeServerFiles({ type: 'sql', listId: 'ade-server-sql-files-list', selectAllId: 'ade-server-sql-select-all', submitId: 'ade-server-sql-submit', emptyLabel: 'Nessun file SQL presente in <code>storage/manual_upload/</code>.' }).catch(function(){}); });
+        loadAdeServerFiles({ type:'zip', listId:'ade-server-files-list', selectAllId:'ade-server-select-all', submitId:'ade-server-submit', emptyLabel:'Nessun file ZIP presente in <code>storage/manual_upload/</code>.' }).catch(function(){});
+        var tsb = document.getElementById('tab-server-btn'); if (tsb) tsb.addEventListener('shown.bs.tab', function () { loadAdeServerFiles({ type:'zip', listId:'ade-server-files-list', selectAllId:'ade-server-select-all', submitId:'ade-server-submit', emptyLabel:'Nessun file ZIP presente in <code>storage/manual_upload/</code>.' }).catch(function(){}); });
+        var tqb = document.getElementById('tab-sql-btn');    if (tqb) tqb.addEventListener('shown.bs.tab', function () { loadAdeServerFiles({ type:'sql', listId:'ade-server-sql-files-list', selectAllId:'ade-server-sql-select-all', submitId:'ade-server-sql-submit', emptyLabel:'Nessun file SQL presente in <code>storage/manual_upload/</code>.' }).catch(function(){}); });
         var adePollingInterval = setInterval(function () { refreshAdeJobs().catch(function () { clearInterval(adePollingInterval); }); }, 5000);
     }
 
-    // Rigenera coordinate
     (function () {
         var btn = document.getElementById('rigenera-coordinate-btn');
         if (!btn || !state.enrichChunkEndpoint) return;
@@ -1314,10 +1267,10 @@
             var container = document.getElementById('enrichment-status-container');
             var bar = document.getElementById('import-progress-bar');
             var text = document.getElementById('import-progress-text');
-            if (container) { container.style.display = ''; if (bar) { bar.style.width = '0%'; bar.className = 'progress-bar bg-primary progress-bar-striped progress-bar-animated'; } if (text) { text.textContent = 'Rigenera coordinate in corso...'; text.className = 'small mb-2'; } }
-            setImportPhase('Geolocalizzazione', 0, 'Rigenera coordinate in corso...');
+            if (container) { container.style.display=''; if(bar){bar.style.width='0%';bar.className='progress-bar bg-primary progress-bar-striped progress-bar-animated';} if(text){text.textContent='Rigenera coordinate...';text.className='small mb-2';} }
+            setImportPhase('Geolocalizzazione', 0, 'Rigenera coordinate...');
             importLog('info', 'Rigenera coordinate mancanti avviato.');
-            try { await enrichChunkLoop(0); } catch (e) {}
+            try { await enrichChunkLoop(0); } catch(e) {}
             btn.disabled = false;
             btn.innerHTML = '<i class="bi bi-geo-alt me-1"></i>Rigenera coordinate mancanti';
         });
