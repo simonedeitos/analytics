@@ -30,6 +30,52 @@ function analyticspro_gml_index_dir(): string
     return ANALYTICSPRO_ROOT . '/storage/gml_index';
 }
 
+/**
+ * @return array{dir_mtime:int,file_count:int,files:array<int,string>}
+ */
+function analyticspro_gml_catalog_snapshot(string $gmlDir): array
+{
+    $files = glob($gmlDir . '/*.gml') ?: [];
+    sort($files);
+    return [
+        'dir_mtime' => is_dir($gmlDir) ? ((int) (@filemtime($gmlDir) ?: 0)) : 0,
+        'file_count' => count($files),
+        'files' => $files,
+    ];
+}
+
+/**
+ * @return array{catalog:array<string,array>,meta:array<string,int>}
+ */
+function analyticspro_gml_decode_catalog_cache(array $decoded): array
+{
+    if (isset($decoded['catalog']) && is_array($decoded['catalog'])) {
+        $catalog = $decoded['catalog'];
+        $meta = is_array($decoded['_meta'] ?? null) ? $decoded['_meta'] : [];
+        return [
+            'catalog' => $catalog,
+            'meta' => [
+                'file_count' => (int) ($meta['file_count'] ?? 0),
+                'dir_mtime' => (int) ($meta['dir_mtime'] ?? 0),
+            ],
+        ];
+    }
+
+    return [
+        'catalog' => $decoded,
+        'meta' => [
+            'file_count' => 0,
+            'dir_mtime' => 0,
+        ],
+    ];
+}
+
+function analyticspro_gml_invalidate_catalog_cache(): void
+{
+    @unlink(analyticspro_gml_index_dir() . '/catalogo.json');
+    @unlink(analyticspro_gml_reverse_index_path());
+}
+
 // ---------------------------------------------------------------------------
 // Catalogo
 // ---------------------------------------------------------------------------
@@ -57,13 +103,21 @@ function analyticspro_gml_build_catalog(bool $force = false): array
     $reversePath = analyticspro_gml_reverse_index_path();
 
     analyticspro_gml_ensure_dirs();
+    $snapshot = analyticspro_gml_catalog_snapshot($gmlDir);
 
     if (!$force && is_file($cachePath)) {
         $raw = @file_get_contents($cachePath);
         if ($raw !== false) {
             $decoded = json_decode($raw, true);
             if (is_array($decoded)) {
-                return $decoded;
+                $parsed = analyticspro_gml_decode_catalog_cache($decoded);
+                $meta = $parsed['meta'];
+                if (
+                    $meta['file_count'] === $snapshot['file_count']
+                    && $meta['dir_mtime'] >= $snapshot['dir_mtime']
+                ) {
+                    return $parsed['catalog'];
+                }
             }
         }
     }
@@ -74,7 +128,7 @@ function analyticspro_gml_build_catalog(bool $force = false): array
         return $catalog;
     }
 
-    $files = glob($gmlDir . '/*.gml') ?: [];
+    $files = $snapshot['files'];
     foreach ($files as $path) {
         $basename = basename($path);
         // Pattern: BBBB_something_(ple|map).gml
@@ -114,7 +168,14 @@ function analyticspro_gml_build_catalog(bool $force = false): array
     }
 
     ksort($catalog);
-    file_put_contents($cachePath, json_encode($catalog, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+    $payload = [
+        '_meta' => [
+            'file_count' => $snapshot['file_count'],
+            'dir_mtime' => $snapshot['dir_mtime'],
+        ],
+        'catalog' => $catalog,
+    ];
+    file_put_contents($cachePath, json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
     @unlink($reversePath);
     return $catalog;
 }
@@ -183,6 +244,7 @@ function analyticspro_gml_load_reverse_index(bool $force = false): array
     }
 
     analyticspro_gml_build_catalog($force);
+    $snapshot = analyticspro_gml_catalog_snapshot(analyticspro_gml_dir());
     $catalogMtime = is_file($catalogPath) ? ((int) filemtime($catalogPath)) : 0;
 
     if (
@@ -191,7 +253,13 @@ function analyticspro_gml_load_reverse_index(bool $force = false): array
         && ((int) filemtime($cachePath)) >= $catalogMtime
     ) {
         $decoded = json_decode((string) @file_get_contents($cachePath), true);
-        if (is_array($decoded) && (int) ($decoded['version'] ?? 0) === $version) {
+        $sourceMeta = is_array($decoded['source_meta'] ?? null) ? $decoded['source_meta'] : [];
+        if (
+            is_array($decoded)
+            && (int) ($decoded['version'] ?? 0) === $version
+            && (int) ($sourceMeta['file_count'] ?? -1) === $snapshot['file_count']
+            && (int) ($sourceMeta['dir_mtime'] ?? 0) >= $snapshot['dir_mtime']
+        ) {
             $inMemory = [
                 'exact' => is_array($decoded['exact'] ?? null) ? $decoded['exact'] : [],
                 'compact' => is_array($decoded['compact'] ?? null) ? $decoded['compact'] : [],
@@ -231,7 +299,15 @@ function analyticspro_gml_load_reverse_index(bool $force = false): array
 
     ksort($exact);
     ksort($compact);
-    $payload = ['version' => $version, 'exact' => $exact, 'compact' => $compact];
+    $payload = [
+        'version' => $version,
+        'source_meta' => [
+            'file_count' => $snapshot['file_count'],
+            'dir_mtime' => $snapshot['dir_mtime'],
+        ],
+        'exact' => $exact,
+        'compact' => $compact,
+    ];
     file_put_contents($cachePath, json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
 
     $inMemory = ['exact' => $exact, 'compact' => $compact];

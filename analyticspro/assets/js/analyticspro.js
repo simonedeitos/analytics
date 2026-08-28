@@ -156,15 +156,23 @@
     }
 
     function buildOwnerSummary(property) {
-        return (property.owners || []).map(owner => {
-            const icon = owner.tipo === 'azienda' ? 'bi-building' : 'bi-person';
-            const fullName = `${owner.cognome || ''} ${owner.nome || ''}`.trim() || 'Intestatario';
-            return `<span class="owner-badge"><i class="bi ${icon}"></i>${escapeHtml(fullName)}${state.canViewPhone && owner.telefono ? ` · ${escapeHtml(owner.telefono)}` : ''}</span>`;
-        }).join(' ');
+        const names = (property.owners || []).map(owner => {
+            const fullName = `${owner.cognome || ''} ${owner.nome || ''}`.trim();
+            return fullName || 'Intestatario';
+        });
+        return escapeHtml(names.join(', '));
     }
 
     function buildAssignmentSummary(property) {
-        return (property.assignments || []).map(assignment => `<span class="assignment-badge">${escapeHtml(assignment.subuser_name)}</span>`).join(' ');
+        const names = (property.assignments || []).map(assignment => assignment.subuser_name).filter(Boolean);
+        const canManage = state.role !== 'subuser' && state.subusers.length > 0;
+        const action = canManage
+            ? `<button type="button" class="btn btn-outline-secondary btn-sm ms-1 assignment-picker-btn" data-property-id="${property.id}" title="Gestisci assegnazioni"><i class="bi bi-person-plus"></i></button>`
+            : '';
+        if (!names.length) {
+            return `<span class="badge text-bg-secondary">Non assegnato</span>${action}`;
+        }
+        return `<span class="badge text-bg-success me-1">Assegnato</span><span class="small">${escapeHtml(names.join(', '))}</span>${action}`;
     }
 
     function buildSelectOptions(selected) {
@@ -174,61 +182,85 @@
     function buildAssignmentSelect(property) {
         if (state.role === 'subuser' || !state.subusers.length) return buildAssignmentSummary(property);
         const selected = new Set((property.assignments || []).map(item => Number(item.subuser_id)));
-        return `<select class="form-select form-select-sm small-select assignment-select" multiple>${state.subusers.map(subuser => `<option value="${subuser.id}" ${selected.has(Number(subuser.id)) ? 'selected' : ''}>${escapeHtml(`${subuser.nome} ${subuser.cognome}`)}</option>`).join('')}</select>`;
+        return `
+            <div class="d-flex align-items-center gap-2 flex-wrap mb-2">
+                <span class="small">${buildAssignmentSummary(property)}</span>
+                <button type="button" class="btn btn-outline-secondary btn-sm assignment-picker-btn" data-property-id="${property.id}" title="Gestisci assegnazioni">
+                    <i class="bi bi-person-plus"></i>
+                </button>
+            </div>
+            <select class="form-select form-select-sm small-select assignment-select d-none" multiple>${state.subusers.map(subuser => `<option value="${subuser.id}" ${selected.has(Number(subuser.id)) ? 'selected' : ''}>${escapeHtml(`${subuser.nome} ${subuser.cognome}`)}</option>`).join('')}</select>
+        `;
     }
 
     function editableColumns(property) {
         const disabled = property.can_edit ? '' : 'disabled';
         return `
-            <select class="form-select form-select-sm property-inline-control state-select" ${disabled}>${buildSelectOptions(property.stato)}</select>
-            <input class="form-control form-control-sm property-inline-control mt-1 custom-state-input" value="${escapeHtml(property.stato_personalizzato || '')}" placeholder="Stato personalizzato" ${disabled}>
-            <input type="color" class="form-control form-control-color form-control-sm mt-1 color-input" value="${escapeHtml(property.colore_marker || '#0d6efd')}" ${disabled}>
-            <textarea class="form-control form-control-sm mt-1 note-input" rows="2" placeholder="Aggiungi nota" ${disabled}></textarea>
-            ${buildAssignmentSelect(property)}
-            <button class="btn btn-primary btn-sm mt-2 property-save" data-property-id="${property.id}" ${disabled}>Salva</button>
+            <button type="button" class="btn btn-outline-primary btn-sm open-editor-modal" data-property-id="${property.id}" ${disabled}>
+                <i class="bi bi-pencil-square me-1"></i>Modifica
+            </button>
         `;
     }
 
-    function buildTableData(properties) {
+    function unitLabel(property) {
+        const sub = property.subalterno ? `/${property.subalterno}` : '';
+        return `F.${property.foglio || '—'} P.${property.particella || '—'}${sub}`;
+    }
+
+    function buildTableData(properties, context = 'default') {
         return properties.map(property => ({
             id: property.id,
             tenant: property.tenant_name || '',
             comune: property.comune || '',
             provincia: property.provincia || '',
             indirizzo: `${property.indirizzo || ''} ${property.civico || ''}`.trim(),
-            foglio: property.foglio || '',
-            particella: property.particella || '',
-            subalterno: property.subalterno || '',
-            categoria: property.categoria || '',
+            unita: unitLabel(property),
             stato: STATE_OPTIONS[property.stato] || property.stato,
-            colore: `<span class="color-dot" style="background:${escapeHtml(property.colore_marker || '#0d6efd')}"></span> ${escapeHtml(property.colore_marker || '')}`,
+            colore: `<span class="color-dot" style="background:${escapeHtml(property.colore_marker || '#0d6efd')}"></span>`,
             owners: buildOwnerSummary(property),
             assignments: buildAssignmentSummary(property),
             editor: editableColumns(property),
+            raw: property,
         }));
     }
 
-    function initDataTable(selector, rows, canExport) {
+    function initDataTable(selector, rows, canExport, context = 'default') {
         if (state.tables[selector]) {
             state.tables[selector].destroy();
             $(selector).empty().append('<thead></thead><tfoot></tfoot><tbody></tbody>');
         }
 
-        const columns = [
+        const reportColumns = [
+            { title: 'Colore', data: 'colore' },
+            { title: 'Comune', data: 'comune' },
+            { title: 'Foglio/Particella/Sub', data: 'unita' },
+            { title: 'Indirizzo', data: 'indirizzo' },
+            { title: 'Intestatari', data: 'owners' },
+            { title: 'Stato', data: 'stato' },
+            { title: 'Modifica', data: 'editor' },
+        ];
+        const assignedColumns = [
+            { title: 'Colore', data: 'colore' },
+            { title: 'Comune', data: 'comune' },
+            { title: 'Foglio/Particella/Sub', data: 'unita' },
+            { title: 'Indirizzo', data: 'indirizzo' },
+            { title: 'Intestatari', data: 'owners' },
+            { title: 'Assegnazione', data: 'assignments' },
+            { title: 'Modifica', data: 'editor' },
+        ];
+        const fullColumns = [
             { title: 'Tenant', data: 'tenant' },
             { title: 'Provincia', data: 'provincia' },
             { title: 'Comune', data: 'comune' },
             { title: 'Indirizzo', data: 'indirizzo' },
-            { title: 'Foglio', data: 'foglio' },
-            { title: 'Particella', data: 'particella' },
-            { title: 'Sub.', data: 'subalterno' },
-            { title: 'Categoria', data: 'categoria' },
+            { title: 'Foglio/Particella/Sub', data: 'unita' },
             { title: 'Stato', data: 'stato' },
             { title: 'Colore', data: 'colore' },
             { title: 'Intestatari', data: 'owners' },
             { title: 'Assegnazioni', data: 'assignments' },
             { title: 'Modifica', data: 'editor' },
         ];
+        const columns = context === 'report' ? reportColumns : (context === 'assigned' ? assignedColumns : fullColumns);
 
         const theadHtml = `<tr>${columns.map(column => `<th>${column.title}</th>`).join('')}</tr>`;
         const tfootHtml = `<tr>${columns.map(column => `<th>${column.title === 'Modifica' ? '' : `<input type="text" class="form-control form-control-sm" placeholder="Filtra ${column.title}">`}</th>`).join('')}</tr>`;
@@ -244,7 +276,7 @@
             language: { url: 'https://cdn.datatables.net/plug-ins/1.13.8/i18n/it-IT.json' },
             dom: buttons.length ? 'Bfrtip' : 'frtip',
             buttons,
-            columnDefs: [{ targets: [9, 10, 11, 12], orderable: false }],
+            columnDefs: [{ targets: [0, columns.length - 1], orderable: false }],
         });
 
         state.tables[selector].columns().every(function (index) {
@@ -267,12 +299,12 @@
 
     function renderAssignedTable() {
         if (!document.getElementById('assigned-table')) return;
-        initDataTable('#assigned-table', buildTableData(getAssignedPropertiesForDisplay()), state.canExport || state.role !== 'subuser');
+        initDataTable('#assigned-table', buildTableData(getAssignedPropertiesForDisplay(), 'assigned'), state.canExport || state.role !== 'subuser', 'assigned');
     }
 
     function renderReportTable() {
         if (!document.getElementById('report-table')) return;
-        initDataTable('#report-table', buildTableData(state.properties), state.role !== 'subuser');
+        initDataTable('#report-table', buildTableData(state.properties, 'report'), state.role !== 'subuser', 'report');
     }
 
     function renderMap() {
@@ -280,6 +312,7 @@
         if (!container) return;
         if (!state.map) {
             state.map = L.map(container).setView([41.9, 12.5], 6);
+            state.clusterIconCache = new Map();
 
             const layerStreets = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
@@ -311,6 +344,13 @@
                             || '#808080';
                         counts[color] = (counts[color] || 0) + 1;
                     }
+                    const key = Object.entries(counts)
+                        .sort((a, b) => String(a[0]).localeCompare(String(b[0])))
+                        .map(([color, count]) => `${color}:${count}`)
+                        .join('|');
+                    if (state.clusterIconCache?.has(key)) {
+                        return state.clusterIconCache.get(key);
+                    }
                     const r = 24;
                     const cx = 28;
                     const cy = 28;
@@ -327,29 +367,43 @@
                         offset += pct;
                     }
                     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="56" height="56" viewBox="0 0 56 56"><circle cx="${cx}" cy="${cy}" r="${r + stroke / 2}" fill="white" opacity=".85"/>${paths}<text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="central" font-size="12" font-weight="bold" fill="#333">${total}</text></svg>`;
-                    return L.divIcon({
+                    const icon = L.divIcon({
                         html: svg,
                         className: 'analyticspro-cluster-icon',
                         iconSize: L.point(56, 56),
                         iconAnchor: L.point(28, 28),
                     });
+                    state.clusterIconCache?.set(key, icon);
+                    return icon;
                 },
             });
             state.map.addLayer(state.markers);
         }
 
         state.markers.clearLayers();
-        const points = state.properties.filter(property => property.lat && property.lng);
-        points.forEach(property => {
-            const marker = L.circleMarker([Number(property.lat), Number(property.lng)], {
+        const groups = new Map();
+        state.properties.forEach(property => {
+            if (!property.lat || !property.lng) return;
+            const lat = Number(property.lat);
+            const lng = Number(property.lng);
+            if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+            const key = `${lat.toFixed(7)}|${lng.toFixed(7)}`;
+            if (!groups.has(key)) groups.set(key, []);
+            groups.get(key).push(property);
+        });
+        const points = [];
+        groups.forEach(group => {
+            const first = group[0];
+            const marker = L.circleMarker([Number(first.lat), Number(first.lng)], {
                 radius: 8,
-                color: property.colore_marker || '#2A519F',
-                fillColor: property.colore_marker || '#2A519F',
+                color: first.colore_marker || '#2A519F',
+                fillColor: first.colore_marker || '#2A519F',
                 fillOpacity: 0.9,
                 weight: 2,
             });
-            marker.bindPopup(buildPopupHtml(property), { maxWidth: 420 });
+            marker.bindPopup(buildPopupHtml(group), { maxWidth: 700 });
             state.markers.addLayer(marker);
+            points.push(first);
         });
         if (points.length) {
             state.map.fitBounds(state.markers.getBounds().pad(0.2));
@@ -358,21 +412,65 @@
         setTimeout(() => state.map?.invalidateSize(), 600);
     }
 
-    function buildPopupHtml(property) {
-        const ownerRows = (property.owners || []).map(owner => `
-            <tr>
-                <td><i class="bi ${owner.tipo === 'azienda' ? 'bi-building' : 'bi-person'} me-1"></i>${escapeHtml(`${owner.cognome || ''} ${owner.nome || ''}`.trim())}</td>
-                <td>${escapeHtml(owner.codice_fiscale || '—')}</td>
-                ${state.canViewPhone ? `<td>${escapeHtml(owner.telefono || '—')}</td>` : ''}
-            </tr>`).join('');
+    function buildPopupHtml(propertiesAtPoint) {
+        const list = Array.isArray(propertiesAtPoint) ? propertiesAtPoint : [propertiesAtPoint];
+        const popupId = `popup-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
+        const cards = list.map((property, index) => {
+            const ownerRows = (property.owners || []).map(owner => `
+                <tr>
+                    <td><i class="bi ${owner.tipo === 'azienda' ? 'bi-building' : 'bi-person'} me-1"></i>${escapeHtml(`${owner.cognome || ''} ${owner.nome || ''}`.trim() || 'Intestatario')}</td>
+                    <td>${escapeHtml(owner.tipo || '—')}</td>
+                    <td>${escapeHtml(owner.codice_fiscale || '—')}</td>
+                    ${state.canViewPhone ? `<td>${escapeHtml(owner.telefono || '—')}</td>` : ''}
+                    <td>${escapeHtml(owner.email || '—')}</td>
+                    <td>${escapeHtml(owner.indirizzo || '—')}</td>
+                    <td>${escapeHtml(owner.data_nascita || '—')}</td>
+                    <td>${escapeHtml(owner.genere || '—')}</td>
+                    <td>${escapeHtml(property.quota || '—')}</td>
+                    <td>${escapeHtml(property.titolarita || '—')}</td>
+                </tr>`).join('');
+            const assignmentNames = (property.assignments || []).map(item => item.subuser_name).filter(Boolean);
+            const assignmentBlock = assignmentNames.length
+                ? escapeHtml(assignmentNames.join(', '))
+                : '<span class="text-muted">Non assegnato</span>';
+            return `
+                <div class="accordion-item">
+                    <h2 class="accordion-header" id="${popupId}-h-${property.id}">
+                        <button class="accordion-button ${index === 0 ? '' : 'collapsed'} py-2" type="button" data-bs-toggle="collapse" data-bs-target="#${popupId}-c-${property.id}">
+                            ${escapeHtml(property.comune || '')} · ${escapeHtml(unitLabel(property))}
+                        </button>
+                    </h2>
+                    <div id="${popupId}-c-${property.id}" class="accordion-collapse collapse ${index === 0 ? 'show' : ''}" data-bs-parent="#${popupId}">
+                        <div class="accordion-body py-2" data-property-id="${property.id}">
+                            <div class="small text-muted mb-2">${escapeHtml(`${property.indirizzo || ''} ${property.civico || ''}`.trim())}</div>
+                            <div class="small mb-2"><strong>Dati catastali:</strong> Cat. ${escapeHtml(property.categoria || '—')} · Classe ${escapeHtml(property.classe || '—')} · Consistenza ${escapeHtml(property.consistenza || '—')} · Superficie ${escapeHtml(property.superficie || '—')} · Rendita ${escapeHtml(property.rendita || '—')}</div>
+                            <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+                                <span class="small"><strong>Assegnati:</strong> ${assignmentBlock}</span>
+                                ${state.role !== 'subuser' ? `<button type="button" class="btn btn-outline-secondary btn-sm assignment-picker-btn" data-property-id="${property.id}" title="Gestisci assegnazioni"><i class="bi bi-person-plus"></i></button>` : ''}
+                                <button type="button" class="btn btn-outline-primary btn-sm open-editor-modal" data-property-id="${property.id}"><i class="bi bi-pencil-square me-1"></i>Modifica</button>
+                            </div>
+                            <div class="table-responsive">
+                                <table class="table table-sm map-popup-table align-middle mb-2">
+                                    <thead>
+                                        <tr>
+                                            <th>Intestatario</th><th>Tipo</th><th>CF/P.IVA</th>${state.canViewPhone ? '<th>Telefono</th>' : ''}<th>Email</th><th>Indirizzo</th><th>Nascita</th><th>Genere</th><th>Quota</th><th>Titolarità</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>${ownerRows || `<tr><td colspan="${state.canViewPhone ? 10 : 9}" class="text-muted">Nessun intestatario</td></tr>`}</tbody>
+                                </table>
+                            </div>
+                            <div class="small">${(property.notes || []).map(note => `<div class="note-badge"><strong>${escapeHtml(note.author_name_snapshot)}</strong> ${escapeHtml(note.created_at)} · ${escapeHtml(note.testo)}</div>`).join('') || '<span class="text-muted">Nessuna nota</span>'}</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
         return `
-            <div class="map-popup" data-property-id="${property.id}">
-                <div class="fw-semibold mb-2">${escapeHtml(property.comune)} · F.${escapeHtml(property.foglio)} P.${escapeHtml(property.particella)}</div>
-                <div class="small text-muted mb-2">${escapeHtml(`${property.indirizzo || ''} ${property.civico || ''}`.trim())} · ${escapeHtml(property.categoria || 'Categoria N/D')}</div>
-                <table class="table table-sm map-popup-table"><thead><tr><th>Intestatario</th><th>CF/P.IVA</th>${state.canViewPhone ? '<th>Telefono</th>' : ''}</tr></thead><tbody>${ownerRows}</tbody></table>
-                ${editableColumns(property)}
-                <div class="mt-2 small">${(property.notes || []).map(note => `<div class="note-badge"><strong>${escapeHtml(note.author_name_snapshot)}</strong> ${escapeHtml(note.created_at)} · ${escapeHtml(note.testo)}</div>`).join('') || '<span class="text-muted">Nessuna nota</span>'}</div>
-            </div>`;
+            <div class="map-popup">
+                <div class="fw-semibold mb-2">Unità immobiliari nello stesso punto: ${list.length}</div>
+                <div class="accordion" id="${popupId}">${cards}</div>
+            </div>
+        `;
     }
 
     function destroyCharts() {
@@ -403,7 +501,7 @@
     function renderCharts() {
         destroyCharts();
         const owners = state.properties.flatMap(property => property.owners || []);
-        const withPhone = owners.filter(owner => owner.telefono).length;
+        const withPhone = state.canViewPhone ? owners.filter(owner => owner.telefono).length : 0;
         const withEmail = owners.filter(owner => owner.email).length;
         const withPiva  = owners.filter(owner => owner.tipo === 'azienda').length;
         const genders = owners.reduce((acc, owner) => { const key = owner.genere || 'N/D'; acc[key] = (acc[key] || 0) + 1; return acc; }, {});
@@ -419,11 +517,23 @@
             if (el) el.textContent = value.toLocaleString('it-IT');
         };
         setKpiAnalytics('total', owners.length);
-        setKpiAnalytics('phone', withPhone);
+        if (state.canViewPhone) {
+            setKpiAnalytics('phone', withPhone);
+        } else {
+            const phoneKpiEl = document.querySelector('[data-kpi-analytics="phone"]');
+            if (phoneKpiEl) {
+                const card = phoneKpiEl.closest('.card, .kpi-card, [class*="kpi"]');
+                if (card) card.style.display = 'none';
+            }
+        }
         setKpiAnalytics('email', withEmail);
         setKpiAnalytics('piva',  withPiva);
 
-        pieChart('chart-contacts', ['Con telefono', 'Con email', 'Senza contatti'], [withPhone, withEmail, Math.max(owners.length - Math.max(withPhone, withEmail), 0)]);
+        if (state.canViewPhone) {
+            pieChart('chart-contacts', ['Con telefono', 'Con email', 'Senza contatti'], [withPhone, withEmail, Math.max(owners.length - Math.max(withPhone, withEmail), 0)]);
+        } else {
+            pieChart('chart-contacts', ['Con email', 'Senza contatti'], [withEmail, Math.max(owners.length - withEmail, 0)]);
+        }
         pieChart('chart-gender', Object.keys(genders), Object.values(genders));
         barChart('chart-age', Object.keys(ages), Object.values(ages), 'Intestatari');
         pieChart('chart-province', Object.keys(provinces), Object.values(provinces));
@@ -438,33 +548,46 @@
         select.innerHTML = `<option value="">${state.role === 'subuser' ? 'Le mie assegnazioni' : 'Tutte le assegnazioni'}</option>` + state.subusers.map(subuser => `<option value="${subuser.id}">${escapeHtml(`${subuser.nome} ${subuser.cognome}`)}</option>`).join('');
     }
 
+    function findPropertyById(propertyId) {
+        return state.properties.find(item => Number(item.id) === Number(propertyId))
+            || state.assignedProperties?.find(item => Number(item.id) === Number(propertyId))
+            || null;
+    }
+
+    async function savePropertyPayload(payload) {
+        await api(state.propertyUpdateEndpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                csrf_token: state.csrfToken,
+                ...payload,
+            }),
+        });
+        await loadProperties();
+    }
+
     async function saveProperty(button) {
         const wrapper = button.closest('[data-property-id]') || button.closest('tr');
         const propertyId = Number(button.dataset.propertyId || wrapper?.dataset.propertyId || 0);
         if (!propertyId) return;
-        const stateSelect = wrapper.querySelector('.state-select');
-        const colorInput = wrapper.querySelector('.color-input');
-        const noteInput = wrapper.querySelector('.note-input');
-        const customStateInput = wrapper.querySelector('.custom-state-input');
-        const assignmentSelect = wrapper.querySelector('.assignment-select');
+        const property = findPropertyById(propertyId);
+        const stateSelect = wrapper?.querySelector('.state-select');
+        const colorInput = wrapper?.querySelector('.color-input');
+        const noteInput = wrapper?.querySelector('.note-input');
+        const customStateInput = wrapper?.querySelector('.custom-state-input');
+        const assignmentSelect = wrapper?.querySelector('.assignment-select');
         const assignments = assignmentSelect ? Array.from(assignmentSelect.selectedOptions).map(option => Number(option.value)) : undefined;
 
         button.disabled = true;
         try {
-            await api(state.propertyUpdateEndpoint, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    csrf_token: state.csrfToken,
-                    property_id: propertyId,
-                    stato: stateSelect?.value,
-                    stato_personalizzato: customStateInput?.value || '',
-                    colore_marker: colorInput?.value,
-                    note: noteInput?.value || '',
-                    assignments,
-                }),
+            await savePropertyPayload({
+                property_id: propertyId,
+                stato: stateSelect?.value || property?.stato,
+                stato_personalizzato: customStateInput?.value ?? (property?.stato_personalizzato || ''),
+                colore_marker: colorInput?.value || property?.colore_marker,
+                note: noteInput?.value || '',
+                assignments,
             });
-            await loadProperties();
         } catch (error) {
             alert(error.message);
         } finally {
@@ -582,12 +705,9 @@
             if (processPayload.enrichment_done) {
                 setImportPhase('Completato', 100, `Completato: ${processPayload.saved_rows ?? rows.length} righe salvate`);
                 importLog('info', 'Geolocalizzazione completata nella stessa richiesta.');
-            } else if (processPayload.enrichment_sync) {
-                importLog('warning', `Soglia sicurezza raggiunta, residue ${processPayload.remaining_unique_parcels ?? 0} particelle: fallback a chunk.`);
-                enrichChunkLoop(processPayload.batch_id).catch(() => {});
             } else {
-                importLog('info', 'Geolocalizzazione in background avviata.');
-                pollEnrichment(processPayload.batch_id).catch(() => {});
+                importLog('warning', `Particelle residue: ${processPayload.remaining_unique_parcels ?? 0}. Completo ora con la stessa logica di "Rigenera coordinate".`);
+                await enrichChunkLoop(processPayload.batch_id);
             }
         }
     }
@@ -805,6 +925,145 @@
 
         el.className = 'small';
         el.innerHTML = html.join('');
+    }
+
+    function ensureSharedModals() {
+        if (!document.getElementById('property-editor-modal')) {
+            const editorModal = document.createElement('div');
+            editorModal.innerHTML = `
+                <div class="modal fade" id="property-editor-modal" tabindex="-1" aria-hidden="true">
+                    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title">Modifica marker</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button>
+                            </div>
+                            <div class="modal-body">
+                                <div id="property-editor-meta" class="small text-muted mb-3"></div>
+                                <div class="row g-2">
+                                    <div class="col-md-6">
+                                        <label class="form-label small mb-1">Stato</label>
+                                        <select id="editor-state" class="form-select form-select-sm"></select>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label small mb-1">Colore marker</label>
+                                        <input type="color" id="editor-color" class="form-control form-control-color form-control-sm" value="#0d6efd">
+                                    </div>
+                                    <div class="col-12">
+                                        <label class="form-label small mb-1">Stato personalizzato</label>
+                                        <input id="editor-custom-state" class="form-control form-control-sm" placeholder="Stato personalizzato">
+                                    </div>
+                                    <div class="col-12">
+                                        <label class="form-label small mb-1">Assegnazioni</label>
+                                        <div id="editor-assignments-summary" class="small"></div>
+                                    </div>
+                                    <div class="col-12">
+                                        <button type="button" class="btn btn-outline-secondary btn-sm d-none" id="editor-assignments-open">
+                                            <i class="bi bi-person-plus me-1"></i>Gestisci assegnazioni
+                                        </button>
+                                    </div>
+                                    <div class="col-12">
+                                        <label class="form-label small mb-1">Nota</label>
+                                        <textarea id="editor-note" class="form-control form-control-sm" rows="3" placeholder="Aggiungi nota"></textarea>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Annulla</button>
+                                <button type="button" class="btn btn-primary btn-sm" id="editor-save-btn">Salva</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(editorModal.firstElementChild);
+        }
+
+        if (!document.getElementById('assignment-picker-modal')) {
+            const assignmentModal = document.createElement('div');
+            assignmentModal.innerHTML = `
+                <div class="modal fade" id="assignment-picker-modal" tabindex="-1" aria-hidden="true">
+                    <div class="modal-dialog modal-dialog-scrollable">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title">Assegna subutenti</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button>
+                            </div>
+                            <div class="modal-body">
+                                <div id="assignment-picker-meta" class="small text-muted mb-2"></div>
+                                <div id="assignment-picker-list" class="vstack gap-2"></div>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Annulla</button>
+                                <button type="button" class="btn btn-primary btn-sm" id="assignment-picker-save">Salva assegnazioni</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(assignmentModal.firstElementChild);
+        }
+    }
+
+    function refreshEditorAssignmentSummary(property) {
+        const summary = document.getElementById('editor-assignments-summary');
+        if (!summary) return;
+        summary.innerHTML = buildAssignmentSummary(property);
+    }
+
+    function openEditorModal(propertyId) {
+        ensureSharedModals();
+        const property = findPropertyById(propertyId);
+        if (!property) {
+            alert('Immobile non trovato.');
+            return;
+        }
+        const modalEl = document.getElementById('property-editor-modal');
+        const meta = document.getElementById('property-editor-meta');
+        const stateEl = document.getElementById('editor-state');
+        const colorEl = document.getElementById('editor-color');
+        const customStateEl = document.getElementById('editor-custom-state');
+        const noteEl = document.getElementById('editor-note');
+        const saveBtn = document.getElementById('editor-save-btn');
+        const assignmentBtn = document.getElementById('editor-assignments-open');
+        if (!modalEl || !stateEl || !colorEl || !customStateEl || !noteEl || !saveBtn) return;
+
+        meta.textContent = `${property.comune || ''} · ${unitLabel(property)} · ${`${property.indirizzo || ''} ${property.civico || ''}`.trim()}`;
+        stateEl.innerHTML = buildSelectOptions(property.stato || 'da_contattare');
+        colorEl.value = property.colore_marker || '#0d6efd';
+        customStateEl.value = property.stato_personalizzato || '';
+        noteEl.value = '';
+        saveBtn.dataset.propertyId = String(property.id);
+        refreshEditorAssignmentSummary(property);
+        if (assignmentBtn) {
+            assignmentBtn.classList.toggle('d-none', state.role === 'subuser');
+            assignmentBtn.dataset.propertyId = String(property.id);
+        }
+        bootstrap.Modal.getOrCreateInstance(modalEl).show();
+    }
+
+    function openAssignmentPicker(propertyId) {
+        ensureSharedModals();
+        const property = findPropertyById(propertyId);
+        const modalEl = document.getElementById('assignment-picker-modal');
+        const listEl = document.getElementById('assignment-picker-list');
+        const metaEl = document.getElementById('assignment-picker-meta');
+        const saveBtn = document.getElementById('assignment-picker-save');
+        if (!property || !modalEl || !listEl || !metaEl || !saveBtn) return;
+        if (state.role === 'subuser') return;
+
+        const selected = new Set((property.assignments || []).map(item => Number(item.subuser_id)));
+        metaEl.textContent = `${property.comune || ''} · ${unitLabel(property)}`;
+        listEl.innerHTML = state.subusers.length
+            ? state.subusers.map(subuser => `
+                <label class="form-check">
+                    <input class="form-check-input assignment-picker-check" type="checkbox" value="${subuser.id}" ${selected.has(Number(subuser.id)) ? 'checked' : ''}>
+                    <span class="form-check-label">${escapeHtml(`${subuser.nome} ${subuser.cognome}`)}</span>
+                </label>
+            `).join('')
+            : '<div class="text-muted small">Nessun subutente disponibile.</div>';
+        saveBtn.dataset.propertyId = String(property.id);
+        bootstrap.Modal.getOrCreateInstance(modalEl).show();
     }
     // ---- ADE log modal ----
     const adeLogModal = (() => {
@@ -1112,6 +1371,72 @@
     });
 
     document.addEventListener('click', event => {
+        const editorBtn = event.target.closest('.open-editor-modal');
+        if (editorBtn) {
+            event.preventDefault();
+            openEditorModal(Number(editorBtn.dataset.propertyId || 0));
+            return;
+        }
+        const assignmentBtn = event.target.closest('.assignment-picker-btn');
+        if (assignmentBtn) {
+            event.preventDefault();
+            openAssignmentPicker(Number(assignmentBtn.dataset.propertyId || 0));
+            return;
+        }
+        if (event.target.id === 'editor-assignments-open') {
+            event.preventDefault();
+            openAssignmentPicker(Number(event.target.dataset.propertyId || 0));
+            return;
+        }
+        if (event.target.id === 'assignment-picker-save') {
+            event.preventDefault();
+            const propertyId = Number(event.target.dataset.propertyId || 0);
+            const property = findPropertyById(propertyId);
+            if (!property) return;
+            const checks = Array.from(document.querySelectorAll('#assignment-picker-list .assignment-picker-check:checked'));
+            const assignments = checks.map(check => Number(check.value)).filter(Number.isFinite);
+            event.target.disabled = true;
+            savePropertyPayload({
+                property_id: propertyId,
+                stato: property.stato,
+                stato_personalizzato: property.stato_personalizzato || '',
+                colore_marker: property.colore_marker,
+                note: '',
+                assignments,
+            }).then(() => {
+                bootstrap.Modal.getInstance(document.getElementById('assignment-picker-modal'))?.hide();
+                const updated = findPropertyById(propertyId);
+                if (updated) {
+                    refreshEditorAssignmentSummary(updated);
+                }
+            }).catch(error => alert(error.message)).finally(() => {
+                event.target.disabled = false;
+            });
+            return;
+        }
+        if (event.target.id === 'editor-save-btn') {
+            event.preventDefault();
+            const propertyId = Number(event.target.dataset.propertyId || 0);
+            const property = findPropertyById(propertyId);
+            if (!property) return;
+            const stateEl = document.getElementById('editor-state');
+            const colorEl = document.getElementById('editor-color');
+            const customStateEl = document.getElementById('editor-custom-state');
+            const noteEl = document.getElementById('editor-note');
+            event.target.disabled = true;
+            savePropertyPayload({
+                property_id: propertyId,
+                stato: stateEl?.value || property.stato,
+                stato_personalizzato: customStateEl?.value || '',
+                colore_marker: colorEl?.value || property.colore_marker,
+                note: noteEl?.value || '',
+            }).then(() => {
+                bootstrap.Modal.getInstance(document.getElementById('property-editor-modal'))?.hide();
+            }).catch(error => alert(error.message)).finally(() => {
+                event.target.disabled = false;
+            });
+            return;
+        }
         const saveButton = event.target.closest('.property-save');
         if (saveButton) {
             event.preventDefault();
@@ -1183,10 +1508,7 @@
     });
 
     document.getElementById('assigned-save')?.addEventListener('click', async () => {
-        const buttons = Array.from(document.querySelectorAll('#assigned-table .property-save:not([disabled])'));
-        for (const button of buttons) {
-            await saveProperty(button);
-        }
+        await loadProperties();
     });
 
     // ----- Drop-zone drag & drop (importa.php) -----
@@ -1223,6 +1545,8 @@
             }
         });
     })();
+
+    ensureSharedModals();
 
     if (state.propertiesEndpoint) {
         loadProperties().catch(error => alert(error.message));

@@ -368,7 +368,7 @@ HTTP 403 dal WAF Akamai, rate-limit, lento) con un **repository locale di file G
 ```
 analyticspro/storage/gml/            ← file GML appiattiti (deny HTTP via .htaccess)
 analyticspro/storage/gml_index/      ← indici JSON e SQLite (deny HTTP via .htaccess)
-  catalogo.json                      ← BELFIORE → {ple, map, nome, size, mtime}
+  catalogo.json                      ← {_meta:{file_count,dir_mtime}, catalog:{BELFIORE → ...}}
   {BELFIORE}_fogli.json              ← indice codici foglio dal _map.gml
   {BELFIORE}.sqlite                  ← indice particelle per lookup O(1)
 ```
@@ -380,6 +380,9 @@ analyticspro/storage/gml_index/      ← indici JSON e SQLite (deny HTTP via .ht
    Sono accettati file `*_ple.gml` / `*_map.gml` e archivi `.zip`.
    Ogni ulteriore trascinamento **accumula** i file invece di sovrascrivere la selezione precedente.
 3. Premere **Carica e rigenera catalogo** — il catalogo viene rigenerato automaticamente.
+   La cache `catalogo.json` ora si auto-invalida anche senza forzatura quando cambia
+   la directory `storage/gml/` (mtime o numero file `.gml`), evitando cataloghi stale.
+   Lo stesso vale per l'indice inverso `comuni_reverse.json` derivato dal catalogo.
 4. Per ogni comune caricato, premere **Indicizza tutti i comuni** (o il pulsante per singolo comune)
    per avviare l'indicizzazione in background. Un log live mostra il progresso comune per comune.
    L'indicizzazione è **atomica**: un indice è considerato valido solo se la costruzione
@@ -613,6 +616,10 @@ DROP PROCEDURE IF EXISTS _analyticspro_migration_006;
 
 > ⚠️ Rimuovere la pagina dopo il debug.
 
+È disponibile anche `analyticspro/admin/diagnostica_enrichment.php` per testare
+rapidamente `enrich_chunk` (batch specifico o globale `batch_id=0`) e verificare
+in un'unica vista schema, batch recenti ed errori runtime.
+
 ---
 
 ## Test aggiuntivi
@@ -623,6 +630,8 @@ php analyticspro/tests/test_assignment_reconciliation.php # riconciliazione asse
 php analyticspro/tests/test_cluster_fractions.php         # fette cluster SVG
 php analyticspro/tests/test_phone_visibility.php          # telefono assente con permesso OFF
 php analyticspro/tests/test_enrich_chunk_error.php        # error_code strutturato
+php analyticspro/tests/test_gml_catalog_auto_invalidate.php # auto-invalidazione catalogo GML
+php analyticspro/tests/test_marker_same_coords_grouping.php # marker unici per coordinate condivise
 ```
 
 ## Aggiornamenti UI e import

@@ -233,6 +233,10 @@ body {
     border: 1px solid rgba(0,0,0,.2); vertical-align: middle;
 }
 .map-popup-table td, .map-popup-table th { font-size: .8rem; }
+.map-popup .accordion-button { font-size: .85rem; }
+.map-popup .accordion-body { font-size: .82rem; }
+.analyticspro-cluster-icon { background: transparent; border: 0; }
+.dataTable td .btn-sm { padding: .2rem .45rem; }
 .help-steps li { margin-bottom: .55rem; }
 .property-inline-control { min-width: 120px; }
 .small-select[multiple] { min-height: 88px; }

@@ -113,17 +113,20 @@ function analyticspro_fetch_properties_payload(array $user, string $mode = 'all'
         $showPhone = analyticspro_is_admin() || analyticspro_tenant_phone_visibility((int) $property['user_id']);
         $owners = [];
         foreach ($ownersByProperty[$propertyId] ?? [] as $owner) {
-            $owners[] = [
+            $ownerPayload = [
                 'tipo' => $owner['tipo'],
                 'nome' => analyticspro_decrypt($owner['nome_enc']),
                 'cognome' => analyticspro_decrypt($owner['cognome_enc']),
                 'codice_fiscale' => analyticspro_decrypt($owner['codice_fiscale_enc']),
-                'telefono' => $showPhone ? analyticspro_decrypt($owner['telefono_enc']) : null,
                 'indirizzo' => analyticspro_decrypt($owner['indirizzo_enc']),
                 'email' => analyticspro_decrypt($owner['email_enc']),
                 'data_nascita' => $owner['data_nascita'],
                 'genere' => $owner['genere'],
             ];
+            if ($showPhone) {
+                $ownerPayload['telefono'] = analyticspro_decrypt($owner['telefono_enc']);
+            }
+            $owners[] = $ownerPayload;
         }
 
         $notes = array_map(static fn ($note) => [

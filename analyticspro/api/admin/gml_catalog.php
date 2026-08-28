@@ -101,6 +101,7 @@ if ($method === 'POST') {
             }
         }
 
+        analyticspro_gml_invalidate_catalog_cache();
         analyticspro_gml_build_catalog(true);
         analyticspro_json(['ok' => true, 'deleted' => $deleted]);
     }
