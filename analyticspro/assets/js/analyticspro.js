@@ -5,6 +5,17 @@
     if (!root) return;
     const importOverlayEl = document.getElementById('import-overlay');
 
+    const STATE_OPTIONS = {
+        '': 'Non impostato',
+        non_interessato: 'Non Interessato',
+        interessato: 'Interessato',
+        contattato: 'Contattato',
+        da_contattare: 'Da Contattare',
+        in_vendita_noi: 'In Vendita NOI',
+        in_vendita_altri: 'In Vendita ALTRI',
+        altro: 'Altro',
+    };
+
     const state = {
         csrfToken: document.querySelector('meta[name="csrf-token"]')?.content || '',
         role: root.dataset.role,
@@ -29,18 +40,7 @@
         charts: {},
         tables: {},
         overlay: importOverlayEl ? new bootstrap.Modal(importOverlayEl) : null,
-        mapStatiFilter: ['', ...Object.keys({non_interessato:'',interessato:'',contattato:'',da_contattare:'',in_vendita_noi:'',in_vendita_altri:'',altro:''})],
-    };
-
-    const STATE_OPTIONS = {
-        '': 'Non impostato',
-        non_interessato: 'Non Interessato',
-        interessato: 'Interessato',
-        contattato: 'Contattato',
-        da_contattare: 'Da Contattare',
-        in_vendita_noi: 'In Vendita NOI',
-        in_vendita_altri: 'In Vendita ALTRI',
-        altro: 'Altro',
+        mapStatiFilter: Object.keys(STATE_OPTIONS),
     };
 
     function escapeHtml(value) {
