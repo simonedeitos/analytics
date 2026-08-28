@@ -60,9 +60,11 @@ require __DIR__ . '/_admin_subnav.php';
 <div class="row g-3">
     <?php
     $quickLinks = [
-        ['url' => 'admin/registrazioni.php', 'icon' => 'bi-person-check', 'title' => 'Registrazioni', 'desc' => 'Approva o rifiuta nuove richieste'],
-        ['url' => 'admin/utenti.php',         'icon' => 'bi-people',        'title' => 'Utenti',         'desc' => 'Gestisci stato e permessi'],
-        ['url' => 'admin/smtp.php',           'icon' => 'bi-envelope-gear', 'title' => 'SMTP',           'desc' => 'Configura il server mail'],
+        ['url' => 'admin/registrazioni.php', 'icon' => 'bi-person-check',  'title' => 'Registrazioni', 'desc' => 'Approva o rifiuta nuove richieste'],
+        ['url' => 'admin/utenti.php',         'icon' => 'bi-people',         'title' => 'Utenti',         'desc' => 'Gestisci stato e permessi'],
+        ['url' => 'admin/smtp.php',           'icon' => 'bi-envelope-gear',  'title' => 'SMTP',           'desc' => 'Configura il server mail'],
+        ['url' => 'admin/import_ade.php',     'icon' => 'bi-cloud-download', 'title' => 'Import ADE',     'desc' => 'Importa cartografia ADE (ZIP)'],
+        ['url' => 'admin/import_gml.php',     'icon' => 'bi-map',            'title' => 'Import GML',     'desc' => 'Repository locale file GML ADE'],
     ];
     foreach ($quickLinks as $link): ?>
         <div class="col-sm-6 col-lg-3">

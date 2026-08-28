@@ -461,6 +461,7 @@ function analyticspro_enrich_batch_coordinates(int $batchId): void
 {
     require_once __DIR__ . '/wfs_lookup.php';
     require_once __DIR__ . '/zornade_lookup.php';
+    require_once __DIR__ . '/gml_catalog.php';
 
     $pdo = analyticspro_db();
 
@@ -498,10 +499,11 @@ function analyticspro_enrich_batch_coordinates(int $batchId): void
     }
 
     // Prepared UPDATE applied to all rows sharing the same parcel.
+    // coord_source column may not exist on older installations — guarded by try/catch at use site.
     if ($batchId > 0) {
         $updateStmt = $pdo->prepare(
             'UPDATE properties
-             SET lat = :lat, lng = :lng, posizione_verificata = :verified
+             SET lat = :lat, lng = :lng, posizione_verificata = :verified, coord_source = :coord_source
              WHERE import_batch_id = :batch_id
                AND provincia = :provincia AND comune = :comune
                AND (sezione <=> :sezione)
@@ -511,7 +513,7 @@ function analyticspro_enrich_batch_coordinates(int $batchId): void
     } else {
         $updateStmt = $pdo->prepare(
             'UPDATE properties
-             SET lat = :lat, lng = :lng, posizione_verificata = :verified
+             SET lat = :lat, lng = :lng, posizione_verificata = :verified, coord_source = :coord_source
              WHERE provincia = :provincia AND comune = :comune
                AND (sezione <=> :sezione)
                AND foglio = :foglio AND particella = :particella
@@ -547,100 +549,144 @@ function analyticspro_enrich_batch_coordinates(int $batchId): void
         }
 
         try {
-            $cached = null;
-            $db     = null;
-            try {
-                $db     = analyticspro_wfs_open_cache_db();
-                $cached = analyticspro_wfs_get_cached_particella($db, $codCat, $foglio, $particella);
-                if ($cached !== null) {
-                    $db->close();
-                    $db = null;
+            $lat        = null;
+            $lng        = null;
+            $verified   = 0;
+            $coordSrc   = null;
+
+            // ----------------------------------------------------------------
+            // Priority 1: GML locale (offline, O(1) after indexing)
+            // ----------------------------------------------------------------
+            if ($codCat !== '' && $foglio !== '' && $particella !== '') {
+                $gmlResult = analyticspro_gml_lookup($codCat, $foglio, $particella);
+                if ($gmlResult !== null) {
+                    $lat      = $gmlResult['lat'];
+                    $lng      = $gmlResult['lon'];
+                    $verified = 1;
+                    $coordSrc = 'gml_locale';
                 }
-            } catch (Throwable) {
-                $db = null;
             }
 
-            if ($cached !== null && ($cached['ok'] ?? false)) {
-                $lat      = (float) $cached['lat'];
-                $lng      = (float) $cached['lng'];
-                $verified = 1;
-            } else {
-                // Provider 1: Zornade (primary).
-                $resolvedData = null;
-                if ($comune !== '' && $provincia !== '') {
-                    $now     = microtime(true);
-                    $elapsed = $now - $lastZornadeCallAt;
-                    $minGap  = 0.40; // 400 ms gap → ≤ 9 000 req/h
-                    if ($lastZornadeCallAt > 0.0 && $elapsed < $minGap) {
-                        usleep((int) (($minGap - $elapsed) * 1_000_000));
+            // ----------------------------------------------------------------
+            // Priority 2: Cache SQLite (già noti da WFS/Zornade precedenti)
+            // ----------------------------------------------------------------
+            if ($coordSrc === null) {
+                $cached = null;
+                $db     = null;
+                try {
+                    $db     = analyticspro_wfs_open_cache_db();
+                    $cached = analyticspro_wfs_get_cached_particella($db, $codCat, $foglio, $particella);
+                    if ($cached !== null) {
+                        $db->close();
+                        $db = null;
                     }
-                    $zornade = analyticspro_zornade_lookup_particella(
-                        $comune, $provincia, $foglio, $particella
-                    );
-                    $lastZornadeCallAt = microtime(true);
-                    if ($zornade !== null && ($zornade['ok'] ?? false)) {
-                        $resolvedData = $zornade;
-                    }
-                }
-
-                // Provider 2: WFS-AdE fallback.
-                if ($resolvedData === null && $codCat !== '') {
-                    $now     = microtime(true);
-                    $elapsed = $now - $lastWfsCallAt;
-                    $minGap  = 0.5;
-                    if ($lastWfsCallAt > 0.0 && $elapsed < $minGap) {
-                        usleep((int) (($minGap - $elapsed) * 1_000_000));
-                    }
-                    $wfsData       = analyticspro_wfs_query_service($codCat, $foglio, $particella);
-                    $lastWfsCallAt = microtime(true);
-                    if ($wfsData !== null && ($wfsData['ok'] ?? false)) {
-                        $resolvedData = $wfsData;
-                    }
-                }
-
-                // Persist resolved result in cache.
-                if ($resolvedData !== null && ($resolvedData['ok'] ?? false)) {
-                    if ($db !== null) {
-                        $source = $resolvedData['source'] ?? 'WFS-AdE';
-                        if ($source === 'Zornade' && $comune !== '' && $provincia !== '') {
-                            analyticspro_zornade_save_cached_particella($db, $comune, $provincia, $foglio, $particella, $resolvedData);
-                        } elseif ($codCat !== '') {
-                            analyticspro_wfs_save_cached_particella($db, $codCat, $foglio, $particella, $resolvedData);
-                        }
-                    }
-                }
-                if ($db !== null) {
-                    $db->close();
+                } catch (Throwable) {
                     $db = null;
                 }
 
-                if ($resolvedData === null || !($resolvedData['ok'] ?? false)) {
-                    $processed++;
-                    $updateBatchProgress?->execute(['processed' => $processed, 'id' => $batchId]);
-                    continue;
-                }
+                if ($cached !== null && ($cached['ok'] ?? false)) {
+                    $lat      = (float) $cached['lat'];
+                    $lng      = (float) $cached['lng'];
+                    $verified = 1;
+                    $coordSrc = 'cache';
+                } else {
+                    // --------------------------------------------------------
+                    // Priority 3: Zornade
+                    // --------------------------------------------------------
+                    $resolvedData = null;
+                    if ($comune !== '' && $provincia !== '') {
+                        $now     = microtime(true);
+                        $elapsed = $now - $lastZornadeCallAt;
+                        $minGap  = 0.40;
+                        if ($lastZornadeCallAt > 0.0 && $elapsed < $minGap) {
+                            usleep((int) (($minGap - $elapsed) * 1_000_000));
+                        }
+                        $zornade = analyticspro_zornade_lookup_particella(
+                            $comune, $provincia, $foglio, $particella
+                        );
+                        $lastZornadeCallAt = microtime(true);
+                        if ($zornade !== null && ($zornade['ok'] ?? false)) {
+                            $resolvedData = $zornade;
+                        }
+                    }
 
-                $lat      = (float) $resolvedData['lat'];
-                $lng      = (float) $resolvedData['lng'];
-                $verified = 1;
+                    // --------------------------------------------------------
+                    // Priority 4: WFS-AdE (ultimo fallback)
+                    // --------------------------------------------------------
+                    if ($resolvedData === null && $codCat !== '') {
+                        $now     = microtime(true);
+                        $elapsed = $now - $lastWfsCallAt;
+                        $minGap  = 0.5;
+                        if ($lastWfsCallAt > 0.0 && $elapsed < $minGap) {
+                            usleep((int) (($minGap - $elapsed) * 1_000_000));
+                        }
+                        $wfsData       = analyticspro_wfs_query_service($codCat, $foglio, $particella);
+                        $lastWfsCallAt = microtime(true);
+                        if ($wfsData !== null && ($wfsData['ok'] ?? false)) {
+                            $resolvedData = $wfsData;
+                        }
+                    }
+
+                    // Persist in cache
+                    if ($resolvedData !== null && ($resolvedData['ok'] ?? false)) {
+                        if ($db !== null) {
+                            $source = $resolvedData['source'] ?? 'WFS-AdE';
+                            if ($source === 'Zornade' && $comune !== '' && $provincia !== '') {
+                                analyticspro_zornade_save_cached_particella($db, $comune, $provincia, $foglio, $particella, $resolvedData);
+                            } elseif ($codCat !== '') {
+                                analyticspro_wfs_save_cached_particella($db, $codCat, $foglio, $particella, $resolvedData);
+                            }
+                        }
+                    }
+                    if ($db !== null) {
+                        $db->close();
+                        $db = null;
+                    }
+
+                    if ($resolvedData !== null && ($resolvedData['ok'] ?? false)) {
+                        $lat      = (float) $resolvedData['lat'];
+                        $lng      = (float) $resolvedData['lng'];
+                        $verified = 1;
+                        $source   = $resolvedData['source'] ?? 'WFS-AdE';
+                        $coordSrc = $source === 'Zornade' ? 'zornade' : 'wfs';
+                    }
+                }
+            }
+
+            if ($lat === null || $lng === null) {
+                $processed++;
+                $updateBatchProgress?->execute(['processed' => $processed, 'id' => $batchId]);
+                continue;
             }
 
             $params = [
-                'lat'        => $lat,
-                'lng'        => $lng,
-                'verified'   => $verified,
-                'provincia'  => $provincia,
-                'comune'     => $comune,
-                'sezione'    => $sezione,
-                // Use the raw DB values (from SELECT) — the WHERE clause must match
-                // what was stored during import, not the WFS-normalized variants.
-                'foglio'     => $parcel['foglio'],
-                'particella' => $parcel['particella'],
+                'lat'          => $lat,
+                'lng'          => $lng,
+                'verified'     => $verified,
+                'coord_source' => $coordSrc,
+                'provincia'    => $provincia,
+                'comune'       => $comune,
+                'sezione'      => $sezione,
+                'foglio'       => $parcel['foglio'],
+                'particella'   => $parcel['particella'],
             ];
             if ($batchId > 0) {
                 $params['batch_id'] = $batchId;
             }
-            $updateStmt->execute($params);
+            try {
+                $updateStmt->execute($params);
+            } catch (Throwable $dbEx) {
+                // coord_source column might not exist on older installations — retry without it
+                if (str_contains($dbEx->getMessage(), 'coord_source')) {
+                    $fallbackSql = $batchId > 0
+                        ? 'UPDATE properties SET lat = :lat, lng = :lng, posizione_verificata = :verified WHERE import_batch_id = :batch_id AND provincia = :provincia AND comune = :comune AND (sezione <=> :sezione) AND foglio = :foglio AND particella = :particella AND lat IS NULL'
+                        : 'UPDATE properties SET lat = :lat, lng = :lng, posizione_verificata = :verified WHERE provincia = :provincia AND comune = :comune AND (sezione <=> :sezione) AND foglio = :foglio AND particella = :particella AND lat IS NULL';
+                    unset($params['coord_source']);
+                    $pdo->prepare($fallbackSql)->execute($params);
+                } else {
+                    throw $dbEx;
+                }
+            }
         } catch (Throwable $exception) {
             $errors++;
             error_log('[enrich_property_coordinates] Error for '
