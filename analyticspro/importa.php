@@ -93,5 +93,6 @@ analyticspro_render_header('Importa dati', ['app_assets' => true]);
             <div id="enrichment-progress-bar" class="progress-bar bg-primary progress-bar-striped progress-bar-animated" style="width:0%"></div>
         </div>
         <p id="enrichment-progress-text" class="small mb-0">Geolocalizzazione marker in corso...</p>
+        <div id="enrichment-report" class="small mt-2 d-none"></div>
     </div>
 </div>

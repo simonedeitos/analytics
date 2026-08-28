@@ -309,6 +309,19 @@ anche senza `enrichment_sync: true` (utile se il segnale si perde).
 
 La risposta HTTP torna comunque immediatamente — non c'è mai alcun blocco del browser.
 
+### Catena di risoluzione del codice Belfiore
+
+Quando una riga importata non contiene un `cod_catastale` valido, AnalyticsPRO prova in quest'ordine:
+
+1. `cod_catastale` esplicito nella riga (`^[A-Z]\d{3}$`)
+2. **Catalogo GML locale** (`analyticspro_gml_belfiore_da_comune`) usando il nome comune estratto dai filename caricati
+3. `data/comuni_catastali.json` tramite `analyticspro_wfs_lookup_cod_catastale()`
+4. tabella MySQL `cadastral_comuni`
+
+La normalizzazione del nome comune è condivisa e aggressiva: maiuscole, trim, collasso spazi,
+rimozione accenti/apostrofi, `_`/`-` → spazio, supporto a abbreviazioni comuni come `D/` → `DELLE`,
+`S.`/`S ` → `SAN`, `SS.` → `SANTI`, `ST.` → `SANTO`.
+
 ### Cron di recupero batch orfani (consigliato su hosting senza proc_open)
 
 Su hosting che non supporta `proc_open` o `shell_exec`, l'arricchimento avviene già in modo
@@ -392,6 +405,17 @@ Al momento dell'arricchimento coordinate di ogni riga importata:
 4. **WFS on-demand ADE** (fallback finale, rate-limit 500 ms) — sorgente: `wfs`
 5. Fallimento → riga marcata senza coordinate, import NON interrotto
 
+Se una particella non viene risolta, il batch registra anche un report strutturato in
+`import_batches.enrichment_report` con:
+
+- conteggi per `coord_source`
+- conteggi per motivo di fallimento (`comune_non_risolto`, `dati_incompleti`, `gml_mancante`,
+  `comune_non_indicizzato`, `foglio_inesistente`, `particella_inesistente`, `provider_remoto_fallito`)
+- elenco troncato delle righe non risolte nel formato `Comune F.x P.y — motivo`
+
+Il report è esposto da `api/data/import_progress.php` ed è mostrato nella UI di `importa.php`
+accanto alla barra di avanzamento dell'arricchimento.
+
 La sorgente è salvata nel campo `coord_source` della tabella `properties`
 (aggiunto dalla migration `004_add_coord_source_to_properties.sql`).
 
@@ -421,8 +445,19 @@ La sorgente è salvata nel campo `coord_source` della tabella `properties`
    Per file > 60 MB restituisce `null` e logga un avviso: indicizzare il comune
    è sempre preferibile.
 
+Il primo parametro di `analyticspro_gml_lookup()` può essere sia un codice Belfiore (`B394`)
+sia un nome comune (`Calcinato`): in quest'ultimo caso il codice viene risolto tramite il
+catalogo GML locale.
+
 I job di indicizzazione GML sono gestiti dalle tabelle `gml_index_jobs` / `gml_index_job_log`
 (aggiunte dalla migration `005_add_gml_index_jobs.sql`).
+
+### Migration rilevanti
+
+- `004_add_coord_source_to_properties.sql`
+- `005_add_gml_index_jobs.sql`
+- `006_add_enrichment_report.sql`
+- `007_add_enrichment_sync_flag.sql`
 
 ### Protezione HTTP
 
@@ -451,5 +486,7 @@ che:
 ```bash
 php analyticspro/tests/gml_stream_smoke.php   # parser streaming + centroide
 php analyticspro/tests/gml_parser_smoke.php   # parser DOM esistente
+php analyticspro/tests/gml_catalog_smoke.php  # lookup/normalizzazione GML
+php analyticspro/tests/gml_resolution_smoke.php
 php analyticspro/tests/ade_sql_import_smoke.php
 ```

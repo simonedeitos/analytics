@@ -52,6 +52,8 @@ CREATE TABLE import_batches (
     enrichment_status ENUM('pending','processing','completed','failed') NOT NULL DEFAULT 'pending',
     enrichment_processed INT UNSIGNED NOT NULL DEFAULT 0,
     enrichment_total INT UNSIGNED NOT NULL DEFAULT 0,
+    enrichment_report JSON NULL,
+    enrichment_sync TINYINT(1) NOT NULL DEFAULT 0,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (uploaded_by) REFERENCES users(id) ON DELETE CASCADE,
     INDEX idx_user (user_id)
@@ -80,6 +82,7 @@ CREATE TABLE properties (
     lat DECIMAL(10,7) NULL,
     lng DECIMAL(10,7) NULL,
     posizione_verificata TINYINT(1) NOT NULL DEFAULT 0,
+    coord_source VARCHAR(20) NULL,
     stato ENUM('non_interessato','interessato','contattato','da_contattare','in_vendita_noi','in_vendita_altri','altro') NOT NULL DEFAULT 'da_contattare',
     stato_personalizzato VARCHAR(100) NULL,
     colore_marker VARCHAR(7) NOT NULL DEFAULT '#0d6efd',

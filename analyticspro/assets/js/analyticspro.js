@@ -500,7 +500,12 @@
         const container = document.getElementById('enrichment-status-container');
         const bar       = document.getElementById('enrichment-progress-bar');
         const text      = document.getElementById('enrichment-progress-text');
+        const reportEl  = document.getElementById('enrichment-report');
         if (container) container.style.display = '';
+        if (reportEl) {
+            reportEl.className = 'small mt-2 d-none';
+            reportEl.innerHTML = '';
+        }
 
         const maxIterations = 240; // ~10 minutes at 2.5 s per poll
         let   iterations    = 0;
@@ -522,6 +527,7 @@
             const processed = batch.enrichment_processed ?? 0;
             const total     = batch.enrichment_total     ?? 0;
             const pct       = total > 0 ? Math.round((processed / total) * 100) : 0;
+            renderEnrichmentReport(batch.enrichment_report);
 
             if (bar)  bar.style.width    = `${pct}%`;
             if (text) text.textContent   = `Geolocalizzazione: ${processed}/${total} marker (${pct}%)`;
@@ -574,7 +580,12 @@
         const container = document.getElementById('enrichment-status-container');
         const bar       = document.getElementById('enrichment-progress-bar');
         const text      = document.getElementById('enrichment-progress-text');
+        const reportEl  = document.getElementById('enrichment-report');
         if (container) container.style.display = '';
+        if (reportEl) {
+            reportEl.className = 'small mt-2 d-none';
+            reportEl.innerHTML = '';
+        }
 
         const maxChunks = 500; // sicurezza — max 500 * 25 = 12 500 particelle
         let   calls     = 0;
@@ -594,6 +605,7 @@
             const processed = result.processed ?? 0;
             const total     = result.total     ?? 0;
             const pct       = total > 0 ? Math.round((processed / total) * 100) : (result.done ? 100 : 0);
+            renderEnrichmentReport(result.enrichment_report);
 
             if (bar)  bar.style.width  = `${pct}%`;
             if (text) text.textContent = `Geolocalizzazione: ${processed}/${total} marker (${pct}%)`;
@@ -620,6 +632,41 @@
         }
 
         if (text) text.textContent = 'Geolocalizzazione parziale: limite chiamate raggiunto. Usa "Rigenera coordinate mancanti" per continuare.';
+    }
+
+    function renderEnrichmentReport(report) {
+        const el = document.getElementById('enrichment-report');
+        if (!el || !report || typeof report !== 'object') {
+            if (el) {
+                el.className = 'small mt-2 d-none';
+                el.innerHTML = '';
+            }
+            return;
+        }
+
+        const sourceEntries = Object.entries(report.coord_source || {}).filter(([, value]) => Number(value) > 0);
+        const failureEntries = Object.entries(report.failure_codes || {}).filter(([, value]) => Number(value) > 0);
+        const unresolved = Array.isArray(report.unresolved_rows) ? report.unresolved_rows : [];
+
+        if (!sourceEntries.length && !failureEntries.length && !unresolved.length) {
+            el.className = 'small mt-2 d-none';
+            el.innerHTML = '';
+            return;
+        }
+
+        const html = [];
+        if (sourceEntries.length) {
+            html.push(`<div><strong>Sorgenti:</strong> ${sourceEntries.map(([key, value]) => `${escapeHtml(key)}=${escapeHtml(String(value))}`).join(' · ')}</div>`);
+        }
+        if (failureEntries.length) {
+            html.push(`<div class="mt-1"><strong>Fallimenti:</strong> ${failureEntries.map(([key, value]) => `${escapeHtml(key)}=${escapeHtml(String(value))}`).join(' · ')}</div>`);
+        }
+        if (unresolved.length) {
+            html.push(`<ul class="mb-0 mt-2 ps-3">${unresolved.map(item => `<li>${escapeHtml(String(item))}</li>`).join('')}${report.truncated ? '<li>… elenco troncato …</li>' : ''}</ul>`);
+        }
+
+        el.className = 'small mt-2';
+        el.innerHTML = html.join('');
     }
     // ---- ADE log modal ----
     const adeLogModal = (() => {

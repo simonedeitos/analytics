@@ -198,12 +198,29 @@ function build_test_index(string $dbPath, array $rows): void
         [' 147 ',  '147'],
         ['147a',   '147A'],
         ['00147B', '147B'],
+        ['ACQUA310', 'ACQUA310'],
     ];
     foreach ($cases as [$input, $expected]) {
         $got = analyticspro_gml_norm_particella($input);
         cat_assert($got === $expected, "T7: norm_particella('$input') atteso '$expected', ottenuto '$got'");
     }
     echo "OK  T7: normalizzazione particella — casi limite\n";
+}
+
+// ============================================================
+// 8. Nessuna collisione tra prefisso alfabetico e particella numerica
+// ============================================================
+{
+    $dbPath = $tmpDir . '/TST8.sqlite';
+    build_test_index($dbPath, [
+        ['003400', 'ACQUA310', 45.1, 10.1, 1.0],
+        ['003400', '310',      45.2, 10.2, 1.0],
+    ]);
+    $alpha = analyticspro_gml_lookup_in_index($dbPath, '003400', 'ACQUA310', analyticspro_gml_norm_particella('ACQUA310'));
+    $num   = analyticspro_gml_lookup_in_index($dbPath, '003400', '310', analyticspro_gml_norm_particella('310'));
+    cat_assert($alpha !== null && abs($alpha['lat'] - 45.1) < 0.001, 'T8: ACQUA310 non deve collidere con 310');
+    cat_assert($num !== null && abs($num['lat'] - 45.2) < 0.001, 'T8: 310 deve restare distinto da ACQUA310');
+    echo "OK  T8: nessuna collisione ACQUA310/310\n";
 }
 
 echo "\nTutti i test GML catalog superati.\n";
