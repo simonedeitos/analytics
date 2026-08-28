@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 require dirname(__DIR__, 2) . '/includes/bootstrap.php';
 require_once ANALYTICSPRO_ROOT . '/includes/api_bootstrap.php';
+require_once ANALYTICSPRO_ROOT . '/includes/importer.php';
 
 analyticspro_api_guard();
 
@@ -58,35 +59,44 @@ try {
         file_put_contents($payloadPath, json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
 
         // Phase 1: persist cadastral data synchronously in this very HTTP request so the
-        // outcome (success or failure) is immediate and certain.  A background worker is
-        // no longer needed for this phase.
+        // outcome (success or failure) is immediate and certain.
         try {
             analyticspro_process_import_batch_payload($batchId, $payload);
         } catch (Throwable $e) {
             analyticspro_json(['ok' => false, 'error' => $e->getMessage()], 500);
         }
 
-        // Phase 2: coordinate enrichment involves slow network calls — always async.
-        // If the background worker cannot be launched (e.g. proc_open/shell_exec not
-        // available on this host), the batch remains with enrichment_status = 'pending'
-        // and enrichment_sync = 1. The frontend will switch to the chunk-based sync
-        // fallback via api/data/enrich_chunk.php.
-        // The HTTP response always returns immediately after Phase 1 completes.
-        $enrichWorker = ANALYTICSPRO_ROOT . '/cron/enrich_property_coordinates.php';
-        $backgroundLaunched = analyticspro_launch_background($enrichWorker, [$batchId]);
-        if (!$backgroundLaunched) {
-            try {
-                $pdo->prepare('UPDATE import_batches SET enrichment_sync = 1 WHERE id = :id')
-                    ->execute(['id' => $batchId]);
-            } catch (Throwable) {
-                // Non critico — il frontend userà il watchdog come fallback
-            }
+        // Phase 2: coordinate enrichment — eseguita nella stessa richiesta HTTP.
+        // Il lookup GML è locale (nessuna chiamata di rete per file già indicizzati)
+        // e deduplicato per particella distinta, quindi il costo è trascurabile.
+        // set_time_limit(0) garantisce che import di grandi file non vadano in timeout.
+        set_time_limit(0);
+        try {
+            analyticspro_enrich_batch_coordinates($batchId);
+        } catch (Throwable) {
+            // Errore non fatale: i dati catastali sono già salvati, le coordinate
+            // resteranno NULL e potranno essere rigenerate con "Rigenera coordinate mancanti".
         }
 
         $savedStmt = $pdo->prepare('SELECT processed_rows FROM import_batches WHERE id = ?');
         $savedStmt->execute([$batchId]);
         $saved = (int) $savedStmt->fetchColumn();
-        analyticspro_json(['ok' => true, 'batch_id' => $batchId, 'saved_rows' => $saved, 'total_rows' => count($rows), 'enrichment_sync' => !$backgroundLaunched]);
+
+        // Carica il report di enrichment per restituirlo insieme alla risposta
+        $enrichReport = null;
+        try {
+            $enrichReport = analyticspro_enrichment_report_load($pdo, $batchId);
+        } catch (Throwable) {
+        }
+
+        analyticspro_json([
+            'ok'               => true,
+            'batch_id'         => $batchId,
+            'saved_rows'       => $saved,
+            'total_rows'       => count($rows),
+            'enrichment_done'  => true,
+            'enrichment_report' => $enrichReport,
+        ]);
     }
 
     throw new RuntimeException('Modalità import non valida.');

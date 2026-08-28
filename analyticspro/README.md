@@ -31,35 +31,56 @@ Webapp PHP/PDO multi-tenant per importare dati catastali, salvarli su MySQL/Mari
 
 ### Flusso a due fasi: persistenza immediata + arricchimento coordinate asincrono
 
-L'import CSV/Excel è suddiviso in due fasi indipendenti:
+L'import CSV/Excel avviene in un'**unica richiesta HTTP sincrona**:
 
-**Fase 1 — Persistenza dati (sincrona, sempre garantita)**  
-`api/data/import.php` chiama direttamente `analyticspro_process_import_batch_payload()` nella
-stessa richiesta HTTP, scrivendo **tutte** le righe del file in `properties` con
-`lat = NULL`, `lng = NULL`, `posizione_verificata = 0`, senza effettuare alcuna chiamata di rete.
-Tutti i dati catastali vengono salvati prima che la risposta HTTP venga inviata al browser;
-l'esito (righe salvate o messaggio d'errore) è quindi immediato e certo.  
-Il file `storage/import_payloads/import_<id>.json` viene comunque scritto su disco per consentire
-la ri-esecuzione manuale/diagnostica tramite `cron/process_import_batch.php` se necessario.
+**Fase 1 — Persistenza dati**  
+`api/data/import.php` chiama `analyticspro_process_import_batch_payload()` nella stessa
+richiesta HTTP, scrivendo tutte le righe in `properties`. I dati catastali vengono salvati
+prima della risposta HTTP; l'esito è quindi immediato e certo.  
+Il file `storage/import_payloads/import_<id>.json` viene scritto su disco per consentire
+la ri-esecuzione manuale tramite `cron/process_import_batch.php` se necessario.
 
-**Fase 2 — Arricchimento coordinate (in background)**  
-Subito dopo il completamento della Fase 1 il worker `cron/enrich_property_coordinates.php`
-viene lanciato in background tramite `analyticspro_launch_background()`. Questo worker:
+**Fase 2 — Geolocalizzazione (sincrona, stessa richiesta HTTP)**  
+Subito dopo la Fase 1, `api/data/import.php` chiama `analyticspro_enrich_batch_coordinates()`
+nella stessa richiesta. Il lookup GML è locale (file su disco) e deduplicato per particella
+distinta: 30 righe che condividono la stessa particella richiedono **1 solo lookup**.
 
-1. Seleziona da `properties` le righe con `lat IS NULL` per il batch appena importato.
-2. **Deduplica per particella unica** (chiave `provincia|comune|sezione|foglio|particella`):
-   30 righe con 18 particelle uniche producono al massimo 18 chiamate WFS, non 30.
-3. Per ogni particella chiama `analyticspro_wfs_query_service()` (con rate-limiting ≥ 0.5 s
-   tra chiamate live e cache SQLite locale).
-4. Applica le coordinate a **tutte** le righe che condividono quella particella.
-5. Registra il progresso in `import_batches.enrichment_status`,
-   `enrichment_processed`, `enrichment_total`.
-6. Isola gli errori per singola particella senza abortire l'arricchimento.
+1. Seleziona le particelle uniche con `lat IS NULL` via `GROUP BY`.
+2. Per ogni particella risolve il codice Belfiore con cascata a 4 livelli:
+   - Codice esplicito nel file (priorità massima)
+   - Catalogo GML locale (nome file → `B394_CALCINATO_ple.gml` → `CALCINATO` → `B394`)
+   - `comuni_catastali.json`
+   - Tabella `cadastral_comuni`
+3. Esegue il lookup GML locale; se non disponibile prova cache SQLite → Zornade → WFS AdE.
+4. Salva lat/lng e `coord_source` su `properties`.
+5. Restituisce il report (conteggi per `coord_source`, particelle non risolte) nella
+   risposta JSON già inviata al browser.
 
-Se `proc_open`/`shell_exec` non sono disponibili (hosting limitati), il batch rimane con
-`enrichment_status = 'pending'` e viene recuperato dal **cron di recupero batch orfani**
-(vedi sezione *Cron di recupero batch orfani*). La Fase 1 è sempre atomicamente completata
-prima di qualsiasi chiamata di rete, e la risposta HTTP torna sempre immediatamente al browser.
+`set_time_limit(0)` viene impostato prima della Fase 2 per import di grandi file.
+Se la Fase 2 genera un'eccezione, i dati catastali restano salvati e le coordinate
+potranno essere rigenerate con il pulsante **Rigenera coordinate mancanti**.
+
+### Estrazione tollerante delle colonne (alias)
+
+`analyticspro_row_pick()` confronta le intestazioni del file con una lista di alias
+normalizzati (uppercase, senza accenti/apostrofi/underscore). Alias supportati:
+
+| Campo | Alias riconosciuti |
+|-------|-------------------|
+| Comune | `Comune`, `COMUNE`, `Comune Immobile`, `Citta`, `Città`, `Municipio` |
+| Provincia | `Provincia`, `PROVINCIA`, `Prov`, `Sigla`, `Pr` |
+| Foglio | `Foglio`, `FOGLIO`, `Fg`, `Foglio Catastale` |
+| Particella | `Particella`, `PARTICELLA`, `Part`, `Mappale`, `Numero` |
+| Subalterno | `Subalterno`, `SUBALTERNO`, `Sub` |
+| Codice catastale | `Codice Catastale`, `CODICE CATASTALE`, `Belfiore`, `Cod Catastale` |
+
+### Rigenera coordinate mancanti
+
+Il pulsante **Rigenera coordinate mancanti** usa `api/data/enrich_chunk.php` con
+`batch_id=0` per elaborare a lotti le proprietà con `lat IS NULL`. È il solo percorso
+che usa `enrich_chunk.php`; l'import normale non lo invoca. Gli errori non recuperabili
+restituiscono `{ok: false, error_code: "..."}` e il frontend si ferma.
+
 
 ## Cifratura dati sensibili
 

@@ -512,7 +512,7 @@
 
         state.overlay?.show();
         const progressText = document.getElementById('import-progress-text');
-        if (progressText) progressText.textContent = 'Avvio import...';
+        if (progressText) progressText.textContent = 'Import e geolocalizzazione in corso…';
         const processPayload = await api(state.importEndpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -524,24 +524,15 @@
                 rows,
             }),
         });
-        // Phase 1 completed synchronously: persistence is done, show result now.
+        // Import e geolocalizzazione completati in un'unica richiesta sincrona.
         state.overlay?.hide();
         await loadProperties();
         const savedRows = processPayload.saved_rows ?? processPayload.total_rows ?? rows.length;
-        // Mostra il risultato nel logger dell'enrichment invece di un alert
-        const _importContainer = document.getElementById('enrichment-status-container');
-        const _importText = document.getElementById('enrichment-progress-text');
-        if (_importContainer) _importContainer.style.display = '';
-        if (_importText) _importText.textContent = `Import completato: ${savedRows} righe salvate. Avvio geolocalizzazione…`;
-        // Phase 2 (coordinate enrichment): if the background worker was launched
-        // successfully, poll its status. If not (enrichment_sync = true), drive the
-        // enrichment directly via repeated chunk calls so the spinner always terminates.
-        if (processPayload.batch_id) {
-            if (processPayload.enrichment_sync) {
-                enrichChunkLoop(processPayload.batch_id).catch(() => {});
-            } else {
-                pollEnrichment(processPayload.batch_id).catch(() => {});
-            }
+
+        // Mostra il riepilogo nell'area logger
+        importLogAppend('info', `Import completato: ${savedRows} righe salvate.`);
+        if (processPayload.enrichment_report) {
+            renderImportReport(processPayload.enrichment_report);
         }
     }
 
@@ -642,20 +633,10 @@
      * Usata quando il worker in background non è disponibile.
      */
     async function enrichChunkLoop(batchId) {
-        const container = document.getElementById('enrichment-status-container');
-        const bar       = document.getElementById('enrichment-progress-bar');
-        const text      = document.getElementById('enrichment-progress-text');
-        const reportEl  = document.getElementById('enrichment-report');
-        if (container) container.style.display = '';
-        if (reportEl) {
-            reportEl.className = 'small mt-2 d-none';
-            reportEl.innerHTML = '';
-        }
-
         const maxChunks = 500; // sicurezza — max 500 * 25 = 12 500 particelle
         let   calls     = 0;
 
-        if (text) text.textContent = 'Geolocalizzazione sincrona in corso...';
+        importLogAppend('info', 'Rigenera coordinate: avvio elaborazione in corso…');
 
         while (calls < maxChunks) {
             calls++;
@@ -675,36 +656,23 @@
                     await new Promise(resolve => setTimeout(resolve, 2000));
                     continue;
                 }
-                if (text) {
-                    text.textContent = `Errore enrichment [${errCode}]: ${result.error ?? 'Errore sconosciuto'}`;
-                    text.classList.add('text-danger');
-                }
-                if (bar) bar.classList.replace('bg-primary', 'bg-danger');
+                importLogAppend('error', `Errore enrichment [${errCode}]: ${result.error ?? 'Errore sconosciuto'}`);
                 return;
             }
 
             const processed = result.processed ?? 0;
             const total     = result.total     ?? 0;
             const pct       = total > 0 ? Math.round((processed / total) * 100) : (result.done ? 100 : 0);
-            renderEnrichmentReport(result.enrichment_report);
-
-            if (bar)  bar.style.width  = `${pct}%`;
-            if (text) text.textContent = `Geolocalizzazione: ${processed}/${total} marker (${pct}%)`;
 
             if (result.done || result.status === 'completed') {
-                if (text) text.textContent = `Geolocalizzazione completata: ${processed}/${total} marker.`;
-                if (bar)  bar.style.width  = '100%';
+                importLogAppend('info', `Rigenera completato: ${processed}/${total} marker (${pct}%).`);
+                if (result.enrichment_report) renderImportReport(result.enrichment_report);
                 try { await loadProperties(); } catch { /* ignore */ }
-                if (container) setTimeout(() => { container.style.display = 'none'; }, 4000);
                 return;
             }
 
             if (result.status === 'failed') {
-                if (text) {
-                    text.textContent = 'Geolocalizzazione non riuscita. Verifica la configurazione GML / Zornade / WFS nel file .env.';
-                    text.classList.add('text-danger');
-                }
-                if (bar) bar.classList.replace('bg-primary', 'bg-danger');
+                importLogAppend('error', 'Geolocalizzazione non riuscita. Verifica la configurazione GML / Zornade / WFS nel file .env.');
                 return;
             }
 
@@ -712,7 +680,37 @@
             await new Promise(resolve => setTimeout(resolve, 200));
         }
 
-        if (text) text.textContent = 'Geolocalizzazione parziale: limite chiamate raggiunto. Usa "Rigenera coordinate mancanti" per continuare.';
+        importLogAppend('warning', 'Limite chiamate raggiunto. Usa "Rigenera coordinate mancanti" di nuovo per continuare.');
+    }
+
+    function importLogAppend(level, message) {
+        const logEl = document.getElementById('import-log-body');
+        if (!logEl) return;
+        const ts = new Date().toLocaleTimeString('it-IT');
+        const levelClass = level === 'error' ? 'text-danger' : level === 'warning' ? 'text-warning' : 'text-light';
+        const div = document.createElement('div');
+        div.className = levelClass;
+        div.textContent = `[${ts}] ${level.toUpperCase().padEnd(7)} ${message}`;
+        logEl.appendChild(div);
+        logEl.scrollTop = logEl.scrollHeight;
+        const container = document.getElementById('import-log-container');
+        if (container) container.style.display = '';
+    }
+
+    function renderImportReport(report) {
+        if (!report || typeof report !== 'object') return;
+        const sources = Object.entries(report.coord_source || {}).filter(([, v]) => Number(v) > 0);
+        const failures = Object.entries(report.failure_codes || {}).filter(([, v]) => Number(v) > 0);
+        const unresolved = Array.isArray(report.unresolved_rows) ? report.unresolved_rows : [];
+        const total = sources.reduce((s, [, v]) => s + Number(v), 0);
+        if (total > 0) {
+            importLogAppend('info', `Geolocalizzate: ${total} · Sorgenti: ${sources.map(([k, v]) => `${k}=${v}`).join(' · ')}`);
+        }
+        if (failures.length) {
+            importLogAppend('warning', `Non risolte: ${failures.map(([k, v]) => `${k}=${v}`).join(' · ')}`);
+        }
+        unresolved.slice(0, 20).forEach(row => importLogAppend('warning', String(row)));
+        if (report.truncated) importLogAppend('info', '… elenco particelle non risolte troncato …');
     }
 
     function renderEnrichmentReport(report) {
@@ -1226,14 +1224,7 @@
         btn.addEventListener('click', async () => {
             btn.disabled = true;
             btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>In corso...';
-            const container = document.getElementById('enrichment-status-container');
-            const bar       = document.getElementById('enrichment-progress-bar');
-            const text      = document.getElementById('enrichment-progress-text');
-            if (container) {
-                container.style.display = '';
-                if (bar) { bar.style.width = '0%'; bar.className = 'progress-bar bg-primary progress-bar-striped progress-bar-animated'; }
-                if (text) { text.textContent = 'Rigenera coordinate in corso...'; text.className = 'small mb-0'; }
-            }
+            importLogAppend('info', 'Rigenera coordinate mancanti avviato…');
             // Usa batch_id=0: il server elaborerà tutte le particelle con lat IS NULL
             try {
                 await enrichChunkLoop(0);
