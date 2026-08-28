@@ -31,12 +31,14 @@ Webapp PHP/PDO multi-tenant per importare dati catastali, salvarli su MySQL/Mari
 
 L'import CSV/Excel è suddiviso in due fasi indipendenti:
 
-**Fase 1 — Persistenza dati (sempre garantita)**  
-Il worker `cron/process_import_batch.php` (o il fallback sincrono) scrive **tutte** le righe del
-file in `properties` con `lat = NULL`, `lng = NULL`, `posizione_verificata = 0`,
-senza effettuare alcuna chiamata di rete. Tutti i dati catastali vengono sempre salvati
-indipendentemente dalla disponibilità del servizio WFS. Al completamento della fase 1
-l'interfaccia mostra "Import completato" e il polling si sblocca.
+**Fase 1 — Persistenza dati (sincrona, sempre garantita)**  
+`api/data/import.php` chiama direttamente `analyticspro_process_import_batch_payload()` nella
+stessa richiesta HTTP, scrivendo **tutte** le righe del file in `properties` con
+`lat = NULL`, `lng = NULL`, `posizione_verificata = 0`, senza effettuare alcuna chiamata di rete.
+Tutti i dati catastali vengono salvati prima che la risposta HTTP venga inviata al browser;
+l'esito (righe salvate o messaggio d'errore) è quindi immediato e certo.  
+Il file `storage/import_payloads/import_<id>.json` viene comunque scritto su disco per consentire
+la ri-esecuzione manuale/diagnostica tramite `cron/process_import_batch.php` se necessario.
 
 **Fase 2 — Arricchimento coordinate (in background)**  
 Subito dopo il completamento della Fase 1 il worker `cron/enrich_property_coordinates.php`
@@ -52,9 +54,9 @@ viene lanciato in background tramite `analyticspro_launch_background()`. Questo 
    `enrichment_processed`, `enrichment_total`.
 6. Isola gli errori per singola particella senza abortire l'arricchimento.
 
-Se `proc_open`/`shell_exec` non sono disponibili (hosting limitati), il fallback sincrono in
-`cron/process_import_batch.php` esegue l'arricchimento nello stesso processo subito dopo la
-Fase 1. In ogni caso la Fase 1 è sempre atomicamente completata prima di qualsiasi chiamata WFS.
+Se `proc_open`/`shell_exec` non sono disponibili (hosting limitati), il fallback sincrono
+esegue l'arricchimento nello stesso processo subito dopo la Fase 1.
+La Fase 1 è sempre atomicamente completata prima di qualsiasi chiamata WFS.
 
 ## Cifratura dati sensibili
 

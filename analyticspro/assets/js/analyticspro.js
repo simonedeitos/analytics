@@ -462,10 +462,14 @@
                 rows,
             }),
         });
-        await pollImport(processPayload.batch_id);
+        // Phase 1 completed synchronously: persistence is done, show result now.
         state.overlay?.hide();
         await loadProperties();
-        alert('Import completato. Geolocalizzazione dei marker in corso in background.');
+        const savedRows = processPayload.saved_rows ?? processPayload.total_rows ?? rows.length;
+        alert(`Import completato: ${savedRows} righe salvate. Geolocalizzazione dei marker in corso in background.`);
+        // Phase 2 (coordinate enrichment) runs in the background; poll informatively
+        // but do not block the user — any enrichment failure will not block them.
+        pollImport(processPayload.batch_id).catch(() => {});
     }
 
     async function pollImport(batchId) {
