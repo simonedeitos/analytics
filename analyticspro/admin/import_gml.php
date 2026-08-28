@@ -11,6 +11,23 @@ $uploadMax  = trim((string) ini_get('upload_max_filesize')) ?: 'n/d';
 $postMax    = trim((string) ini_get('post_max_size')) ?: 'n/d';
 $maxFiles   = trim((string) ini_get('max_file_uploads')) ?: 'n/d';
 
+/** Converts a PHP ini size string (e.g. "8M", "2G", "512K") to bytes. */
+function analyticspro_ini_bytes(string $iniKey): int
+{
+    $raw = trim((string) ini_get($iniKey));
+    if ($raw === '') {
+        return 8 * 1048576;
+    }
+    $num    = (int) $raw;
+    $suffix = strtolower(substr($raw, -1));
+    return match ($suffix) {
+        'g'     => $num * 1073741824,
+        'm'     => $num * 1048576,
+        'k'     => $num * 1024,
+        default => $num,
+    };
+}
+
 analyticspro_render_header('Import GML', ['app_assets' => true]);
 require __DIR__ . '/_admin_subnav.php';
 ?>
@@ -308,9 +325,11 @@ require __DIR__ . '/_admin_subnav.php';
     const progressPct    = document.getElementById('gml-progress-pct');
     const progressDetail = document.getElementById('gml-progress-detail');
 
-    const MAX_FILES_PER_BATCH = parseInt('<?= ini_get('max_file_uploads') ?: 20 ?>') || 20;
+    const MAX_FILES_PER_BATCH = parseInt('<?= (int)(ini_get('max_file_uploads') ?: 20) ?>') || 20;
     const MB = 1048576;
-    const MAX_POST_MB = parseFloat('<?= rtrim(ini_get('post_max_size') ?: '8M', 'MmGgKk') ?>') || 8;
+    // post_max_size as bytes, computed server-side for accuracy (handles M, G, K suffixes)
+    const MAX_POST_BYTES = <?= analyticspro_ini_bytes('post_max_size') ?>;
+    const MAX_POST_MB = MAX_POST_BYTES / MB;
 
     uploadBtn.addEventListener('click', async () => {
         if (pendingFiles.length === 0) return;
@@ -328,7 +347,7 @@ require __DIR__ . '/_admin_subnav.php';
         let batchSize = 0;
 
         for (const file of pendingFiles) {
-            const addSize = batch.length >= MAX_FILES_PER_BATCH || batchSize + file.size > MAX_POST_MB * MB * 0.9;
+            const addSize = batch.length >= MAX_FILES_PER_BATCH || batchSize + file.size > MAX_POST_BYTES * 0.9;
             if (addSize && batch.length > 0) {
                 batches.push(batch);
                 batch = [];

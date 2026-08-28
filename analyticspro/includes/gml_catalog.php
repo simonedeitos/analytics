@@ -255,8 +255,13 @@ function analyticspro_gml_build_parcel_index(string $belfiore, ?callable $progre
     $flush();
 
     // Aggiorna metadati
-    $db->exec("INSERT OR REPLACE INTO meta (key,value) VALUES ('indexed_at', '" . time() . "')");
-    $db->exec("INSERT OR REPLACE INTO meta (key,value) VALUES ('count', '" . $count . "')");
+    $metaStmt = $db->prepare("INSERT OR REPLACE INTO meta (key,value) VALUES (:key, :value)");
+    $metaStmt->bindValue(':key', 'indexed_at', SQLITE3_TEXT);
+    $metaStmt->bindValue(':value', (string) time(), SQLITE3_TEXT);
+    $metaStmt->execute();
+    $metaStmt->bindValue(':key', 'count', SQLITE3_TEXT);
+    $metaStmt->bindValue(':value', (string) $count, SQLITE3_TEXT);
+    $metaStmt->execute();
 
     if ($progressCb !== null) {
         $progressCb($count, $count);

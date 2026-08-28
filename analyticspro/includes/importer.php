@@ -676,8 +676,11 @@ function analyticspro_enrich_batch_coordinates(int $batchId): void
             try {
                 $updateStmt->execute($params);
             } catch (Throwable $dbEx) {
-                // coord_source column might not exist on older installations — retry without it
-                if (str_contains($dbEx->getMessage(), 'coord_source')) {
+                // coord_source column might not exist on older installations — retry without it.
+                // SQLSTATE 42S22 = unknown column (MySQL/MariaDB).
+                $sqlState = $dbEx instanceof \PDOException ? $dbEx->getCode() : '';
+                $msgHint  = str_contains($dbEx->getMessage(), 'coord_source');
+                if ($sqlState === '42S22' || $msgHint) {
                     $fallbackSql = $batchId > 0
                         ? 'UPDATE properties SET lat = :lat, lng = :lng, posizione_verificata = :verified WHERE import_batch_id = :batch_id AND provincia = :provincia AND comune = :comune AND (sezione <=> :sezione) AND foglio = :foglio AND particella = :particella AND lat IS NULL'
                         : 'UPDATE properties SET lat = :lat, lng = :lng, posizione_verificata = :verified WHERE provincia = :provincia AND comune = :comune AND (sezione <=> :sezione) AND foglio = :foglio AND particella = :particella AND lat IS NULL';
