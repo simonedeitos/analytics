@@ -29,9 +29,11 @@
         charts: {},
         tables: {},
         overlay: importOverlayEl ? new bootstrap.Modal(importOverlayEl) : null,
+        mapStatiFilter: ['', ...Object.keys({non_interessato:'',interessato:'',contattato:'',da_contattare:'',in_vendita_noi:'',in_vendita_altri:'',altro:''})],
     };
 
     const STATE_OPTIONS = {
+        '': 'Non impostato',
         non_interessato: 'Non Interessato',
         interessato: 'Interessato',
         contattato: 'Contattato',
@@ -232,7 +234,7 @@
             provincia: property.provincia || '',
             indirizzo: `${property.indirizzo || ''} ${property.civico || ''}`.trim(),
             unita: unitLabel(property),
-            stato: STATE_OPTIONS[property.stato] || property.stato,
+            stato: STATE_OPTIONS[property.stato ?? ''] ?? (property.stato || ''),
             colore: `<span class="color-dot" style="background:${escapeHtml(property.colore_marker || '#0d6efd')}"></span>`,
             owners: buildOwnerSummary(property),
             assignmentsText: escapeHtml(assignmentNamesLabel(property)),
@@ -458,6 +460,8 @@
             const lat = Number(property.lat);
             const lng = Number(property.lng);
             if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+            const statoVal = property.stato ?? '';
+            if (!state.mapStatiFilter.includes(statoVal)) return;
             const key = `${lat.toFixed(7)}|${lng.toFixed(7)}`;
             if (!groups.has(key)) groups.set(key, []);
             groups.get(key).push(property);
@@ -1154,7 +1158,7 @@
 
         setModalError('property-editor-error', '');
         meta.textContent = `${property.comune || ''} · ${unitLabel(property)} · ${`${property.indirizzo || ''} ${property.civico || ''}`.trim()}`;
-        stateEl.innerHTML = buildSelectOptions(property.stato || 'da_contattare');
+        stateEl.innerHTML = buildSelectOptions(property.stato ?? '');
         colorEl.value = property.colore_marker || '#0d6efd';
         customStateEl.value = property.stato_personalizzato || '';
         noteEl.value = '';
@@ -1602,6 +1606,16 @@
         }
         if (event.target.id === 'refresh-map') {
             loadProperties().catch(error => alert(error.message));
+        }
+        if (event.target.id === 'btn-apply-filter') {
+            const checkboxes = document.querySelectorAll('.map-stato-filter:checked');
+            state.mapStatiFilter = Array.from(checkboxes).map(cb => cb.value);
+            renderMap();
+        }
+        if (event.target.id === 'btn-select-all-stati') {
+            const checkboxes = document.querySelectorAll('.map-stato-filter');
+            const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+            checkboxes.forEach(cb => { cb.checked = !allChecked; });
         }
         if (event.target.id === 'ade-zips-submit') {
             submitAdeUpload('ade-zips', 'ade-zips-submit', 'zip', '<i class="bi bi-cloud-upload me-1"></i>Importa', '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Caricamento...').catch(error => alert(error.message));

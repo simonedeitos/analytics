@@ -54,6 +54,49 @@ analyticspro_render_header('Mappa', ['app_assets' => true]);
         </div>
     </div>
 
+    <!-- Filtro stato mappa -->
+    <div id="map-filter-panel" class="card mb-2">
+        <div class="card-body py-2">
+            <div class="d-flex flex-wrap align-items-center gap-2">
+                <strong class="me-1">Filtro stato:</strong>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input map-stato-filter" type="checkbox" value="" id="filter-stato-null" checked>
+                    <label class="form-check-label" for="filter-stato-null">Non impostato</label>
+                </div>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input map-stato-filter" type="checkbox" value="non_interessato" id="filter-stato-non-interessato" checked>
+                    <label class="form-check-label" for="filter-stato-non-interessato">Non Interessato</label>
+                </div>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input map-stato-filter" type="checkbox" value="interessato" id="filter-stato-interessato" checked>
+                    <label class="form-check-label" for="filter-stato-interessato">Interessato</label>
+                </div>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input map-stato-filter" type="checkbox" value="contattato" id="filter-stato-contattato" checked>
+                    <label class="form-check-label" for="filter-stato-contattato">Contattato</label>
+                </div>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input map-stato-filter" type="checkbox" value="da_contattare" id="filter-stato-da-contattare" checked>
+                    <label class="form-check-label" for="filter-stato-da-contattare">Da Contattare</label>
+                </div>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input map-stato-filter" type="checkbox" value="in_vendita_noi" id="filter-stato-in-vendita-noi" checked>
+                    <label class="form-check-label" for="filter-stato-in-vendita-noi">In Vendita NOI</label>
+                </div>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input map-stato-filter" type="checkbox" value="in_vendita_altri" id="filter-stato-in-vendita-altri" checked>
+                    <label class="form-check-label" for="filter-stato-in-vendita-altri">In Vendita ALTRI</label>
+                </div>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input map-stato-filter" type="checkbox" value="altro" id="filter-stato-altro" checked>
+                    <label class="form-check-label" for="filter-stato-altro">Altro</label>
+                </div>
+                <button id="btn-select-all-stati" class="btn btn-sm btn-outline-secondary">Seleziona tutti</button>
+                <button id="btn-apply-filter" class="btn btn-sm btn-primary">Applica</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Full-page map container; height = viewport minus topbar minus header bar above -->
     <div id="map-fullpage"></div>
 </div>
