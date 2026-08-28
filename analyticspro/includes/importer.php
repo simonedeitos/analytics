@@ -789,7 +789,7 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
                     'rendita' => $property['rendita'] !== '' ? $property['rendita'] : null,
                     'titolarita' => $property['titolarita'] !== '' ? $property['titolarita'] : null,
                     'quota' => $property['quota'] !== '' ? $property['quota'] : null,
-                    'stato' => 'da_contattare',
+                    'stato' => null,
                     'stato_personalizzato' => null,
                     'colore_marker' => '#0d6efd',
                 ]);

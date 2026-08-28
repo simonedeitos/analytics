@@ -83,7 +83,7 @@ CREATE TABLE properties (
     lng DECIMAL(10,7) NULL,
     posizione_verificata TINYINT(1) NOT NULL DEFAULT 0,
     coord_source VARCHAR(20) NULL,
-    stato ENUM('non_interessato','interessato','contattato','da_contattare','in_vendita_noi','in_vendita_altri','altro') NOT NULL DEFAULT 'da_contattare',
+    stato ENUM('non_interessato','interessato','contattato','da_contattare','in_vendita_noi','in_vendita_altri','altro') DEFAULT NULL,
     stato_personalizzato VARCHAR(100) NULL,
     colore_marker VARCHAR(7) NOT NULL DEFAULT '#0d6efd',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
