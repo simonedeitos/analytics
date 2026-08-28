@@ -39,8 +39,7 @@ analyticspro_render_header('Report in griglia', ['app_assets' => true]);
 
     <div class="card border-0 shadow-sm">
         <div class="card-body">
-            <p class="text-muted small">Vista generale di tutti gli immobili del tenant con filtri compatti orizzontali.</p>
-            <div id="report-table-filters" class="row g-2 mb-3"></div>
+            <p class="text-muted small">Vista generale di tutti gli immobili del tenant con filtri su ogni colonna, incluso colore e stato.</p>
             <table id="report-table" class="table table-striped table-hover w-100">
                 <thead></thead>
                 <tfoot></tfoot>

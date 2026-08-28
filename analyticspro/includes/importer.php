@@ -293,16 +293,9 @@ function analyticspro_enrichment_report_default(): array
  */
 function analyticspro_enrichment_report_load(PDO $pdo, int $batchId): array
 {
-    try {
-        $stmt = $pdo->prepare('SELECT enrichment_report FROM import_batches WHERE id = :id');
-        $stmt->execute(['id' => $batchId]);
-        $raw = $stmt->fetchColumn();
-    } catch (Throwable $exception) {
-        if ($exception instanceof PDOException && (string) $exception->getCode() === '42S22') {
-            return analyticspro_enrichment_report_default();
-        }
-        throw $exception;
-    }
+    $stmt = $pdo->prepare('SELECT enrichment_report FROM import_batches WHERE id = :id');
+    $stmt->execute(['id' => $batchId]);
+    $raw = $stmt->fetchColumn();
     if (!is_string($raw) || trim($raw) === '') {
         return analyticspro_enrichment_report_default();
     }
@@ -315,18 +308,11 @@ function analyticspro_enrichment_report_load(PDO $pdo, int $batchId): array
 
 function analyticspro_enrichment_report_save(PDO $pdo, int $batchId, array $report): void
 {
-    try {
-        $pdo->prepare('UPDATE import_batches SET enrichment_report = :report WHERE id = :id')
-            ->execute([
-                'report' => json_encode($report, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-                'id' => $batchId,
-            ]);
-    } catch (Throwable $exception) {
-        if ($exception instanceof PDOException && (string) $exception->getCode() === '42S22') {
-            return;
-        }
-        throw $exception;
-    }
+    $pdo->prepare('UPDATE import_batches SET enrichment_report = :report WHERE id = :id')
+        ->execute([
+            'report' => json_encode($report, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'id' => $batchId,
+        ]);
 }
 
 function analyticspro_enrichment_report_add_success(array &$report, string $coordSource): void
@@ -906,9 +892,9 @@ function analyticspro_enrich_batch_coordinates(int $batchId): void
  *  3. Risolve le coordinate e aggiorna properties.
  *  4. Se non rimangono più particelle da risolvere, chiude con 'completed'.
  *
- * @return array{processed:int,total:int,done:bool,status:string,enrichment_report?:array}
+ * @return array{processed:int,total:int,done:bool,status:string}
  */
-function analyticspro_enrich_batch_coordinates_chunk(int $batchId, int $limit = 25, ?int $scopeBatchId = null): array
+function analyticspro_enrich_batch_coordinates_chunk(int $batchId, int $limit = 25): array
 {
     require_once __DIR__ . '/wfs_lookup.php';
     require_once __DIR__ . '/zornade_lookup.php';
@@ -916,51 +902,28 @@ function analyticspro_enrich_batch_coordinates_chunk(int $batchId, int $limit = 
 
     $pdo = analyticspro_db();
 
-    $scopedBatchId = $scopeBatchId !== null && $scopeBatchId > 0 ? $scopeBatchId : $batchId;
-    $globalMode = ($scopedBatchId === 0);
+    $globalMode = ($batchId === 0);
 
     if (!$globalMode) {
         // Transizione atomica pending → processing + aggiornamento total
-        try {
-            $initStmt = $pdo->prepare(
-                "UPDATE import_batches
-                 SET enrichment_status = 'processing',
-                     enrichment_total  = (
-                         SELECT COUNT(*) FROM (
-                             SELECT 1 FROM properties
-                             WHERE import_batch_id = :bid2 AND lat IS NULL
-                             GROUP BY cod_catastale, foglio, particella
-                         ) _t
-                     ),
-                     enrichment_report = :report
-                 WHERE id = :bid AND enrichment_status = 'pending'"
-            );
-            $initStmt->execute([
-                'bid' => $scopedBatchId,
-                'bid2' => $scopedBatchId,
-                'report' => json_encode(analyticspro_enrichment_report_default(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-            ]);
-        } catch (Throwable $exception) {
-            if (!($exception instanceof PDOException) || (string) $exception->getCode() !== '42S22') {
-                throw $exception;
-            }
-            $initStmt = $pdo->prepare(
-                "UPDATE import_batches
-                 SET enrichment_status = 'processing',
-                     enrichment_total  = (
-                         SELECT COUNT(*) FROM (
-                             SELECT 1 FROM properties
-                             WHERE import_batch_id = :bid2 AND lat IS NULL
-                             GROUP BY cod_catastale, foglio, particella
-                         ) _t
-                     )
-                 WHERE id = :bid AND enrichment_status = 'pending'"
-            );
-            $initStmt->execute([
-                'bid' => $scopedBatchId,
-                'bid2' => $scopedBatchId,
-            ]);
-        }
+        $initStmt = $pdo->prepare(
+            "UPDATE import_batches
+             SET enrichment_status = 'processing',
+                 enrichment_total  = (
+                     SELECT COUNT(*) FROM (
+                         SELECT 1 FROM properties
+                         WHERE import_batch_id = :bid2 AND lat IS NULL
+                         GROUP BY cod_catastale, foglio, particella
+                     ) _t
+                 ),
+                 enrichment_report = :report
+             WHERE id = :bid AND enrichment_status = 'pending'"
+        );
+        $initStmt->execute([
+            'bid' => $batchId,
+            'bid2' => $batchId,
+            'report' => json_encode(analyticspro_enrichment_report_default(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        ]);
     }
 
     // Legge il chunk di particelle non ancora risolte
@@ -980,7 +943,7 @@ function analyticspro_enrich_batch_coordinates_chunk(int $batchId, int $limit = 
              GROUP BY provincia, comune, cod_catastale, sezione, foglio, particella
              LIMIT :lim'
         );
-        $selectStmt->bindValue(':batch_id', $scopedBatchId, PDO::PARAM_INT);
+        $selectStmt->bindValue(':batch_id', $batchId, PDO::PARAM_INT);
         $selectStmt->bindValue(':lim',      $limit,   PDO::PARAM_INT);
     }
     $selectStmt->execute();
@@ -993,8 +956,8 @@ function analyticspro_enrich_batch_coordinates_chunk(int $batchId, int $limit = 
         // Nessuna particella rimasta → enrichment completato
         $pdo->prepare(
             "UPDATE import_batches SET enrichment_status = 'completed' WHERE id = :id AND enrichment_status != 'failed'"
-        )->execute(['id' => $scopedBatchId]);
-        $row = analyticspro_enrich_fetch_batch_state($pdo, $scopedBatchId);
+        )->execute(['id' => $batchId]);
+        $row = analyticspro_enrich_fetch_batch_state($pdo, $batchId);
         return [
             'processed' => $row['processed'],
             'total' => $row['total'],
@@ -1029,7 +992,7 @@ function analyticspro_enrich_batch_coordinates_chunk(int $batchId, int $limit = 
     $lastWfsCallAt     = 0.0;
     $lastZornadeCallAt = 0.0;
     $chunkProcessed    = 0;
-    $report            = !$globalMode ? analyticspro_enrichment_report_load($pdo, $scopedBatchId) : analyticspro_enrichment_report_default();
+    $report            = !$globalMode ? analyticspro_enrichment_report_load($pdo, $batchId) : analyticspro_enrichment_report_default();
 
     foreach ($parcels as $parcel) {
         $provincia = (string) ($parcel['provincia'] ?? '');
@@ -1051,7 +1014,7 @@ function analyticspro_enrich_batch_coordinates_chunk(int $batchId, int $limit = 
                     'particella' => $parcel['particella'],
                 ];
                 if (!$globalMode) {
-                    $params['batch_id'] = $scopedBatchId;
+                    $params['batch_id'] = $batchId;
                 }
                 try {
                     $updateStmt->execute($params);
@@ -1107,39 +1070,27 @@ function analyticspro_enrich_batch_coordinates_chunk(int $batchId, int $limit = 
     }
 
     // Aggiorna il contatore processed incrementalmente
-    try {
-        $pdo->prepare(
-            'UPDATE import_batches SET enrichment_processed = enrichment_processed + :delta, enrichment_report = :report WHERE id = :id'
-        )->execute([
-            'delta' => $chunkProcessed,
-            'report' => json_encode($report, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-            'id' => $scopedBatchId,
-        ]);
-    } catch (Throwable $exception) {
-        if (!($exception instanceof PDOException) || (string) $exception->getCode() !== '42S22') {
-            throw $exception;
-        }
-        $pdo->prepare(
-            'UPDATE import_batches SET enrichment_processed = enrichment_processed + :delta WHERE id = :id'
-        )->execute([
-            'delta' => $chunkProcessed,
-            'id' => $scopedBatchId,
-        ]);
-    }
+    $pdo->prepare(
+        'UPDATE import_batches SET enrichment_processed = enrichment_processed + :delta, enrichment_report = :report WHERE id = :id'
+    )->execute([
+        'delta' => $chunkProcessed,
+        'report' => json_encode($report, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        'id' => $batchId,
+    ]);
 
     // Controlla se rimangono particelle
     $remainStmt = $pdo->prepare('SELECT COUNT(*) FROM properties WHERE import_batch_id = :bid AND lat IS NULL');
-    $remainStmt->execute(['bid' => $scopedBatchId]);
+    $remainStmt->execute(['bid' => $batchId]);
     $remaining = (int) $remainStmt->fetchColumn();
     $done = ($remaining === 0);
 
     if ($done) {
         $pdo->prepare(
             "UPDATE import_batches SET enrichment_status = 'completed' WHERE id = :id AND enrichment_status != 'failed'"
-        )->execute(['id' => $scopedBatchId]);
+        )->execute(['id' => $batchId]);
     }
 
-    $row = analyticspro_enrich_fetch_batch_state($pdo, $scopedBatchId);
+    $row = analyticspro_enrich_fetch_batch_state($pdo, $batchId);
     return [
         'processed' => $row['processed'],
         'total' => $row['total'],
@@ -1156,19 +1107,9 @@ function analyticspro_enrich_batch_coordinates_chunk(int $batchId, int $limit = 
  */
 function analyticspro_enrich_fetch_batch_state(\PDO $pdo, int $batchId): array
 {
-    try {
-        $stmt = $pdo->prepare('SELECT enrichment_processed, enrichment_total, enrichment_report FROM import_batches WHERE id = :id');
-        $stmt->execute(['id' => $batchId]);
-        $row = $stmt->fetch() ?: [];
-    } catch (Throwable $exception) {
-        if ($exception instanceof PDOException && (string) $exception->getCode() === '42S22') {
-            $fallbackStmt = $pdo->prepare('SELECT enrichment_processed, enrichment_total FROM import_batches WHERE id = :id');
-            $fallbackStmt->execute(['id' => $batchId]);
-            $row = $fallbackStmt->fetch() ?: [];
-        } else {
-            throw $exception;
-        }
-    }
+    $stmt = $pdo->prepare('SELECT enrichment_processed, enrichment_total, enrichment_report FROM import_batches WHERE id = :id');
+    $stmt->execute(['id' => $batchId]);
+    $row = $stmt->fetch() ?: [];
     $report = analyticspro_enrichment_report_default();
     if (is_string($row['enrichment_report'] ?? null) && trim((string) $row['enrichment_report']) !== '') {
         $decoded = json_decode((string) $row['enrichment_report'], true);
