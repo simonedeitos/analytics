@@ -18,6 +18,7 @@
         propertyUpdateEndpoint: root.dataset.propertyUpdateEndpoint || '',
         importEndpoint: root.dataset.importEndpoint || '',
         importProgressEndpoint: root.dataset.importProgressEndpoint || '',
+        enrichChunkEndpoint: root.dataset.enrichChunkEndpoint || '',
         adeJobsEndpoint: root.dataset.adeJobsEndpoint || '',
         adeManualFilesEndpoint: root.dataset.adeManualFilesEndpoint || '',
         properties: [],
@@ -466,11 +467,16 @@
         state.overlay?.hide();
         await loadProperties();
         const savedRows = processPayload.saved_rows ?? processPayload.total_rows ?? rows.length;
-        alert(`Import completato: ${savedRows} righe salvate. Geolocalizzazione dei marker in corso in background.`);
-        // Phase 2 (coordinate enrichment) runs in the background; poll enrichment status
-        // so the user can see real progress, and reload the map silently when done.
+        alert(`Import completato: ${savedRows} righe salvate. Geolocalizzazione dei marker in corso.`);
+        // Phase 2 (coordinate enrichment): if the background worker was launched
+        // successfully, poll its status. If not (enrichment_sync = true), drive the
+        // enrichment directly via repeated chunk calls so the spinner always terminates.
         if (processPayload.batch_id) {
-            pollEnrichment(processPayload.batch_id).catch(() => {});
+            if (processPayload.enrichment_sync) {
+                enrichChunkLoop(processPayload.batch_id).catch(() => {});
+            } else {
+                pollEnrichment(processPayload.batch_id).catch(() => {});
+            }
         }
     }
 
@@ -498,6 +504,8 @@
 
         const maxIterations = 240; // ~10 minutes at 2.5 s per poll
         let   iterations    = 0;
+        let   lastProcessed = -1;
+        let   stalledSince  = 0; // polls with no progress change
 
         while (iterations < maxIterations) {
             iterations++;
@@ -521,20 +529,33 @@
             if (status === 'completed') {
                 if (text) text.textContent = `Geolocalizzazione completata: ${processed}/${total} marker.`;
                 if (bar)  bar.style.width  = '100%';
-                // Silently refresh the map so newly geocoded markers appear.
                 try { await loadProperties(); } catch { /* ignore */ }
-                // Hide status bar after a brief delay.
                 if (container) setTimeout(() => { container.style.display = 'none'; }, 4000);
                 return;
             }
 
             if (status === 'failed') {
                 if (text) {
-                    text.textContent = 'Geolocalizzazione non riuscita. Verifica la configurazione di Zornade/WFS nel file .env.';
+                    text.textContent = 'Geolocalizzazione non riuscita. Verifica la configurazione GML / Zornade / WFS nel file .env, oppure usa "Rigenera coordinate mancanti" per riprovare.';
                     text.classList.add('text-danger');
                 }
                 if (bar) bar.classList.replace('bg-primary', 'bg-danger');
                 return;
+            }
+
+            // Watchdog anti-stallo: se dopo 6 poll lo stato è ancora 'pending' e
+            // non c'è nessun progresso, il worker in background non si è avviato.
+            // Passiamo automaticamente alla modalità chunk sincrona.
+            if (status === 'pending' && processed === 0) {
+                stalledSince++;
+                if (stalledSince >= 6 && state.enrichChunkEndpoint) {
+                    if (text) text.textContent = 'Worker background non disponibile — geolocalizzazione sincrona in corso...';
+                    enrichChunkLoop(batchId).catch(() => {});
+                    return; // lascia enrichChunkLoop guidare la UI
+                }
+            } else if (processed !== lastProcessed) {
+                stalledSince  = 0;
+                lastProcessed = processed;
             }
 
             // Still processing — poll again after 2.5 s.
@@ -542,9 +563,64 @@
         }
 
         // Max iterations reached — stop polling to avoid infinite background requests.
-        if (text) text.textContent = 'Timeout polling geolocalizzazione. Ricarica la pagina per aggiornare i marker.';
+        if (text) text.textContent = 'Timeout polling geolocalizzazione. Usa "Rigenera coordinate mancanti" per riprovare i marker non risolti.';
     }
 
+    /**
+     * Modalità sincrona: chiama ripetutamente enrich_chunk fino al completamento.
+     * Usata quando il worker in background non è disponibile.
+     */
+    async function enrichChunkLoop(batchId) {
+        const container = document.getElementById('enrichment-status-container');
+        const bar       = document.getElementById('enrichment-progress-bar');
+        const text      = document.getElementById('enrichment-progress-text');
+        if (container) container.style.display = '';
+
+        const maxChunks = 500; // sicurezza — max 500 * 25 = 12 500 particelle
+        let   calls     = 0;
+
+        if (text) text.textContent = 'Geolocalizzazione sincrona in corso...';
+
+        while (calls < maxChunks) {
+            calls++;
+            let result;
+            try {
+                result = await api(`${state.enrichChunkEndpoint}?batch_id=${batchId}&limit=25`);
+            } catch {
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                continue;
+            }
+
+            const processed = result.processed ?? 0;
+            const total     = result.total     ?? 0;
+            const pct       = total > 0 ? Math.round((processed / total) * 100) : (result.done ? 100 : 0);
+
+            if (bar)  bar.style.width  = `${pct}%`;
+            if (text) text.textContent = `Geolocalizzazione: ${processed}/${total} marker (${pct}%)`;
+
+            if (result.done || result.status === 'completed') {
+                if (text) text.textContent = `Geolocalizzazione completata: ${processed}/${total} marker.`;
+                if (bar)  bar.style.width  = '100%';
+                try { await loadProperties(); } catch { /* ignore */ }
+                if (container) setTimeout(() => { container.style.display = 'none'; }, 4000);
+                return;
+            }
+
+            if (result.status === 'failed') {
+                if (text) {
+                    text.textContent = 'Geolocalizzazione non riuscita. Verifica la configurazione GML / Zornade / WFS nel file .env.';
+                    text.classList.add('text-danger');
+                }
+                if (bar) bar.classList.replace('bg-primary', 'bg-danger');
+                return;
+            }
+
+            // Breve pausa tra chunk per non saturare il server
+            await new Promise(resolve => setTimeout(resolve, 200));
+        }
+
+        if (text) text.textContent = 'Geolocalizzazione parziale: limite chiamate raggiunto. Usa "Rigenera coordinate mancanti" per continuare.';
+    }
     // ---- ADE log modal ----
     const adeLogModal = (() => {
         const modalEl = document.getElementById('ade-log-modal');
@@ -1011,4 +1087,28 @@
         });
         const adePollingInterval = setInterval(() => refreshAdeJobs().catch(() => clearInterval(adePollingInterval)), 5000);
     }
+
+    // ----- "Rigenera coordinate mancanti" button (importa.php) -----
+    (function () {
+        const btn = document.getElementById('rigenera-coordinate-btn');
+        if (!btn || !state.enrichChunkEndpoint) return;
+        btn.addEventListener('click', async () => {
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>In corso...';
+            const container = document.getElementById('enrichment-status-container');
+            const bar       = document.getElementById('enrichment-progress-bar');
+            const text      = document.getElementById('enrichment-progress-text');
+            if (container) {
+                container.style.display = '';
+                if (bar) { bar.style.width = '0%'; bar.className = 'progress-bar bg-primary progress-bar-striped progress-bar-animated'; }
+                if (text) { text.textContent = 'Rigenera coordinate in corso...'; text.className = 'small mb-0'; }
+            }
+            // Usa batch_id=0: il server elaborerà tutte le particelle con lat IS NULL
+            try {
+                await enrichChunkLoop(0);
+            } catch { /* ignore */ }
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-geo-alt me-1"></i>Rigenera coordinate mancanti';
+        });
+    })();
 })();

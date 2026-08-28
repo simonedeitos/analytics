@@ -465,6 +465,13 @@ function analyticspro_enrich_batch_coordinates(int $batchId): void
 
     $pdo = analyticspro_db();
 
+    // Defaults for the finally block.
+    $enrichmentStatus = 'failed';
+    $processed        = 0;
+    $errors           = 0;
+    $errorMessage     = null;
+
+    try {
     if ($batchId > 0) {
         $pdo->prepare("UPDATE import_batches SET enrichment_status = 'processing' WHERE id = :id")
             ->execute(['id' => $batchId]);
@@ -701,11 +708,316 @@ function analyticspro_enrich_batch_coordinates(int $batchId): void
         $updateBatchProgress?->execute(['processed' => $processed, 'id' => $batchId]);
     }
 
-    if ($batchId > 0) {
-        $enrichmentStatus = ($total > 0 && $errors === $total) ? 'failed' : 'completed';
-        $pdo->prepare(
-            "UPDATE import_batches SET enrichment_status = :status, enrichment_processed = :processed WHERE id = :id"
-        )->execute(['status' => $enrichmentStatus, 'processed' => $processed, 'id' => $batchId]);
+    $enrichmentStatus = ($total > 0 && $errors === $total) ? 'failed' : 'completed';
+
+    } catch (Throwable $outerEx) {
+        $enrichmentStatus = 'failed';
+        $errorMessage     = $outerEx->getMessage();
+        error_log('[enrich_batch_coordinates] Errore fatale batch #' . $batchId . ': ' . $outerEx->getMessage());
+    } finally {
+        if ($batchId > 0) {
+            try {
+                $pdo->prepare(
+                    "UPDATE import_batches SET enrichment_status = :status, enrichment_processed = :processed WHERE id = :id"
+                )->execute(['status' => $enrichmentStatus, 'processed' => $processed, 'id' => $batchId]);
+            } catch (Throwable) {
+                // Se il DB è irraggiungibile non possiamo aggiornare lo stato.
+            }
+        }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Chunked enrichment (fallback sincrono quando il worker in background
+// non è disponibile, es. hosting con proc_open/shell_exec disabilitati)
+// ---------------------------------------------------------------------------
+
+/**
+ * Elabora al più $limit particelle non ancora geolocalizzate per il batch.
+ *
+ * Ogni chiamata:
+ *  1. Transisce atomicamente lo stato da 'pending' a 'processing' (se non già fatto).
+ *  2. Carica un chunk di particelle con lat IS NULL.
+ *  3. Risolve le coordinate e aggiorna properties.
+ *  4. Se non rimangono più particelle da risolvere, chiude con 'completed'.
+ *
+ * @return array{processed:int,total:int,done:bool,status:string}
+ */
+function analyticspro_enrich_batch_coordinates_chunk(int $batchId, int $limit = 25): array
+{
+    require_once __DIR__ . '/wfs_lookup.php';
+    require_once __DIR__ . '/zornade_lookup.php';
+    require_once __DIR__ . '/gml_catalog.php';
+
+    $pdo = analyticspro_db();
+
+    $globalMode = ($batchId === 0);
+
+    if (!$globalMode) {
+        // Transizione atomica pending → processing + aggiornamento total
+        $initStmt = $pdo->prepare(
+            "UPDATE import_batches
+             SET enrichment_status = 'processing',
+                 enrichment_total  = (
+                     SELECT COUNT(*) FROM (
+                         SELECT 1 FROM properties
+                         WHERE import_batch_id = :bid2 AND lat IS NULL
+                         GROUP BY cod_catastale, foglio, particella
+                     ) _t
+                 )
+             WHERE id = :bid AND enrichment_status = 'pending'"
+        );
+        $initStmt->execute(['bid' => $batchId, 'bid2' => $batchId]);
+    }
+
+    // Legge il chunk di particelle non ancora risolte
+    if ($globalMode) {
+        $selectStmt = $pdo->prepare(
+            'SELECT provincia, comune, cod_catastale, sezione, foglio, particella
+             FROM properties WHERE lat IS NULL
+             GROUP BY provincia, comune, cod_catastale, sezione, foglio, particella
+             LIMIT :lim'
+        );
+        $selectStmt->bindValue(':lim', $limit, PDO::PARAM_INT);
+    } else {
+        $selectStmt = $pdo->prepare(
+            'SELECT provincia, comune, cod_catastale, sezione, foglio, particella
+             FROM properties
+             WHERE import_batch_id = :batch_id AND lat IS NULL
+             GROUP BY provincia, comune, cod_catastale, sezione, foglio, particella
+             LIMIT :lim'
+        );
+        $selectStmt->bindValue(':batch_id', $batchId, PDO::PARAM_INT);
+        $selectStmt->bindValue(':lim',      $limit,   PDO::PARAM_INT);
+    }
+    $selectStmt->execute();
+    $parcels = $selectStmt->fetchAll();
+
+    if (empty($parcels)) {
+        if ($globalMode) {
+            return ['processed' => 0, 'total' => 0, 'done' => true, 'status' => 'completed'];
+        }
+        // Nessuna particella rimasta → enrichment completato
+        $pdo->prepare(
+            "UPDATE import_batches SET enrichment_status = 'completed' WHERE id = :id AND enrichment_status != 'failed'"
+        )->execute(['id' => $batchId]);
+        $row = analyticspro_enrich_fetch_batch_state($pdo, $batchId);
+        return ['processed' => $row['processed'], 'total' => $row['total'], 'done' => true, 'status' => 'completed'];
+    }
+
+    // UPDATE statement varies by mode
+    if ($globalMode) {
+        $updateStmt = $pdo->prepare(
+            'UPDATE properties
+             SET lat = :lat, lng = :lng, posizione_verificata = :verified, coord_source = :coord_source
+             WHERE provincia = :provincia AND comune = :comune
+               AND (sezione <=> :sezione)
+               AND foglio = :foglio AND particella = :particella
+               AND lat IS NULL'
+        );
+    } else {
+        $updateStmt = $pdo->prepare(
+        'UPDATE properties
+         SET lat = :lat, lng = :lng, posizione_verificata = :verified, coord_source = :coord_source
+         WHERE import_batch_id = :batch_id
+           AND provincia = :provincia AND comune = :comune
+           AND (sezione <=> :sezione)
+           AND foglio = :foglio AND particella = :particella
+           AND lat IS NULL'
+    );
+    }
+
+    $lastWfsCallAt     = 0.0;
+    $lastZornadeCallAt = 0.0;
+    $chunkProcessed    = 0;
+
+    foreach ($parcels as $parcel) {
+        $provincia  = (string) ($parcel['provincia']     ?? '');
+        $comune     = (string) ($parcel['comune']        ?? '');
+        $codCat     = (string) ($parcel['cod_catastale'] ?? '');
+        $sezione    = $parcel['sezione'] !== null ? (string) $parcel['sezione'] : null;
+        $foglio     = analyticspro_wfs_normalize_token((string) ($parcel['foglio']     ?? ''));
+        $particella = analyticspro_wfs_normalize_token((string) ($parcel['particella'] ?? ''));
+
+        if ($codCat === '' && $comune !== '' && $provincia !== '') {
+            $codCat = analyticspro_wfs_lookup_cod_catastale($comune, $provincia) ?? '';
+        }
+
+        if ($codCat === '' || $foglio === '' || $particella === '') {
+            $chunkProcessed++;
+            continue;
+        }
+
+        try {
+            $lat      = null;
+            $lng      = null;
+            $verified = 0;
+            $coordSrc = null;
+
+            // Priority 1: GML locale
+            if ($codCat !== '') {
+                $gmlResult = analyticspro_gml_lookup($codCat, $foglio, $particella);
+                if ($gmlResult !== null) {
+                    $lat      = $gmlResult['lat'];
+                    $lng      = $gmlResult['lon'];
+                    $verified = 1;
+                    $coordSrc = 'gml_locale';
+                }
+            }
+
+            // Priority 2: Cache SQLite
+            if ($coordSrc === null) {
+                $db     = null;
+                $cached = null;
+                try {
+                    $db     = analyticspro_wfs_open_cache_db();
+                    $cached = analyticspro_wfs_get_cached_particella($db, $codCat, $foglio, $particella);
+                    if ($cached !== null) { $db->close(); $db = null; }
+                } catch (Throwable) { $db = null; }
+
+                if ($cached !== null && ($cached['ok'] ?? false)) {
+                    $lat      = (float) $cached['lat'];
+                    $lng      = (float) $cached['lng'];
+                    $verified = 1;
+                    $coordSrc = 'cache';
+                } else {
+                    $resolvedData = null;
+
+                    // Priority 3: Zornade
+                    if ($comune !== '' && $provincia !== '') {
+                        $now = microtime(true);
+                        if ($lastZornadeCallAt > 0.0 && ($now - $lastZornadeCallAt) < 0.40) {
+                            usleep((int) ((0.40 - ($now - $lastZornadeCallAt)) * 1_000_000));
+                        }
+                        $zornade = analyticspro_zornade_lookup_particella($comune, $provincia, $foglio, $particella);
+                        $lastZornadeCallAt = microtime(true);
+                        if ($zornade !== null && ($zornade['ok'] ?? false)) {
+                            $resolvedData = $zornade;
+                        }
+                    }
+
+                    // Priority 4: WFS-AdE
+                    if ($resolvedData === null && $codCat !== '') {
+                        $now = microtime(true);
+                        if ($lastWfsCallAt > 0.0 && ($now - $lastWfsCallAt) < 0.5) {
+                            usleep((int) ((0.5 - ($now - $lastWfsCallAt)) * 1_000_000));
+                        }
+                        $wfsData       = analyticspro_wfs_query_service($codCat, $foglio, $particella);
+                        $lastWfsCallAt = microtime(true);
+                        if ($wfsData !== null && ($wfsData['ok'] ?? false)) {
+                            $resolvedData = $wfsData;
+                        }
+                    }
+
+                    if ($resolvedData !== null && ($resolvedData['ok'] ?? false) && $db !== null) {
+                        $source = $resolvedData['source'] ?? 'WFS-AdE';
+                        if ($source === 'Zornade' && $comune !== '' && $provincia !== '') {
+                            analyticspro_zornade_save_cached_particella($db, $comune, $provincia, $foglio, $particella, $resolvedData);
+                        } elseif ($codCat !== '') {
+                            analyticspro_wfs_save_cached_particella($db, $codCat, $foglio, $particella, $resolvedData);
+                        }
+                    }
+                    if ($db !== null) { $db->close(); }
+
+                    if ($resolvedData !== null && ($resolvedData['ok'] ?? false)) {
+                        $lat      = (float) $resolvedData['lat'];
+                        $lng      = (float) $resolvedData['lng'];
+                        $verified = 1;
+                        $source   = $resolvedData['source'] ?? 'WFS-AdE';
+                        $coordSrc = $source === 'Zornade' ? 'zornade' : 'wfs';
+                    }
+                }
+            }
+
+            if ($lat !== null && $lng !== null) {
+                $params = [
+                    'lat'          => $lat,
+                    'lng'          => $lng,
+                    'verified'     => $verified,
+                    'coord_source' => $coordSrc,
+                    'provincia'    => $provincia,
+                    'comune'       => $comune,
+                    'sezione'      => $sezione,
+                    'foglio'       => $parcel['foglio'],
+                    'particella'   => $parcel['particella'],
+                ];
+                if (!$globalMode) {
+                    $params['batch_id'] = $batchId;
+                }
+                try {
+                    $updateStmt->execute($params);
+                } catch (Throwable $dbEx) {
+                    $sqlState = $dbEx instanceof \PDOException ? $dbEx->getCode() : '';
+                    if ($sqlState === '42S22' || str_contains($dbEx->getMessage(), 'coord_source')) {
+                        $fallbackParams = array_diff_key($params, ['coord_source' => true]);
+                        if ($globalMode) {
+                            $pdo->prepare(
+                                'UPDATE properties SET lat = :lat, lng = :lng, posizione_verificata = :verified
+                                 WHERE provincia = :provincia AND comune = :comune
+                                   AND (sezione <=> :sezione) AND foglio = :foglio AND particella = :particella
+                                   AND lat IS NULL'
+                            )->execute($fallbackParams);
+                        } else {
+                            $pdo->prepare(
+                                'UPDATE properties SET lat = :lat, lng = :lng, posizione_verificata = :verified
+                                 WHERE import_batch_id = :batch_id AND provincia = :provincia AND comune = :comune
+                                   AND (sezione <=> :sezione) AND foglio = :foglio AND particella = :particella
+                                   AND lat IS NULL'
+                            )->execute($fallbackParams);
+                        }
+                    } else {
+                        throw $dbEx;
+                    }
+                }
+            }
+        } catch (Throwable $exception) {
+            error_log('[enrich_chunk] Errore per ' . $codCat . '/' . $foglio . '/' . $particella . ': ' . $exception->getMessage());
+        }
+
+        $chunkProcessed++;
+    }
+
+    if ($globalMode) {
+        // Modalità globale: nessun batch da aggiornare; controlla solo se rimangono righe
+        $remaining = (int) $pdo->query('SELECT COUNT(*) FROM properties WHERE lat IS NULL')->fetchColumn();
+        $done = ($remaining === 0);
+        return ['processed' => $chunkProcessed, 'total' => $remaining + $chunkProcessed, 'done' => $done, 'status' => $done ? 'completed' : 'processing'];
+    }
+
+    // Aggiorna il contatore processed incrementalmente
+    $pdo->prepare(
+        'UPDATE import_batches SET enrichment_processed = enrichment_processed + :delta WHERE id = :id'
+    )->execute(['delta' => $chunkProcessed, 'id' => $batchId]);
+
+    // Controlla se rimangono particelle
+    $remainStmt = $pdo->prepare('SELECT COUNT(*) FROM properties WHERE import_batch_id = :bid AND lat IS NULL');
+    $remainStmt->execute(['bid' => $batchId]);
+    $remaining = (int) $remainStmt->fetchColumn();
+    $done = ($remaining === 0);
+
+    if ($done) {
+        $pdo->prepare(
+            "UPDATE import_batches SET enrichment_status = 'completed' WHERE id = :id AND enrichment_status != 'failed'"
+        )->execute(['id' => $batchId]);
+    }
+
+    $row = analyticspro_enrich_fetch_batch_state($pdo, $batchId);
+    return ['processed' => $row['processed'], 'total' => $row['total'], 'done' => $done, 'status' => $done ? 'completed' : 'processing'];
+}
+
+/**
+ * Legge lo stato di avanzamento enrichment dal DB.
+ *
+ * @return array{processed:int,total:int}
+ */
+function analyticspro_enrich_fetch_batch_state(\PDO $pdo, int $batchId): array
+{
+    $stmt = $pdo->prepare('SELECT enrichment_processed, enrichment_total FROM import_batches WHERE id = :id');
+    $stmt->execute(['id' => $batchId]);
+    $row = $stmt->fetch() ?: [];
+    return [
+        'processed' => (int) ($row['enrichment_processed'] ?? 0),
+        'total'     => (int) ($row['enrichment_total']     ?? 0),
+    ];
 }
 

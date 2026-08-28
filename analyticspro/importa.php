@@ -35,7 +35,8 @@ analyticspro_render_header('Importa dati', ['app_assets' => true]);
      data-properties-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/properties.php')) ?>"
      data-property-update-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/update_property.php')) ?>"
      data-import-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/import.php')) ?>"
-     data-import-progress-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/import_progress.php')) ?>">
+     data-import-progress-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/import_progress.php')) ?>"
+     data-enrich-chunk-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/enrich_chunk.php')) ?>">
 
     <h1 class="h3 mb-4">Importa dati</h1>
 
@@ -56,6 +57,18 @@ analyticspro_render_header('Importa dati', ['app_assets' => true]);
                 </div>
             </div>
             <div class="form-text">In caso di duplicato catastale con intestatario diverso verrà chiesta conferma prima dell'aggiornamento.</div>
+        </div>
+    </div>
+
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-body d-flex align-items-center justify-content-between flex-wrap gap-2">
+            <div>
+                <h2 class="h5 mb-1">Coordinate mancanti</h2>
+                <p class="text-muted small mb-0">Rilancia la geolocalizzazione per tutti gli immobili con coordinate non ancora risolte (lat / lng = NULL).</p>
+            </div>
+            <button id="rigenera-coordinate-btn" class="btn btn-outline-secondary">
+                <i class="bi bi-geo-alt me-1"></i>Rigenera coordinate mancanti
+            </button>
         </div>
     </div>
 </div>

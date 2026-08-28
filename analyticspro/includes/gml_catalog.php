@@ -386,6 +386,14 @@ function analyticspro_gml_parcel_index_valid(string $belfiore): bool
 /**
  * Ricerca le coordinate di una particella catastale nel repository GML locale.
  *
+ * Strategia:
+ *   1. Indice SQLite (O(1)) con foglio esatto + particella esatta/normalizzata.
+ *   2. Fallback foglio: se il cod_foglio esatto non è presente nell'indice,
+ *      cerca righe con i primi 4 caratteri del foglio coincidenti (gestisce
+ *      varianti allegato/sviluppo, es. "0033A0" quando si cerca "003300").
+ *   3. Se l'indice non è valido ma esiste il file _ple.gml (e ha dimensione
+ *      ragionevole), ricerca diretta in streaming con early-exit.
+ *
  * @return array{lat:float,lon:float,area_mq:float,ref:string,local_id:string,cod_foglio:string}|null
  */
 function analyticspro_gml_lookup(
@@ -397,56 +405,216 @@ function analyticspro_gml_lookup(
 ): ?array {
     $belfiore  = strtoupper($belfiore);
     $codFoglio = analyticspro_gml_codice_foglio($foglio, $allegato, $sviluppo);
+    $normPart  = analyticspro_gml_norm_particella($particella);
 
-    // Se l'indice non è pronto, non lo costruiamo qui: restituiamo null
-    // lasciando proseguire la catena di fallback, e logghiamo un warning una tantum.
-    if (!analyticspro_gml_parcel_index_valid($belfiore)) {
-        error_log('[gml_catalog] Indice particelle non disponibile per ' . $belfiore
-            . '. Indicizzare il comune dalla pagina Admin → Import GML.');
+    // ------------------------------------------------------------------
+    // Strategia 1 & 2: indice SQLite
+    // Se l'indice è valido ma non contiene la particella, restituiamo null
+    // senza eseguire la ricerca streaming (che è riservata ai comuni non indicizzati).
+    // ------------------------------------------------------------------
+    $indexValid = analyticspro_gml_parcel_index_valid($belfiore);
+    if ($indexValid) {
+        $dbPath = analyticspro_gml_index_dir() . '/' . $belfiore . '.sqlite';
+        if (is_file($dbPath)) {
+            return analyticspro_gml_lookup_in_index($dbPath, $codFoglio, $particella, $normPart);
+        }
         return null;
     }
 
-    $dbPath = analyticspro_gml_index_dir() . '/' . $belfiore . '.sqlite';
-    if (!is_file($dbPath)) {
-        return null;
-    }
+    error_log('[gml_catalog] Indice particelle non disponibile per ' . $belfiore
+        . '. Indicizzare il comune dalla pagina Admin → Import GML.');
 
+    // ------------------------------------------------------------------
+    // Strategia 3: ricerca diretta in streaming sul _ple.gml
+    // Usata SOLO quando l'indice non è disponibile, e solo se il file è ≤ 60 MB
+    // (evita timeout su file molto grandi).
+    // ------------------------------------------------------------------
+    return analyticspro_gml_lookup_streaming($belfiore, $codFoglio, $normPart, $particella);
+}
+
+/**
+ * Ricerca nell'indice SQLite con foglio esatto e fallback sui primi 4 caratteri.
+ *
+ * @return array{lat:float,lon:float,area_mq:float,ref:string,local_id:string,cod_foglio:string}|null
+ */
+function analyticspro_gml_lookup_in_index(
+    string $dbPath,
+    string $codFoglio,
+    string $particella,
+    string $normPart
+): ?array {
     try {
-        $db  = new SQLite3($dbPath, SQLITE3_OPEN_READONLY);
+        $db = new SQLite3($dbPath, SQLITE3_OPEN_READONLY);
 
-        // Primo tentativo: match esatto su particella (più preciso)
-        $stmt = $db->prepare('SELECT lat, lon, area_mq FROM parcels WHERE cod_foglio = :cf AND particella = :p LIMIT 1');
+        // Tentativo 1: foglio esatto + particella esatta
+        $row = analyticspro_gml_sqlite_lookup_row($db, $codFoglio, $particella, $normPart);
+        if ($row !== null) {
+            $db->close();
+            return analyticspro_gml_make_result($row, $codFoglio, $particella);
+        }
+
+        // Tentativo 2: fallback foglio — primi 4 caratteri coincidenti.
+        // Gestisce varianti allegato/sviluppo (es. "0033A0" vs "003300").
+        $foglio4 = substr($codFoglio, 0, 4);
+        $stmt = $db->prepare(
+            'SELECT cod_foglio, lat, lon, area_mq FROM parcels
+             WHERE substr(cod_foglio, 1, 4) = :f4
+               AND (particella = :p OR particella_norm = :pn)
+             LIMIT 1'
+        );
+        if ($stmt !== false) {
+            $stmt->bindValue(':f4', $foglio4,  SQLITE3_TEXT);
+            $stmt->bindValue(':p',  $particella, SQLITE3_TEXT);
+            $stmt->bindValue(':pn', $normPart,   SQLITE3_TEXT);
+            $result = $stmt->execute();
+            if ($result !== false) {
+                $row = $result->fetchArray(SQLITE3_ASSOC);
+                if ($row !== false) {
+                    $resolvedFoglio = (string) $row['cod_foglio'];
+                    $db->close();
+                    return analyticspro_gml_make_result($row, $resolvedFoglio, $particella);
+                }
+            }
+        }
+
+        $db->close();
+        return null;
+    } catch (Throwable $e) {
+        error_log('[gml_catalog] SQLite error: ' . $e->getMessage());
+        return null;
+    }
+}
+
+/**
+ * Helper: esegue il doppio tentativo esatto/norm su un cod_foglio fisso.
+ */
+function analyticspro_gml_sqlite_lookup_row(
+    SQLite3 $db,
+    string  $codFoglio,
+    string  $particella,
+    string  $normPart
+): ?array {
+    // Match esatto
+    $stmt = $db->prepare('SELECT lat, lon, area_mq FROM parcels WHERE cod_foglio = :cf AND particella = :p LIMIT 1');
+    if ($stmt !== false) {
         $stmt->bindValue(':cf', $codFoglio, SQLITE3_TEXT);
         $stmt->bindValue(':p',  $particella, SQLITE3_TEXT);
         $result = $stmt->execute();
-        $row = ($result !== false) ? $result->fetchArray(SQLITE3_ASSOC) : false;
-
-        // Secondo tentativo: match normalizzato su particella_norm
-        if ($row === false) {
-            $normPart = analyticspro_gml_norm_particella($particella);
-            $stmt2 = $db->prepare('SELECT lat, lon, area_mq FROM parcels WHERE cod_foglio = :cf AND particella_norm = :pn LIMIT 1');
-            $stmt2->bindValue(':cf', $codFoglio, SQLITE3_TEXT);
-            $stmt2->bindValue(':pn', $normPart, SQLITE3_TEXT);
-            $result2 = $stmt2->execute();
-            $row = ($result2 !== false) ? $result2->fetchArray(SQLITE3_ASSOC) : false;
+        if ($result !== false) {
+            $row = $result->fetchArray(SQLITE3_ASSOC);
+            if ($row !== false) {
+                return $row;
+            }
         }
-
-        if ($row === false) {
-            return null;
+    }
+    // Match normalizzato
+    $stmt2 = $db->prepare('SELECT lat, lon, area_mq FROM parcels WHERE cod_foglio = :cf AND particella_norm = :pn LIMIT 1');
+    if ($stmt2 !== false) {
+        $stmt2->bindValue(':cf', $codFoglio, SQLITE3_TEXT);
+        $stmt2->bindValue(':pn', $normPart,   SQLITE3_TEXT);
+        $result2 = $stmt2->execute();
+        if ($result2 !== false) {
+            $row = $result2->fetchArray(SQLITE3_ASSOC);
+            if ($row !== false) {
+                return $row;
+            }
         }
+    }
+    return null;
+}
 
-        return [
-            'lat'       => (float) $row['lat'],
-            'lon'       => (float) $row['lon'],
-            'area_mq'   => (float) $row['area_mq'],
-            'ref'       => $belfiore . '_' . $codFoglio . '.' . $particella,
-            'local_id'  => '',
-            'cod_foglio'=> $codFoglio,
-        ];
-    } catch (Throwable $e) {
-        error_log('[gml_catalog] SQLite error per ' . $belfiore . ': ' . $e->getMessage());
+/**
+ * Costruisce l'array di risultato dalla riga SQLite.
+ */
+function analyticspro_gml_make_result(array $row, string $codFoglio, string $particella): array
+{
+    return [
+        'lat'        => (float) $row['lat'],
+        'lon'        => (float) $row['lon'],
+        'area_mq'    => (float) ($row['area_mq'] ?? 0.0),
+        'ref'        => '',
+        'local_id'   => '',
+        'cod_foglio' => $codFoglio,
+    ];
+}
+
+/**
+ * Ricerca diretta in streaming nel file _ple.gml (fallback quando l'indice
+ * non è disponibile). Usa early-exit al primo match. Limitata ai file ≤ 60 MB
+ * per evitare timeout su hosting con max_execution_time ridotto.
+ *
+ * @return array{lat:float,lon:float,area_mq:float,ref:string,local_id:string,cod_foglio:string}|null
+ */
+function analyticspro_gml_lookup_streaming(
+    string $belfiore,
+    string $codFoglio,
+    string $normPart,
+    string $particella,
+    int    $maxBytes = 62914560 // 60 MB
+): ?array {
+    $catalog = analyticspro_gml_build_catalog();
+    $entry   = $catalog[$belfiore] ?? null;
+    if ($entry === null || empty($entry['ple'])) {
         return null;
     }
+
+    $plePath = $entry['ple'];
+    $fileSize = $entry['size_ple'] ?? 0;
+    if ($fileSize > $maxBytes) {
+        error_log('[gml_catalog] File _ple.gml troppo grande per ricerca diretta: '
+            . $belfiore . ' (' . number_format($fileSize / 1048576, 1) . ' MB). Indicizzare il comune.');
+        return null;
+    }
+
+    $foglio4 = substr($codFoglio, 0, 4);
+    $found   = null;
+
+    analyticspro_gml_stream_parcels($plePath, static function (array $f) use (
+        $codFoglio, $foglio4, $normPart, $particella, &$found
+    ): bool {
+        $fFoglio = $f['codFoglio'];
+        // Foglio esatto o fallback sui primi 4 caratteri
+        if ($fFoglio !== $codFoglio && substr($fFoglio, 0, 4) !== $foglio4) {
+            return false;
+        }
+        // Particella esatta o normalizzata
+        $fNorm = analyticspro_gml_norm_particella($f['particella']);
+        if ($f['particella'] !== $particella && $fNorm !== $normPart) {
+            return false;
+        }
+
+        $extRings = $f['ext'];
+        $intRings = $f['int'];
+        if ($extRings === []) {
+            return false;
+        }
+
+        $exterior = analyticspro_largest_ring($extRings) ?? $extRings[0];
+        $pt       = analyticspro_interior_point($exterior, $intRings);
+        if ($pt === null) {
+            return false;
+        }
+
+        $areaMq = analyticspro_ring_area_m2($exterior);
+        foreach ($intRings as $hole) {
+            $areaMq -= analyticspro_ring_area_m2($hole);
+        }
+        if ($areaMq < 0) {
+            $areaMq = 0.0;
+        }
+
+        $found = [
+            'lat'        => $pt['lat'],
+            'lon'        => $pt['lng'],
+            'area_mq'    => $areaMq,
+            'ref'        => $f['ref'] ?? '',
+            'local_id'   => $f['localId'] ?? '',
+            'cod_foglio' => $fFoglio,
+        ];
+        return true; // early exit
+    });
+
+    return $found;
 }
 
 // ---------------------------------------------------------------------------

@@ -292,18 +292,29 @@ stessa richiesta HTTP, scrivendo **tutte** le righe del file in `properties` con
 La risposta HTTP torna sempre al browser subito dopo la Fase 1, indipendentemente dall'esito
 del worker di arricchimento.
 
-**Fase 2 — Arricchimento coordinate (background/cron)**  
+**Fase 2 — Arricchimento coordinate (background/cron/sincrono)**  
 Subito dopo la Fase 1, `analyticspro_launch_background()` tenta di avviare
 `cron/enrich_property_coordinates.php` in background.
 
-Se il background worker **non può partire** (hosting che non supporta `proc_open`/`shell_exec`),
-il batch rimane con `enrichment_status = 'pending'` e viene recuperato dal cron di recupero.
-La risposta HTTP torna comunque immediatamente — non c'è più alcun fallback sincrono che blocchi il browser.
+**Fallback sincrono a lotti**: se il background worker **non può partire** (hosting che non
+supporta `proc_open`/`shell_exec`), la colonna `import_batches.enrichment_sync` viene impostata
+a `1` e la risposta include `enrichment_sync: true`. Il frontend rileva questa condizione e
+chiama ripetutamente `api/data/enrich_chunk.php?batch_id=X&limit=25`, elaborando 25 particelle
+per ogni chiamata di polling. In questo modo l'arricchimento procede senza mai bloccare il browser
+e la barra di avanzamento si aggiorna ad ogni chunk.
 
-### Cron di recupero batch orfani (OBBLIGATORIO su hosting senza proc_open)
+**Watchdog anti-stallo**: se dopo 6 poll (~15 secondi) lo stato è ancora `pending` con
+`enrichment_processed = 0`, il frontend commuta automaticamente alla modalità chunk sincrona
+anche senza `enrichment_sync: true` (utile se il segnale si perde).
 
-Se il tuo hosting non supporta `proc_open` o `shell_exec`, **installa questo cron job reale**
-per recuperare i batch non arricchiti automaticamente:
+La risposta HTTP torna comunque immediatamente — non c'è mai alcun blocco del browser.
+
+### Cron di recupero batch orfani (consigliato su hosting senza proc_open)
+
+Su hosting che non supporta `proc_open` o `shell_exec`, l'arricchimento avviene già in modo
+sincrono tramite il fallback a chunk (vedi sopra). In aggiunta, per sicurezza, configura il
+cron di recupero così da gestire eventuali batch non risolti (ad esempio dopo un riavvio del
+server):
 
 ```
 * * * * * php /percorso/assoluto/analyticspro/cron/enrich_pending_batches.php >> /percorso/log/enrich_pending.log 2>&1
@@ -318,8 +329,18 @@ in sequenza. Un batch che fallisce non blocca quelli successivi (error isolation
 ### Stato di arricchimento nella UI
 
 Dopo il completamento dell'import, nella pagina **Importa** compare automaticamente una
-barra di avanzamento con il testo "Geolocalizzazione: X/Y marker" che si aggiorna ogni
-~2,5 secondi finché l'arricchimento non è completato.
+barra di avanzamento con il testo "Geolocalizzazione: X/Y marker" che si aggiorna in
+tempo reale. In caso di errore compare il messaggio d'errore specifico con indicazioni per
+il recupero.
+
+### Recupero delle coordinate mancanti
+
+La pagina **Importa** espone un pulsante **"Rigenera coordinate mancanti"** che richiama
+`api/data/enrich_chunk.php?batch_id=0` (modalità globale) a chunk ripetuti, elaborando
+tutte le righe con `lat IS NULL` indipendentemente dal batch di origine. Utile dopo:
+- aver caricato nuovi file GML e costruito l'indice
+- aver configurato Zornade o WFS
+- un arricchimento parziale interrotto
 
 ### Diagnostica: health check Zornade
 
@@ -373,6 +394,32 @@ Al momento dell'arricchimento coordinate di ogni riga importata:
 
 La sorgente è salvata nel campo `coord_source` della tabella `properties`
 (aggiunto dalla migration `004_add_coord_source_to_properties.sql`).
+
+### Strategia di lookup GML (`analyticspro_gml_lookup`)
+
+`analyticspro_gml_lookup()` applica tre livelli progressivi di ricerca:
+
+1. **Indice SQLite — foglio esatto + particella esatta**  
+   Ricerca O(1) sul campo `parcels.cod_foglio` e `parcels.particella`.
+
+2. **Indice SQLite — foglio esatto + particella normalizzata**  
+   Se la particella ha zero-padding (`0147`) o suffisso lettera (`147/A`),
+   il match avviene tramite `parcels.particella_norm` pre-calcolato.
+
+3. **Indice SQLite — variante allegato/sviluppo (primi 4 caratteri)**  
+   Se il `cod_foglio` calcolato non esiste nell'indice (es. si cerca `003300`
+   ma il GML contiene `0033A0`), la ricerca si restringe alle righe con
+   `substr(cod_foglio, 1, 4) = '0033'` e particella coincidente.
+   Questo gestisce le varianti allegato/sviluppo senza richiedere all'utente
+   di conoscere il formato esatto usato nel GML.
+
+4. **Ricerca streaming diretta sul `_ple.gml`** (solo se indice non disponibile)  
+   Se l'indice non è valido (comune non ancora indicizzato) ma il file GML
+   esiste ed è ≤ 60 MB, `analyticspro_gml_lookup_streaming()` esegue una
+   scansione in streaming con early-exit al primo match. Applicando gli stessi
+   fallback foglio e particella descritti sopra.  
+   Per file > 60 MB restituisce `null` e logga un avviso: indicizzare il comune
+   è sempre preferibile.
 
 I job di indicizzazione GML sono gestiti dalle tabelle `gml_index_jobs` / `gml_index_job_log`
 (aggiunte dalla migration `005_add_gml_index_jobs.sql`).
