@@ -149,7 +149,7 @@
             const phoneKpiEl = document.querySelector('[data-kpi="phones"]');
             if (phoneKpiEl) {
                 const card = phoneKpiEl.closest('.card, .kpi-card, [class*="kpi"]');
-                if (card) card.style.display = 'none';
+                if (card) card.remove();
             }
         }
         setKpi('assigned', assignedCount);
@@ -163,16 +163,25 @@
         return escapeHtml(names.join(', '));
     }
 
+    function assignmentNames(property) {
+        return (property.assignments || []).map(assignment => assignment.subuser_name).filter(Boolean);
+    }
+
+    function assignmentNamesLabel(property) {
+        const names = assignmentNames(property);
+        return names.length ? names.join(', ') : 'Non assegnato';
+    }
+
     function buildAssignmentSummary(property) {
-        const names = (property.assignments || []).map(assignment => assignment.subuser_name).filter(Boolean);
+        const names = assignmentNames(property);
         const canManage = state.role !== 'subuser' && state.subusers.length > 0;
         const action = canManage
-            ? `<button type="button" class="btn btn-outline-secondary btn-sm ms-1 assignment-picker-btn" data-property-id="${property.id}" title="Gestisci assegnazioni"><i class="bi bi-person-plus"></i></button>`
+            ? `<button type="button" class="btn btn-outline-secondary btn-sm ms-1 assignment-picker-btn" data-property-id="${property.id}" title="Assegna/Modifica assegnazioni"><i class="bi bi-person-plus me-1"></i>Assegna</button>`
             : '';
         if (!names.length) {
-            return `<span class="badge text-bg-secondary">Non assegnato</span>${action}`;
+            return `<span class="small text-muted">Non assegnato</span>${action}`;
         }
-        return `<span class="badge text-bg-success me-1">Assegnato</span><span class="small">${escapeHtml(names.join(', '))}</span>${action}`;
+        return `<span class="small">${escapeHtml(names.join(', '))}</span>${action}`;
     }
 
     function buildSelectOptions(selected) {
@@ -202,6 +211,14 @@
         `;
     }
 
+    function detailColumn(property) {
+        return `
+            <button type="button" class="btn btn-outline-secondary btn-sm open-detail-modal" data-property-id="${property.id}">
+                <i class="bi bi-eye me-1"></i>Dettaglio
+            </button>
+        `;
+    }
+
     function unitLabel(property) {
         const sub = property.subalterno ? `/${property.subalterno}` : '';
         return `F.${property.foglio || '—'} P.${property.particella || '—'}${sub}`;
@@ -218,7 +235,9 @@
             stato: STATE_OPTIONS[property.stato] || property.stato,
             colore: `<span class="color-dot" style="background:${escapeHtml(property.colore_marker || '#0d6efd')}"></span>`,
             owners: buildOwnerSummary(property),
+            assignmentsText: escapeHtml(assignmentNamesLabel(property)),
             assignments: buildAssignmentSummary(property),
+            detail: detailColumn(property),
             editor: editableColumns(property),
             raw: property,
         }));
@@ -236,7 +255,9 @@
             { title: 'Foglio/Particella/Sub', data: 'unita' },
             { title: 'Indirizzo', data: 'indirizzo' },
             { title: 'Intestatari', data: 'owners' },
+            { title: 'Assegnati a', data: 'assignmentsText' },
             { title: 'Stato', data: 'stato' },
+            { title: 'Dettaglio', data: 'detail' },
             { title: 'Modifica', data: 'editor' },
         ];
         const assignedColumns = [
@@ -245,7 +266,7 @@
             { title: 'Foglio/Particella/Sub', data: 'unita' },
             { title: 'Indirizzo', data: 'indirizzo' },
             { title: 'Intestatari', data: 'owners' },
-            { title: 'Assegnazione', data: 'assignments' },
+            { title: 'Assegnati a', data: 'assignments' },
             { title: 'Modifica', data: 'editor' },
         ];
         const fullColumns = [
@@ -263,7 +284,8 @@
         const columns = context === 'report' ? reportColumns : (context === 'assigned' ? assignedColumns : fullColumns);
 
         const theadHtml = `<tr>${columns.map(column => `<th>${column.title}</th>`).join('')}</tr>`;
-        const tfootHtml = `<tr>${columns.map(column => `<th>${column.title === 'Modifica' ? '' : `<input type="text" class="form-control form-control-sm" placeholder="Filtra ${column.title}">`}</th>`).join('')}</tr>`;
+        const useFooterFilters = context !== 'report';
+        const tfootHtml = `<tr>${columns.map(column => `<th>${(!useFooterFilters || column.title === 'Modifica' || column.title === 'Dettaglio') ? '' : `<input type="text" class="form-control form-control-sm" placeholder="Filtra ${column.title}">`}</th>`).join('')}</tr>`;
         $(`${selector} thead`).html(theadHtml);
         $(`${selector} tfoot`).html(tfootHtml);
 
@@ -278,6 +300,8 @@
             buttons,
             columnDefs: [{ targets: [0, columns.length - 1], orderable: false }],
         });
+
+        if (!useFooterFilters) return;
 
         state.tables[selector].columns().every(function (index) {
             const input = $(`${selector} tfoot th`).eq(index).find('input');
@@ -305,6 +329,45 @@
     function renderReportTable() {
         if (!document.getElementById('report-table')) return;
         initDataTable('#report-table', buildTableData(state.properties, 'report'), state.role !== 'subuser', 'report');
+        hydrateReportFilters();
+        applyReportFilters();
+    }
+
+    function hydrateReportFilters() {
+        const colorSelect = document.getElementById('report-filter-color');
+        const stateSelect = document.getElementById('report-filter-stato');
+        if (colorSelect) {
+            const selected = colorSelect.value;
+            const colors = Array.from(new Set(state.properties.map(property => property.colore_marker).filter(Boolean)));
+            colorSelect.innerHTML = '<option value="">Tutti</option>' + colors
+                .map(color => `<option value="${escapeHtml(String(color))}">${escapeHtml(String(color))}</option>`)
+                .join('');
+            colorSelect.value = selected && colors.includes(selected) ? selected : '';
+        }
+        if (stateSelect) {
+            const selected = stateSelect.value;
+            stateSelect.innerHTML = '<option value="">Tutti</option>' + Object.entries(STATE_OPTIONS)
+                .map(([value, label]) => `<option value="${escapeHtml(label)}">${escapeHtml(label)}</option>`)
+                .join('');
+            stateSelect.value = selected;
+        }
+    }
+
+    function applyReportFilters() {
+        const table = state.tables['#report-table'];
+        if (!table) return;
+        const colorValue = document.getElementById('report-filter-color')?.value || '';
+        const comuneValue = document.getElementById('report-filter-comune')?.value || '';
+        const foglioValue = document.getElementById('report-filter-foglio')?.value || '';
+        const statoValue = document.getElementById('report-filter-stato')?.value || '';
+        const assignedValue = document.getElementById('report-filter-assigned')?.value || '';
+
+        table.column(0).search(colorValue ? `background:${colorValue}` : '', true, false);
+        table.column(1).search(comuneValue);
+        table.column(2).search(foglioValue);
+        table.column(5).search(assignedValue);
+        table.column(6).search(statoValue);
+        table.draw();
     }
 
     function renderMap() {
@@ -336,6 +399,9 @@
                 iconCreateFunction: function (cluster) {
                     const markers = cluster.getAllChildMarkers();
                     const total = markers.length;
+                    if (!total) {
+                        return L.divIcon({ html: '', className: 'analyticspro-cluster-icon', iconSize: L.point(40, 40) });
+                    }
                     const counts = {};
                     for (const marker of markers) {
                         const color = marker.options?.fillColor
@@ -351,27 +417,32 @@
                     if (state.clusterIconCache?.has(key)) {
                         return state.clusterIconCache.get(key);
                     }
-                    const r = 24;
-                    const cx = 28;
-                    const cy = 28;
-                    const stroke = 5;
-                    const circumference = 2 * Math.PI * r;
-                    let offset = 0;
+                    const radius = 1;
+                    let startAngle = -Math.PI / 2;
                     let paths = '';
-                    for (const [color, count] of Object.entries(counts)) {
+                    const entries = Object.entries(counts);
+                    entries.forEach(([color, count], index) => {
                         const pct = count / total;
-                        const dash = circumference * pct;
-                        const gap  = circumference - dash;
+                        const endAngle = startAngle + (Math.PI * 2 * pct);
                         const safeColor = /^#[0-9a-fA-F]{3,8}$/.test(color) ? color : '#808080';
-                        paths += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${safeColor}" stroke-width="${stroke}" stroke-dasharray="${dash.toFixed(2)} ${gap.toFixed(2)}" stroke-dashoffset="${(-offset * circumference).toFixed(2)}" transform="rotate(-90 ${cx} ${cy})"/>`;
-                        offset += pct;
-                    }
-                    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="56" height="56" viewBox="0 0 56 56"><circle cx="${cx}" cy="${cy}" r="${r + stroke / 2}" fill="white" opacity=".85"/>${paths}<text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="central" font-size="12" font-weight="bold" fill="#333">${total}</text></svg>`;
+                        if (entries.length === 1) {
+                            paths += `<circle cx="0" cy="0" r="${radius}" fill="${safeColor}"></circle>`;
+                            return;
+                        }
+                        const x1 = Math.cos(startAngle) * radius;
+                        const y1 = Math.sin(startAngle) * radius;
+                        const x2 = Math.cos(endAngle) * radius;
+                        const y2 = Math.sin(endAngle) * radius;
+                        const largeArc = pct > 0.5 ? 1 : 0;
+                        paths += `<path d="M 0 0 L ${x1.toFixed(6)} ${y1.toFixed(6)} A ${radius} ${radius} 0 ${largeArc} 1 ${x2.toFixed(6)} ${y2.toFixed(6)} Z" fill="${safeColor}"></path>`;
+                        startAngle = endAngle;
+                    });
+                    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="-1.05 -1.05 2.1 2.1"><circle cx="0" cy="0" r="1" fill="rgba(255,255,255,.25)"></circle>${paths}<circle cx="0" cy="0" r="0.4" fill="rgba(0,0,0,.35)"></circle><text x="0" y="0.1" text-anchor="middle" font-size="0.6" font-weight="700" fill="#fff">${total}</text></svg>`;
                     const icon = L.divIcon({
                         html: svg,
                         className: 'analyticspro-cluster-icon',
-                        iconSize: L.point(56, 56),
-                        iconAnchor: L.point(28, 28),
+                        iconSize: L.point(40, 40),
+                        iconAnchor: L.point(20, 20),
                     });
                     state.clusterIconCache?.set(key, icon);
                     return icon;
@@ -401,7 +472,7 @@
                 fillOpacity: 0.9,
                 weight: 2,
             });
-            marker.bindPopup(buildPopupHtml(group), { maxWidth: 700 });
+            marker.bindPopup(buildPopupHtml(group), { maxWidth: 420 });
             state.markers.addLayer(marker);
             points.push(first);
         });
@@ -412,65 +483,77 @@
         setTimeout(() => state.map?.invalidateSize(), 600);
     }
 
-    function buildPopupHtml(propertiesAtPoint) {
-        const list = Array.isArray(propertiesAtPoint) ? propertiesAtPoint : [propertiesAtPoint];
-        const popupId = `popup-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
-        const cards = list.map((property, index) => {
-            const ownerRows = (property.owners || []).map(owner => `
-                <tr>
-                    <td><i class="bi ${owner.tipo === 'azienda' ? 'bi-building' : 'bi-person'} me-1"></i>${escapeHtml(`${owner.cognome || ''} ${owner.nome || ''}`.trim() || 'Intestatario')}</td>
-                    <td>${escapeHtml(owner.tipo || '—')}</td>
-                    <td>${escapeHtml(owner.codice_fiscale || '—')}</td>
-                    ${state.canViewPhone ? `<td>${escapeHtml(owner.telefono || '—')}</td>` : ''}
-                    <td>${escapeHtml(owner.email || '—')}</td>
-                    <td>${escapeHtml(owner.indirizzo || '—')}</td>
-                    <td>${escapeHtml(owner.data_nascita || '—')}</td>
-                    <td>${escapeHtml(owner.genere || '—')}</td>
-                    <td>${escapeHtml(property.quota || '—')}</td>
-                    <td>${escapeHtml(property.titolarita || '—')}</td>
-                </tr>`).join('');
-            const assignmentNames = (property.assignments || []).map(item => item.subuser_name).filter(Boolean);
-            const assignmentBlock = assignmentNames.length
-                ? escapeHtml(assignmentNames.join(', '))
-                : '<span class="text-muted">Non assegnato</span>';
+    function ownerDetailRows(property) {
+        if (!(property.owners || []).length) {
+            return '<div class="text-muted small">Nessun intestatario disponibile.</div>';
+        }
+        return (property.owners || []).map(owner => {
+            const fullName = `${owner.cognome || ''} ${owner.nome || ''}`.trim() || 'Intestatario';
+            const identity = [owner.codice_fiscale ? `CF/P.IVA: ${owner.codice_fiscale}` : null, owner.email ? `✉ ${owner.email}` : null, owner.indirizzo ? `📍 ${owner.indirizzo}` : null]
+                .filter(Boolean)
+                .join(' | ');
+            const profile = [owner.data_nascita ? `Nato il: ${owner.data_nascita}` : null, owner.genere ? `Genere: ${owner.genere}` : null, state.canViewPhone && owner.telefono ? `☎ ${owner.telefono}` : null]
+                .filter(Boolean)
+                .join(' | ');
             return `
-                <div class="accordion-item">
-                    <h2 class="accordion-header" id="${popupId}-h-${property.id}">
-                        <button class="accordion-button ${index === 0 ? '' : 'collapsed'} py-2" type="button" data-bs-toggle="collapse" data-bs-target="#${popupId}-c-${property.id}">
-                            ${escapeHtml(property.comune || '')} · ${escapeHtml(unitLabel(property))}
-                        </button>
-                    </h2>
-                    <div id="${popupId}-c-${property.id}" class="accordion-collapse collapse ${index === 0 ? 'show' : ''}" data-bs-parent="#${popupId}">
-                        <div class="accordion-body py-2" data-property-id="${property.id}">
-                            <div class="small text-muted mb-2">${escapeHtml(`${property.indirizzo || ''} ${property.civico || ''}`.trim())}</div>
-                            <div class="small mb-2"><strong>Dati catastali:</strong> Cat. ${escapeHtml(property.categoria || '—')} · Classe ${escapeHtml(property.classe || '—')} · Consistenza ${escapeHtml(property.consistenza || '—')} · Superficie ${escapeHtml(property.superficie || '—')} · Rendita ${escapeHtml(property.rendita || '—')}</div>
-                            <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
-                                <span class="small"><strong>Assegnati:</strong> ${assignmentBlock}</span>
-                                ${state.role !== 'subuser' ? `<button type="button" class="btn btn-outline-secondary btn-sm assignment-picker-btn" data-property-id="${property.id}" title="Gestisci assegnazioni"><i class="bi bi-person-plus"></i></button>` : ''}
-                                <button type="button" class="btn btn-outline-primary btn-sm open-editor-modal" data-property-id="${property.id}"><i class="bi bi-pencil-square me-1"></i>Modifica</button>
-                            </div>
-                            <div class="table-responsive">
-                                <table class="table table-sm map-popup-table align-middle mb-2">
-                                    <thead>
-                                        <tr>
-                                            <th>Intestatario</th><th>Tipo</th><th>CF/P.IVA</th>${state.canViewPhone ? '<th>Telefono</th>' : ''}<th>Email</th><th>Indirizzo</th><th>Nascita</th><th>Genere</th><th>Quota</th><th>Titolarità</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>${ownerRows || `<tr><td colspan="${state.canViewPhone ? 10 : 9}" class="text-muted">Nessun intestatario</td></tr>`}</tbody>
-                                </table>
-                            </div>
-                            <div class="small">${(property.notes || []).map(note => `<div class="note-badge"><strong>${escapeHtml(note.author_name_snapshot)}</strong> ${escapeHtml(note.created_at)} · ${escapeHtml(note.testo)}</div>`).join('') || '<span class="text-muted">Nessuna nota</span>'}</div>
-                        </div>
-                    </div>
+                <div class="property-owner-row">
+                    <div class="fw-semibold">${escapeHtml(fullName)}${property.quota ? ` (${escapeHtml(property.quota)})` : ''}${property.titolarita ? ` – ${escapeHtml(property.titolarita)}` : ''}</div>
+                    ${identity ? `<div class="owner-meta">${escapeHtml(identity)}</div>` : ''}
+                    ${profile ? `<div class="owner-meta">${escapeHtml(profile)}</div>` : ''}
                 </div>
             `;
         }).join('');
+    }
+
+    function propertyNotesHtml(property) {
+        return (property.notes || []).length
+            ? (property.notes || []).map(note => `<div class="small mb-1"><strong>${escapeHtml(note.author_name_snapshot || '')}</strong> · ${escapeHtml(note.created_at || '')}<br>${escapeHtml(note.testo || '')}</div>`).join('')
+            : '<span class="text-muted small">Nessuna nota</span>';
+    }
+
+    function buildPropertyCardHtml(property, options = {}) {
+        const mapMode = options.mapMode === true;
+        const addressLabel = `${property.indirizzo || ''} ${property.civico || ''}`.trim() || 'Immobile';
+        const assignmentText = assignmentNames(property).length ? escapeHtml(assignmentNames(property).join(', ')) : '<span class="text-muted">Non assegnato</span>';
+        const assignmentBtn = state.role !== 'subuser' && state.subusers.length
+            ? `<button type="button" class="btn btn-outline-secondary btn-sm assignment-picker-btn" data-property-id="${property.id}" title="Assegna/Modifica assegnazioni"><i class="bi bi-person-plus"></i></button>`
+            : '';
+        const editAction = property.can_edit
+            ? `<button type="button" class="btn btn-outline-primary btn-sm open-editor-modal" data-property-id="${property.id}"><i class="bi bi-pencil-square me-1"></i>Modifica</button>`
+            : '<div class="small text-warning-emphasis">⚠️ Non hai i permessi per modificare questo marker.</div>';
+        const closeAction = mapMode
+            ? '<button type="button" class="btn btn-outline-secondary btn-sm close-map-popup"><i class="bi bi-x-lg me-1"></i>Chiudi</button>'
+            : '<button type="button" class="btn btn-outline-secondary btn-sm close-detail-modal"><i class="bi bi-x-lg me-1"></i>Chiudi</button>';
+
         return `
-            <div class="map-popup">
-                <div class="fw-semibold mb-2">Unità immobiliari nello stesso punto: ${list.length}</div>
-                <div class="accordion" id="${popupId}">${cards}</div>
+            <div class="card map-popup-professional mb-2" data-property-id="${property.id}">
+                <div class="card-header py-2">
+                    <div class="fw-semibold">🏠 ${escapeHtml(addressLabel)} – ${escapeHtml(unitLabel(property))}</div>
+                    <div class="small mt-1"><span class="color-dot me-1" style="background:${escapeHtml(property.colore_marker || '#0d6efd')}"></span>${escapeHtml(property.comune || '')}</div>
+                </div>
+                <div class="card-body py-2">
+                    <div class="small fw-semibold text-uppercase text-muted mb-2">Intestatari</div>
+                    ${ownerDetailRows(property)}
+                    <hr class="my-2">
+                    <div class="small"><strong>Note</strong><div class="mt-1">${propertyNotesHtml(property)}</div></div>
+                    <hr class="my-2">
+                    <div class="d-flex align-items-center justify-content-between gap-2 flex-wrap">
+                        <div class="small"><strong>Assegnati a:</strong> ${assignmentText}</div>
+                        ${assignmentBtn}
+                    </div>
+                </div>
+                <div class="card-footer py-2 d-flex align-items-center justify-content-between gap-2 flex-wrap">
+                    ${editAction}
+                    ${closeAction}
+                </div>
             </div>
         `;
+    }
+
+    function buildPopupHtml(propertiesAtPoint) {
+        const list = Array.isArray(propertiesAtPoint) ? propertiesAtPoint : [propertiesAtPoint];
+        const cards = list.map(property => buildPropertyCardHtml(property, { mapMode: true })).join('');
+        return `<div class="map-popup-professional">${cards}</div>`;
     }
 
     function destroyCharts() {
@@ -523,7 +606,7 @@
             const phoneKpiEl = document.querySelector('[data-kpi-analytics="phone"]');
             if (phoneKpiEl) {
                 const card = phoneKpiEl.closest('.card, .kpi-card, [class*="kpi"]');
-                if (card) card.style.display = 'none';
+                if (card) card.remove();
             }
         }
         setKpiAnalytics('email', withEmail);
@@ -940,6 +1023,7 @@
                             </div>
                             <div class="modal-body">
                                 <div id="property-editor-meta" class="small text-muted mb-3"></div>
+                                <div id="property-editor-error" class="alert alert-danger py-2 px-3 small d-none mb-3"></div>
                                 <div class="row g-2">
                                     <div class="col-md-6">
                                         <label class="form-label small mb-1">Stato</label>
@@ -991,6 +1075,7 @@
                             </div>
                             <div class="modal-body">
                                 <div id="assignment-picker-meta" class="small text-muted mb-2"></div>
+                                <div id="assignment-picker-error" class="alert alert-danger py-2 px-3 small d-none mb-2"></div>
                                 <div id="assignment-picker-list" class="vstack gap-2"></div>
                             </div>
                             <div class="modal-footer">
@@ -1003,6 +1088,41 @@
             `;
             document.body.appendChild(assignmentModal.firstElementChild);
         }
+
+        if (!document.getElementById('property-detail-modal')) {
+            const detailModal = document.createElement('div');
+            detailModal.innerHTML = `
+                <div class="modal fade" id="property-detail-modal" tabindex="-1" aria-hidden="true">
+                    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title">Dettaglio marker</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button>
+                            </div>
+                            <div class="modal-body">
+                                <div id="property-detail-content" class="property-detail-wrapper"></div>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Chiudi</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(detailModal.firstElementChild);
+        }
+    }
+
+    function setModalError(containerId, message) {
+        const errorEl = document.getElementById(containerId);
+        if (!errorEl) return;
+        if (!message) {
+            errorEl.classList.add('d-none');
+            errorEl.textContent = '';
+            return;
+        }
+        errorEl.textContent = message;
+        errorEl.classList.remove('d-none');
     }
 
     function refreshEditorAssignmentSummary(property) {
@@ -1018,6 +1138,10 @@
             alert('Immobile non trovato.');
             return;
         }
+        if (!property.can_edit) {
+            alert('Non hai i permessi per modificare questo marker.');
+            return;
+        }
         const modalEl = document.getElementById('property-editor-modal');
         const meta = document.getElementById('property-editor-meta');
         const stateEl = document.getElementById('editor-state');
@@ -1028,6 +1152,7 @@
         const assignmentBtn = document.getElementById('editor-assignments-open');
         if (!modalEl || !stateEl || !colorEl || !customStateEl || !noteEl || !saveBtn) return;
 
+        setModalError('property-editor-error', '');
         meta.textContent = `${property.comune || ''} · ${unitLabel(property)} · ${`${property.indirizzo || ''} ${property.civico || ''}`.trim()}`;
         stateEl.innerHTML = buildSelectOptions(property.stato || 'da_contattare');
         colorEl.value = property.colore_marker || '#0d6efd';
@@ -1042,6 +1167,16 @@
         bootstrap.Modal.getOrCreateInstance(modalEl).show();
     }
 
+    function openDetailModal(propertyId) {
+        ensureSharedModals();
+        const property = findPropertyById(propertyId);
+        const modalEl = document.getElementById('property-detail-modal');
+        const bodyEl = document.getElementById('property-detail-content');
+        if (!property || !modalEl || !bodyEl) return;
+        bodyEl.innerHTML = buildPropertyCardHtml(property, { mapMode: false });
+        bootstrap.Modal.getOrCreateInstance(modalEl).show();
+    }
+
     function openAssignmentPicker(propertyId) {
         ensureSharedModals();
         const property = findPropertyById(propertyId);
@@ -1052,6 +1187,7 @@
         if (!property || !modalEl || !listEl || !metaEl || !saveBtn) return;
         if (state.role === 'subuser') return;
 
+        setModalError('assignment-picker-error', '');
         const selected = new Set((property.assignments || []).map(item => Number(item.subuser_id)));
         metaEl.textContent = `${property.comune || ''} · ${unitLabel(property)}`;
         listEl.innerHTML = state.subusers.length
@@ -1362,6 +1498,9 @@
         if (event.target.id === 'assigned-assignment-filter') {
             renderAssignedTable();
         }
+        if (event.target.id === 'report-filter-color' || event.target.id === 'report-filter-stato') {
+            applyReportFilters();
+        }
         if (event.target.id === 'ade-zips') {
             setAdeUploadButtonState('ade-zips', 'ade-zips-submit', '<i class="bi bi-cloud-upload me-1"></i>Importa', '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Caricamento...', false);
         }
@@ -1371,6 +1510,24 @@
     });
 
     document.addEventListener('click', event => {
+        const closeMapPopupBtn = event.target.closest('.close-map-popup');
+        if (closeMapPopupBtn) {
+            event.preventDefault();
+            state.map?.closePopup();
+            return;
+        }
+        const closeDetailBtn = event.target.closest('.close-detail-modal');
+        if (closeDetailBtn) {
+            event.preventDefault();
+            bootstrap.Modal.getInstance(document.getElementById('property-detail-modal'))?.hide();
+            return;
+        }
+        const detailBtn = event.target.closest('.open-detail-modal');
+        if (detailBtn) {
+            event.preventDefault();
+            openDetailModal(Number(detailBtn.dataset.propertyId || 0));
+            return;
+        }
         const editorBtn = event.target.closest('.open-editor-modal');
         if (editorBtn) {
             event.preventDefault();
@@ -1409,7 +1566,7 @@
                 if (updated) {
                     refreshEditorAssignmentSummary(updated);
                 }
-            }).catch(error => alert(error.message)).finally(() => {
+            }).catch(error => setModalError('assignment-picker-error', error.message)).finally(() => {
                 event.target.disabled = false;
             });
             return;
@@ -1424,6 +1581,7 @@
             const customStateEl = document.getElementById('editor-custom-state');
             const noteEl = document.getElementById('editor-note');
             event.target.disabled = true;
+            setModalError('property-editor-error', '');
             savePropertyPayload({
                 property_id: propertyId,
                 stato: stateEl?.value || property.stato,
@@ -1432,7 +1590,7 @@
                 note: noteEl?.value || '',
             }).then(() => {
                 bootstrap.Modal.getInstance(document.getElementById('property-editor-modal'))?.hide();
-            }).catch(error => alert(error.message)).finally(() => {
+            }).catch(error => setModalError('property-editor-error', error.message)).finally(() => {
                 event.target.disabled = false;
             });
             return;
@@ -1509,6 +1667,9 @@
 
     document.getElementById('assigned-save')?.addEventListener('click', async () => {
         await loadProperties();
+    });
+    ['report-filter-comune', 'report-filter-foglio', 'report-filter-assigned'].forEach(id => {
+        document.getElementById(id)?.addEventListener('input', () => applyReportFilters());
     });
 
     // ----- Drop-zone drag & drop (importa.php) -----
