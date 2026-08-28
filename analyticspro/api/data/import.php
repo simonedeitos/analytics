@@ -73,7 +73,9 @@ try {
             analyticspro_enrich_batch_coordinates($batchId);
         }
 
-        $saved = (int) $pdo->query("SELECT processed_rows FROM import_batches WHERE id = {$batchId}")->fetchColumn();
+        $savedStmt = $pdo->prepare('SELECT processed_rows FROM import_batches WHERE id = ?');
+        $savedStmt->execute([$batchId]);
+        $saved = (int) $savedStmt->fetchColumn();
         analyticspro_json(['ok' => true, 'batch_id' => $batchId, 'saved_rows' => $saved, 'total_rows' => count($rows)]);
     }
 
