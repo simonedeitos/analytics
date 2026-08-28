@@ -278,23 +278,14 @@ function analyticspro_fetch_subusers(int $tenantId): array
 
 function analyticspro_lookup_cod_catastale(string $comune, string $provincia): ?string
 {
-    static $map = null;
-    if ($map === null) {
-        $map = [];
-        $path = dirname(ANALYTICSPRO_ROOT) . '/data/comuni_catastali.json';
-        if (is_file($path)) {
-            $rows = json_decode((string) file_get_contents($path), true);
-            if (is_array($rows)) {
-                foreach ($rows as $row) {
-                    $key = mb_strtoupper(trim(($row['nome'] ?? '') . '|' . ($row['sigla_provincia'] ?? '')));
-                    $map[$key] = $row['codice_catastale'] ?? null;
-                }
-            }
-        }
+    require_once __DIR__ . '/wfs_lookup.php';
+
+    if (function_exists('analyticspro_resolve_cod_catastale')) {
+        $resolved = analyticspro_resolve_cod_catastale('', $comune, $provincia);
+        return is_string($resolved['cod'] ?? null) ? $resolved['cod'] : null;
     }
 
-    $key = mb_strtoupper(trim($comune) . '|' . trim($provincia));
-    return $map[$key] ?? null;
+    return analyticspro_wfs_lookup_cod_catastale($comune, $provincia);
 }
 
 function analyticspro_launch_background(string $script, array $arguments = []): bool

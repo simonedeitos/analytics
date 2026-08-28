@@ -58,16 +58,22 @@ try {
         // Se già completato o fallito, restituisci solo lo stato senza elaborare
         if (in_array($status, ['completed', 'failed'], true)) {
             $stateStmt = $pdo->prepare(
-                'SELECT enrichment_status, enrichment_processed, enrichment_total FROM import_batches WHERE id = :id'
+                'SELECT enrichment_status, enrichment_processed, enrichment_total, enrichment_report FROM import_batches WHERE id = :id'
             );
             $stateStmt->execute(['id' => $batchId]);
             $row = $stateStmt->fetch() ?: [];
+            $report = null;
+            if (is_string($row['enrichment_report'] ?? null) && trim((string) $row['enrichment_report']) !== '') {
+                $decoded = json_decode((string) $row['enrichment_report'], true);
+                $report = is_array($decoded) ? $decoded : null;
+            }
             analyticspro_json([
                 'ok'        => true,
                 'processed' => (int) ($row['enrichment_processed'] ?? 0),
                 'total'     => (int) ($row['enrichment_total']     ?? 0),
                 'done'      => true,
                 'status'    => $status,
+                'enrichment_report' => $report,
             ]);
         }
     }
@@ -81,6 +87,7 @@ try {
         'total'     => $result['total'],
         'done'      => $result['done'],
         'status'    => $result['status'],
+        'enrichment_report' => $result['enrichment_report'] ?? null,
     ]);
 } catch (Throwable $exception) {
     analyticspro_json(['ok' => false, 'error' => $exception->getMessage()], 422);

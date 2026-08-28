@@ -54,6 +54,7 @@ function analyticspro_gml_build_catalog(bool $force = false): array
     $indexDir  = analyticspro_gml_index_dir();
     $gmlDir    = analyticspro_gml_dir();
     $cachePath = $indexDir . '/catalogo.json';
+    $reversePath = analyticspro_gml_reverse_index_path();
 
     analyticspro_gml_ensure_dirs();
 
@@ -114,7 +115,280 @@ function analyticspro_gml_build_catalog(bool $force = false): array
 
     ksort($catalog);
     file_put_contents($cachePath, json_encode($catalog, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+    @unlink($reversePath);
     return $catalog;
+}
+
+function analyticspro_gml_reverse_index_path(): string
+{
+    return analyticspro_gml_index_dir() . '/comuni_reverse.json';
+}
+
+function analyticspro_gml_norm_provincia(string $provincia): string
+{
+    $provincia = strtoupper(trim($provincia));
+    return preg_replace('/[^A-Z]/', '', $provincia) ?? '';
+}
+
+function analyticspro_gml_norm_nome_comune(string $comune): string
+{
+    $comune = strtoupper(trim($comune));
+    $comune = str_replace(['_', '-'], ' ', $comune);
+    $comune = strtr($comune, [
+        'À' => 'A',
+        'Á' => 'A',
+        'Â' => 'A',
+        'Ä' => 'A',
+        'È' => 'E',
+        'É' => 'E',
+        'Ê' => 'E',
+        'Ë' => 'E',
+        'Ì' => 'I',
+        'Í' => 'I',
+        'Î' => 'I',
+        'Ï' => 'I',
+        'Ò' => 'O',
+        'Ó' => 'O',
+        'Ô' => 'O',
+        'Ö' => 'O',
+        'Ù' => 'U',
+        'Ú' => 'U',
+        'Û' => 'U',
+        'Ü' => 'U',
+    ]);
+    $comune = preg_replace('/\bSS\.\s*/u', 'SANTI ', $comune) ?? $comune;
+    $comune = preg_replace('/\bST\.\s*/u', 'SANTO ', $comune) ?? $comune;
+    $comune = preg_replace('/\bS\.\s*/u', 'SAN ', $comune) ?? $comune;
+    $comune = preg_replace('/\bS\s+(?=[A-Z])/u', 'SAN ', $comune) ?? $comune;
+    $comune = preg_replace('/\bD\s*\/\s*/u', 'DELLE ', $comune) ?? $comune;
+    $comune = str_replace(["'", '’', '`'], '', $comune);
+    $comune = preg_replace('/[^A-Z0-9 ]+/u', ' ', $comune) ?? $comune;
+    return trim(preg_replace('/\s+/u', ' ', $comune) ?? $comune);
+}
+
+/**
+ * @return array{exact:array<string,array<int,string>>,compact:array<string,array<int,string>>}
+ */
+function analyticspro_gml_load_reverse_index(bool $force = false): array
+{
+    static $inMemory = null;
+    static $inMemoryMtime = 0;
+
+    $catalogPath = analyticspro_gml_index_dir() . '/catalogo.json';
+    $cachePath   = analyticspro_gml_reverse_index_path();
+    $version     = 1;
+
+    if (!$force && is_array($inMemory) && is_file($catalogPath) && ((int) filemtime($catalogPath)) <= $inMemoryMtime) {
+        return $inMemory;
+    }
+
+    analyticspro_gml_build_catalog($force);
+    $catalogMtime = is_file($catalogPath) ? ((int) filemtime($catalogPath)) : 0;
+
+    if (
+        !$force
+        && is_file($cachePath)
+        && ((int) filemtime($cachePath)) >= $catalogMtime
+    ) {
+        $decoded = json_decode((string) @file_get_contents($cachePath), true);
+        if (is_array($decoded) && (int) ($decoded['version'] ?? 0) === $version) {
+            $inMemory = [
+                'exact' => is_array($decoded['exact'] ?? null) ? $decoded['exact'] : [],
+                'compact' => is_array($decoded['compact'] ?? null) ? $decoded['compact'] : [],
+            ];
+            $inMemoryMtime = (int) filemtime($cachePath);
+            return $inMemory;
+        }
+    }
+
+    $catalog = analyticspro_gml_build_catalog();
+    $exact   = [];
+    $compact = [];
+    foreach ($catalog as $belfiore => $entry) {
+        $nome = (string) ($entry['nome'] ?? '');
+        $norm = analyticspro_gml_norm_nome_comune($nome);
+        if ($norm === '') {
+            continue;
+        }
+        $keys = [$norm, str_replace(' ', '', $norm)];
+        foreach (array_unique($keys) as $key) {
+            if ($key === '') {
+                continue;
+            }
+            $bucket = str_contains($key, ' ') ? 'exact' : 'compact';
+            if ($bucket === 'exact') {
+                $target = &$exact;
+            } else {
+                $target = &$compact;
+            }
+            $target[$key] ??= [];
+            if (!in_array($belfiore, $target[$key], true)) {
+                $target[$key][] = $belfiore;
+            }
+            unset($target);
+        }
+    }
+
+    ksort($exact);
+    ksort($compact);
+    $payload = ['version' => $version, 'exact' => $exact, 'compact' => $compact];
+    file_put_contents($cachePath, json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+
+    $inMemory = ['exact' => $exact, 'compact' => $compact];
+    $inMemoryMtime = is_file($cachePath) ? ((int) filemtime($cachePath)) : time();
+    return $inMemory;
+}
+
+/**
+ * @return array{codes:array<int,string>,match:string}
+ */
+function analyticspro_gml_reverse_candidates(string $comune): array
+{
+    $norm    = analyticspro_gml_norm_nome_comune($comune);
+    $compact = str_replace(' ', '', $norm);
+    if ($norm === '') {
+        return ['codes' => [], 'match' => 'none'];
+    }
+
+    $index = analyticspro_gml_load_reverse_index();
+    foreach ([['exact', $norm, 'exact'], ['compact', $compact, 'compact']] as [$bucket, $key, $match]) {
+        if ($key !== '' && !empty($index[$bucket][$key])) {
+            return ['codes' => array_values(array_unique($index[$bucket][$key])), 'match' => $match];
+        }
+    }
+
+    $prefixMatches = [];
+    foreach (['exact' => $norm, 'compact' => $compact] as $bucket => $prefix) {
+        if ($prefix === '') {
+            continue;
+        }
+        foreach ($index[$bucket] as $key => $codes) {
+            if (str_starts_with($key, $prefix)) {
+                $prefixMatches = array_merge($prefixMatches, $codes);
+            }
+        }
+    }
+
+    return ['codes' => array_values(array_unique($prefixMatches)), 'match' => 'prefix'];
+}
+
+/**
+ * @return array<string,array<int,string>>
+ */
+function analyticspro_gml_belfiore_province_map(): array
+{
+    static $map = null;
+    if (is_array($map)) {
+        return $map;
+    }
+
+    $map = [];
+    $candidates = [
+        __DIR__ . '/../../data/comuni_catastali.json',
+        __DIR__ . '/../../../data/comuni_catastali.json',
+        dirname(ANALYTICSPRO_ROOT) . '/data/comuni_catastali.json',
+    ];
+
+    foreach ($candidates as $candidate) {
+        if (!is_file($candidate)) {
+            continue;
+        }
+        $rows = json_decode((string) file_get_contents($candidate), true);
+        if (!is_array($rows)) {
+            continue;
+        }
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $code = strtoupper(trim((string) ($row['codice_catastale'] ?? '')));
+            $prov = analyticspro_gml_norm_provincia((string) ($row['sigla_provincia'] ?? ''));
+            if ($code === '' || $prov === '') {
+                continue;
+            }
+            $map[$code] ??= [];
+            if (!in_array($prov, $map[$code], true)) {
+                $map[$code][] = $prov;
+            }
+        }
+        break;
+    }
+
+    if (function_exists('analyticspro_db')) {
+        try {
+            $stmt = analyticspro_db()->query('SELECT cod_catastale, provincia_sigla FROM cadastral_comuni');
+            if ($stmt !== false) {
+                foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                    $code = strtoupper(trim((string) ($row['cod_catastale'] ?? '')));
+                    $prov = analyticspro_gml_norm_provincia((string) ($row['provincia_sigla'] ?? ''));
+                    if ($code === '' || $prov === '') {
+                        continue;
+                    }
+                    $map[$code] ??= [];
+                    if (!in_array($prov, $map[$code], true)) {
+                        $map[$code][] = $prov;
+                    }
+                }
+            }
+        } catch (Throwable) {
+        }
+    }
+
+    return $map;
+}
+
+function analyticspro_gml_describe_candidates(array $codes): string
+{
+    $catalog     = analyticspro_gml_build_catalog();
+    $provinceMap = analyticspro_gml_belfiore_province_map();
+    $parts       = [];
+    foreach ($codes as $code) {
+        $name = (string) ($catalog[$code]['nome'] ?? '');
+        $prov = implode('/', $provinceMap[$code] ?? []);
+        $parts[] = trim($code . ($name !== '' ? ' ' . $name : '') . ($prov !== '' ? ' [' . $prov . ']' : ''));
+    }
+    return implode(', ', $parts);
+}
+
+/**
+ * Risolve il codice Belfiore a partire dal nome del comune, usando il catalogo
+ * dei file GML locali come sorgente primaria. La provincia è opzionale e viene
+ * usata solo per disambiguare eventuali omonimie.
+ *
+ * @return string|null
+ */
+function analyticspro_gml_belfiore_da_comune(string $comune, string $provincia = ''): ?string
+{
+    $result     = analyticspro_gml_reverse_candidates($comune);
+    $candidates = $result['codes'];
+    if ($candidates === []) {
+        return null;
+    }
+    if (count($candidates) === 1) {
+        return $candidates[0];
+    }
+
+    $provinciaNorm = analyticspro_gml_norm_provincia($provincia);
+    if ($provinciaNorm !== '') {
+        $provinceMap = analyticspro_gml_belfiore_province_map();
+        $filtered    = [];
+        foreach ($candidates as $candidate) {
+            if (in_array($provinciaNorm, $provinceMap[$candidate] ?? [], true)) {
+                $filtered[] = $candidate;
+            }
+        }
+        if (count($filtered) === 1) {
+            return $filtered[0];
+        }
+        if ($filtered !== []) {
+            $candidates = $filtered;
+        }
+    }
+
+    error_log('[gml_catalog] Ambiguità risoluzione comune "' . $comune . '"'
+        . ($provincia !== '' ? ' provincia "' . $provincia . '"' : '')
+        . ' → candidati: ' . analyticspro_gml_describe_candidates($candidates));
+    return null;
 }
 
 /**
@@ -169,10 +443,20 @@ function analyticspro_gml_foglio_index(string $belfiore): array
  */
 function analyticspro_gml_norm_particella(string $s): string
 {
-    $s       = strtoupper(trim($s));
-    $digits  = ltrim(preg_replace('/\D/', '', $s) ?? '', '0');
-    $letters = preg_replace('/[^A-Z]/', '', $s) ?? '';
-    return ($digits === '' ? '0' : $digits) . $letters;
+    $s = strtoupper(trim($s));
+    $s = preg_replace('/[^A-Z0-9]+/', '', $s) ?? '';
+    if ($s === '') {
+        return '';
+    }
+
+    if (preg_match('/^([A-Z]+)?(\d+)([A-Z]*)$/', $s, $m)) {
+        $prefix = $m[1] ?? '';
+        $digits = ltrim($m[2], '0');
+        $suffix = $m[3] ?? '';
+        return $prefix . ($digits === '' ? '0' : $digits) . $suffix;
+    }
+
+    return $s;
 }
 
 // ---------------------------------------------------------------------------
@@ -403,7 +687,13 @@ function analyticspro_gml_lookup(
     string $allegato = '',
     string $sviluppo = ''
 ): ?array {
-    $belfiore  = strtoupper($belfiore);
+    $belfiore = strtoupper(trim($belfiore));
+    if (!preg_match('/^[A-Z][0-9]{3}$/', $belfiore)) {
+        $belfiore = analyticspro_gml_belfiore_da_comune($belfiore) ?? '';
+    }
+    if ($belfiore === '') {
+        return null;
+    }
     $codFoglio = analyticspro_gml_codice_foglio($foglio, $allegato, $sviluppo);
     $normPart  = analyticspro_gml_norm_particella($particella);
 
@@ -615,6 +905,102 @@ function analyticspro_gml_lookup_streaming(
     });
 
     return $found;
+}
+
+/**
+ * @return array{code:string|null,note:string}
+ */
+function analyticspro_gml_diagnose_lookup(string $belfiore, string $foglio, string $particella): array
+{
+    $belfiore = strtoupper(trim($belfiore));
+    $catalog  = analyticspro_gml_build_catalog();
+    $entry    = $catalog[$belfiore] ?? null;
+    if ($entry === null || empty($entry['ple'])) {
+        return [
+            'code' => 'gml_mancante',
+            'note' => 'Nessun file GML locale disponibile per il comune ' . $belfiore,
+        ];
+    }
+
+    if (!analyticspro_gml_parcel_index_valid($belfiore)) {
+        return [
+            'code' => 'comune_non_indicizzato',
+            'note' => 'Indice GML non disponibile o incompleto per ' . $belfiore,
+        ];
+    }
+
+    $dbPath    = analyticspro_gml_index_dir() . '/' . $belfiore . '.sqlite';
+    $codFoglio = analyticspro_gml_codice_foglio($foglio);
+    $foglio4   = substr($codFoglio, 0, 4);
+    $fogli     = [];
+    $particelle = [];
+
+    try {
+        $db = new SQLite3($dbPath, SQLITE3_OPEN_READONLY);
+
+        $allFogliStmt = $db->query('SELECT DISTINCT cod_foglio FROM parcels ORDER BY cod_foglio');
+        while ($allFogliStmt !== false && ($row = $allFogliStmt->fetchArray(SQLITE3_ASSOC)) !== false) {
+            $fogli[] = (string) $row['cod_foglio'];
+        }
+
+        $matchStmt = $db->prepare(
+            'SELECT DISTINCT cod_foglio FROM parcels WHERE cod_foglio = :cf OR substr(cod_foglio, 1, 4) = :f4 ORDER BY cod_foglio'
+        );
+        if ($matchStmt !== false) {
+            $matchStmt->bindValue(':cf', $codFoglio, SQLITE3_TEXT);
+            $matchStmt->bindValue(':f4', $foglio4, SQLITE3_TEXT);
+            $result = $matchStmt->execute();
+            $matchingFogli = [];
+            while ($result !== false && ($row = $result->fetchArray(SQLITE3_ASSOC)) !== false) {
+                $matchingFogli[] = (string) $row['cod_foglio'];
+            }
+            if ($matchingFogli === []) {
+                $db->close();
+                return [
+                    'code' => 'foglio_inesistente',
+                    'note' => 'Foglio ' . $foglio . ' assente nel GML. Fogli presenti: '
+                        . analyticspro_gml_truncate_list($fogli),
+                ];
+            }
+
+            $partStmt = $db->prepare(
+                'SELECT DISTINCT particella FROM parcels
+                 WHERE cod_foglio = :cf OR substr(cod_foglio, 1, 4) = :f4
+                 ORDER BY particella LIMIT 30'
+            );
+            if ($partStmt !== false) {
+                $partStmt->bindValue(':cf', $codFoglio, SQLITE3_TEXT);
+                $partStmt->bindValue(':f4', $foglio4, SQLITE3_TEXT);
+                $partResult = $partStmt->execute();
+                while ($partResult !== false && ($row = $partResult->fetchArray(SQLITE3_ASSOC)) !== false) {
+                    $particelle[] = (string) $row['particella'];
+                }
+            }
+        }
+
+        $db->close();
+    } catch (Throwable $exception) {
+        return [
+            'code' => 'comune_non_indicizzato',
+            'note' => 'Indice GML non interrogabile: ' . $exception->getMessage(),
+        ];
+    }
+
+    return [
+        'code' => 'particella_inesistente',
+        'note' => 'Particella ' . $particella . ' assente nel foglio ' . $foglio . '. Particelle presenti: '
+            . analyticspro_gml_truncate_list($particelle),
+    ];
+}
+
+function analyticspro_gml_truncate_list(array $values, int $limit = 12): string
+{
+    $values = array_values(array_unique(array_filter(array_map('strval', $values), static fn (string $value): bool => $value !== '')));
+    if ($values === []) {
+        return 'nessuna';
+    }
+    $slice = array_slice($values, 0, $limit);
+    return implode(', ', $slice) . (count($values) > $limit ? ', …' : '');
 }
 
 // ---------------------------------------------------------------------------

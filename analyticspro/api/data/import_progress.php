@@ -38,6 +38,12 @@ try {
     $batch['enrichment_status']    = $batch['enrichment_status']    ?? null;
     $batch['enrichment_processed'] = (int) ($batch['enrichment_processed'] ?? 0);
     $batch['enrichment_total']     = (int) ($batch['enrichment_total']     ?? 0);
+    $enrichmentReportRaw           = $batch['enrichment_report'] ?? null;
+    $batch['enrichment_report']    = null;
+    if (is_string($enrichmentReportRaw) && trim($enrichmentReportRaw) !== '') {
+        $decoded = json_decode($enrichmentReportRaw, true);
+        $batch['enrichment_report'] = is_array($decoded) ? $decoded : null;
+    }
 
     analyticspro_json(['ok' => true, 'batch' => $batch]);
 } catch (Throwable $exception) {
