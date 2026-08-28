@@ -14,6 +14,7 @@
         canExport: root.dataset.canExport === '1',
         canViewReports: root.dataset.canViewReports === '1',
         canViewAnalytics: root.dataset.canViewAnalytics === '1',
+        canViewPhone: root.dataset.canViewPhone === '1',
         propertiesEndpoint: root.dataset.propertiesEndpoint || '',
         propertyUpdateEndpoint: root.dataset.propertyUpdateEndpoint || '',
         importEndpoint: root.dataset.importEndpoint || '',
@@ -83,7 +84,11 @@
     }
 
     async function api(url, options = {}) {
-        const response = await fetch(url, options);
+        const allowErrorPayload = options.allowErrorPayload === true;
+        const requestOptions = { ...options };
+        delete requestOptions.allowErrorPayload;
+
+        const response = await fetch(url, requestOptions);
         if (response.status === 401) {
             const loginUrl = (state.adeJobsEndpoint || state.propertiesEndpoint || '').replace(/\/api\/.*$/, '/login.php') || 'login.php';
             window.location.href = loginUrl;
@@ -91,7 +96,11 @@
         }
         const payload = await response.json();
         if (!response.ok || payload.ok === false) {
-            throw new Error(payload.error || 'Operazione non riuscita');
+            if (allowErrorPayload) return payload;
+            const error = new Error(payload.error || 'Operazione non riuscita');
+            error.payload = payload;
+            error.status = response.status;
+            throw error;
         }
         return payload;
     }
@@ -121,7 +130,9 @@
 
     function updateKpis() {
         const ownerCount = state.properties.reduce((sum, property) => sum + (property.owners?.length || 0), 0);
-        const phoneCount = state.properties.reduce((sum, property) => sum + (property.owners || []).filter(owner => owner.telefono).length, 0);
+        const phoneCount = state.canViewPhone
+            ? state.properties.reduce((sum, property) => sum + (property.owners || []).filter(owner => owner.telefono).length, 0)
+            : 0;
         const assignedCount = state.role === 'subuser'
             ? state.assignedProperties.length
             : state.properties.filter(property => (property.assignments || []).length > 0).length;
@@ -132,7 +143,15 @@
         };
         setKpi('properties', state.properties.length);
         setKpi('owners', ownerCount);
-        setKpi('phones', phoneCount);
+        if (state.canViewPhone) {
+            setKpi('phones', phoneCount);
+        } else {
+            const phoneKpiEl = document.querySelector('[data-kpi="phones"]');
+            if (phoneKpiEl) {
+                const card = phoneKpiEl.closest('.card, .kpi-card, [class*="kpi"]');
+                if (card) card.style.display = 'none';
+            }
+        }
         setKpi('assigned', assignedCount);
     }
 
@@ -140,7 +159,7 @@
         return (property.owners || []).map(owner => {
             const icon = owner.tipo === 'azienda' ? 'bi-building' : 'bi-person';
             const fullName = `${owner.cognome || ''} ${owner.nome || ''}`.trim() || 'Intestatario';
-            return `<span class="owner-badge"><i class="bi ${icon}"></i>${escapeHtml(fullName)}${owner.telefono ? ` · ${escapeHtml(owner.telefono)}` : ''}</span>`;
+            return `<span class="owner-badge"><i class="bi ${icon}"></i>${escapeHtml(fullName)}${state.canViewPhone && owner.telefono ? ` · ${escapeHtml(owner.telefono)}` : ''}</span>`;
         }).join(' ');
     }
 
@@ -239,9 +258,16 @@
         });
     }
 
+    function getAssignedPropertiesForDisplay() {
+        const assignmentFilter = document.getElementById('assigned-assignment-filter')?.value || 'all';
+        if (assignmentFilter === 'assigned') return state.assignedProperties.filter(property => property.is_assigned);
+        if (assignmentFilter === 'unassigned') return state.assignedProperties.filter(property => !property.is_assigned);
+        return state.assignedProperties;
+    }
+
     function renderAssignedTable() {
         if (!document.getElementById('assigned-table')) return;
-        initDataTable('#assigned-table', buildTableData(state.assignedProperties), state.canExport || state.role !== 'subuser');
+        initDataTable('#assigned-table', buildTableData(getAssignedPropertiesForDisplay()), state.canExport || state.role !== 'subuser');
     }
 
     function renderReportTable() {
@@ -273,7 +299,42 @@
                 { position: 'topright' }
             ).addTo(state.map);
 
-            state.markers = L.markerClusterGroup();
+            state.markers = L.markerClusterGroup({
+                iconCreateFunction: function (cluster) {
+                    const markers = cluster.getAllChildMarkers();
+                    const total = markers.length;
+                    const counts = {};
+                    for (const marker of markers) {
+                        const color = marker.options?.fillColor
+                            || marker.options?.color
+                            || marker.options?.icon?.options?.markerColor
+                            || '#808080';
+                        counts[color] = (counts[color] || 0) + 1;
+                    }
+                    const r = 24;
+                    const cx = 28;
+                    const cy = 28;
+                    const stroke = 5;
+                    const circumference = 2 * Math.PI * r;
+                    let offset = 0;
+                    let paths = '';
+                    for (const [color, count] of Object.entries(counts)) {
+                        const pct = count / total;
+                        const dash = circumference * pct;
+                        const gap  = circumference - dash;
+                        const safeColor = /^#[0-9a-fA-F]{3,8}$/.test(color) ? color : '#808080';
+                        paths += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${safeColor}" stroke-width="${stroke}" stroke-dasharray="${dash.toFixed(2)} ${gap.toFixed(2)}" stroke-dashoffset="${(-offset * circumference).toFixed(2)}" transform="rotate(-90 ${cx} ${cy})"/>`;
+                        offset += pct;
+                    }
+                    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="56" height="56" viewBox="0 0 56 56"><circle cx="${cx}" cy="${cy}" r="${r + stroke / 2}" fill="white" opacity=".85"/>${paths}<text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="central" font-size="12" font-weight="bold" fill="#333">${total}</text></svg>`;
+                    return L.divIcon({
+                        html: svg,
+                        className: 'analyticspro-cluster-icon',
+                        iconSize: L.point(56, 56),
+                        iconAnchor: L.point(28, 28),
+                    });
+                },
+            });
             state.map.addLayer(state.markers);
         }
 
@@ -302,13 +363,13 @@
             <tr>
                 <td><i class="bi ${owner.tipo === 'azienda' ? 'bi-building' : 'bi-person'} me-1"></i>${escapeHtml(`${owner.cognome || ''} ${owner.nome || ''}`.trim())}</td>
                 <td>${escapeHtml(owner.codice_fiscale || '—')}</td>
-                <td>${escapeHtml(owner.telefono || '—')}</td>
+                ${state.canViewPhone ? `<td>${escapeHtml(owner.telefono || '—')}</td>` : ''}
             </tr>`).join('');
         return `
             <div class="map-popup" data-property-id="${property.id}">
                 <div class="fw-semibold mb-2">${escapeHtml(property.comune)} · F.${escapeHtml(property.foglio)} P.${escapeHtml(property.particella)}</div>
                 <div class="small text-muted mb-2">${escapeHtml(`${property.indirizzo || ''} ${property.civico || ''}`.trim())} · ${escapeHtml(property.categoria || 'Categoria N/D')}</div>
-                <table class="table table-sm map-popup-table"><thead><tr><th>Intestatario</th><th>CF/P.IVA</th><th>Telefono</th></tr></thead><tbody>${ownerRows}</tbody></table>
+                <table class="table table-sm map-popup-table"><thead><tr><th>Intestatario</th><th>CF/P.IVA</th>${state.canViewPhone ? '<th>Telefono</th>' : ''}</tr></thead><tbody>${ownerRows}</tbody></table>
                 ${editableColumns(property)}
                 <div class="mt-2 small">${(property.notes || []).map(note => `<div class="note-badge"><strong>${escapeHtml(note.author_name_snapshot)}</strong> ${escapeHtml(note.created_at)} · ${escapeHtml(note.testo)}</div>`).join('') || '<span class="text-muted">Nessuna nota</span>'}</div>
             </div>`;
@@ -467,7 +528,11 @@
         state.overlay?.hide();
         await loadProperties();
         const savedRows = processPayload.saved_rows ?? processPayload.total_rows ?? rows.length;
-        alert(`Import completato: ${savedRows} righe salvate. Geolocalizzazione dei marker in corso.`);
+        // Mostra il risultato nel logger dell'enrichment invece di un alert
+        const _importContainer = document.getElementById('enrichment-status-container');
+        const _importText = document.getElementById('enrichment-progress-text');
+        if (_importContainer) _importContainer.style.display = '';
+        if (_importText) _importText.textContent = `Import completato: ${savedRows} righe salvate. Avvio geolocalizzazione…`;
         // Phase 2 (coordinate enrichment): if the background worker was launched
         // successfully, poll its status. If not (enrichment_sync = true), drive the
         // enrichment directly via repeated chunk calls so the spinner always terminates.
@@ -596,10 +661,26 @@
             calls++;
             let result;
             try {
-                result = await api(`${state.enrichChunkEndpoint}?batch_id=${batchId}&limit=25`);
-            } catch {
+                result = await api(`${state.enrichChunkEndpoint}?batch_id=${batchId}&limit=25`, { allowErrorPayload: true });
+            } catch (fetchErr) {
+                // Errore di rete transitorio: riprova dopo una pausa
                 await new Promise(resolve => setTimeout(resolve, 2000));
                 continue;
+            }
+
+            // Ferma il loop su errori non recuperabili (non riprovare all'infinito)
+            if (result.ok === false) {
+                const errCode = result.error_code ?? 'unknown';
+                if (errCode === 'transient') {
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    continue;
+                }
+                if (text) {
+                    text.textContent = `Errore enrichment [${errCode}]: ${result.error ?? 'Errore sconosciuto'}`;
+                    text.classList.add('text-danger');
+                }
+                if (bar) bar.classList.replace('bg-primary', 'bg-danger');
+                return;
             }
 
             const processed = result.processed ?? 0;
@@ -961,6 +1042,9 @@
                 state.assignedProperties = payload.properties || [];
                 renderAssignedTable();
             }).catch(error => alert(error.message));
+        }
+        if (event.target.id === 'assigned-assignment-filter') {
+            renderAssignedTable();
         }
         if (event.target.id === 'ade-zips') {
             setAdeUploadButtonState('ade-zips', 'ade-zips-submit', '<i class="bi bi-cloud-upload me-1"></i>Importa', '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Caricamento...', false);

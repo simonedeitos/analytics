@@ -1,7 +1,7 @@
 -- Migration 005: tabelle per i job di indicizzazione GML in background.
 -- Stesso pattern di ade_import_jobs / ade_import_job_log.
 
-CREATE TABLE gml_index_jobs (
+CREATE TABLE IF NOT EXISTS gml_index_jobs (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     belfiore VARCHAR(4) NOT NULL COMMENT 'Codice Belfiore o "ALL" per tutti i comuni',
     status ENUM('queued','running','completed','failed') NOT NULL DEFAULT 'queued',
@@ -18,7 +18,7 @@ CREATE TABLE gml_index_jobs (
     INDEX idx_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-CREATE TABLE gml_index_job_log (
+CREATE TABLE IF NOT EXISTS gml_index_job_log (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     job_id INT UNSIGNED NOT NULL,
     level ENUM('info','warning','error') NOT NULL DEFAULT 'info',
