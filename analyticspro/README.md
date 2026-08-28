@@ -280,6 +280,10 @@ Tutti i risultati (sia Zornade che WFS-AdE) vengono salvati in un database SQLit
 provider che ha risolto la particella). Le chiamate successive per la stessa particella
 non richiedono alcuna richiesta HTTP.
 
+All'apertura della cache, `analyticspro_wfs_open_cache_db()` verifica lo schema con
+`PRAGMA table_info(particelle_cache)`: se manca `source`, prova `ALTER TABLE`; se fallisce,
+ricrea automaticamente il file cache (nessuna perdita di dati reali).
+
 La cache è indicizzata per `(cod_catastale, foglio, particella)`, dove `cod_catastale` è
 il codice Belfiore anche per i risultati Zornade — la cache è quindi condivisa tra i due provider.
 
@@ -288,26 +292,15 @@ il codice Belfiore anche per i risultati Zornade — la cache è quindi condivis
 **Fase 1 — Persistenza dati (sincrona, sempre garantita)**  
 `api/data/import.php` chiama direttamente `analyticspro_process_import_batch_payload()` nella
 stessa richiesta HTTP, scrivendo **tutte** le righe del file in `properties` con
-`lat = NULL`, `lng = NULL`, `posizione_verificata = 0`, senza effettuare alcuna chiamata di rete.
-La risposta HTTP torna sempre al browser subito dopo la Fase 1, indipendentemente dall'esito
-del worker di arricchimento.
+`lat = NULL`, `lng = NULL`, `posizione_verificata = 0`.
 
-**Fase 2 — Arricchimento coordinate (background/cron/sincrono)**  
-Subito dopo la Fase 1, `analyticspro_launch_background()` tenta di avviare
-`cron/enrich_property_coordinates.php` in background.
+**Fase 2 — Arricchimento coordinate (sincrono nella stessa richiesta)**  
+Subito dopo la Fase 1, `api/data/import.php` chiama `analyticspro_enrich_batch_coordinates_sync()`
+e prova a risolvere le particelle uniche del batch nello stesso round-trip HTTP.
 
-**Fallback sincrono a lotti**: se il background worker **non può partire** (hosting che non
-supporta `proc_open`/`shell_exec`), la colonna `import_batches.enrichment_sync` viene impostata
-a `1` e la risposta include `enrichment_sync: true`. Il frontend rileva questa condizione e
-chiama ripetutamente `api/data/enrich_chunk.php?batch_id=X&limit=25`, elaborando 25 particelle
-per ogni chiamata di polling. In questo modo l'arricchimento procede senza mai bloccare il browser
-e la barra di avanzamento si aggiorna ad ogni chunk.
-
-**Watchdog anti-stallo**: se dopo 6 poll (~15 secondi) lo stato è ancora `pending` con
-`enrichment_processed = 0`, il frontend commuta automaticamente alla modalità chunk sincrona
-anche senza `enrichment_sync: true` (utile se il segnale si perde).
-
-La risposta HTTP torna comunque immediatamente — non c'è mai alcun blocco del browser.
+**Soglia di sicurezza**: oltre `IMPORT_SYNC_MAX_UNIQUE` (default `2000`) la richiesta elabora
+le prime particelle e lascia il residuo a `api/data/enrich_chunk.php` (`enrichment_sync = 1`).
+Il frontend continua con chunk sincroni progressivi e si interrompe al primo errore non recuperabile.
 
 ### Catena di risoluzione del codice Belfiore
 
@@ -488,6 +481,7 @@ php analyticspro/tests/gml_stream_smoke.php   # parser streaming + centroide
 php analyticspro/tests/gml_parser_smoke.php   # parser DOM esistente
 php analyticspro/tests/gml_catalog_smoke.php  # lookup/normalizzazione GML
 php analyticspro/tests/gml_resolution_smoke.php
+php analyticspro/tests/wfs_cache_schema_repair_smoke.php
 php analyticspro/tests/ade_sql_import_smoke.php
 ```
 
@@ -498,14 +492,18 @@ php analyticspro/tests/ade_sql_import_smoke.php
 Le coordinate vengono risolte **durante la stessa richiesta HTTP** di import (Fase 2), senza
 dipendere da un worker in background.
 
-- `api/data/import.php` in modalità `process`: esegue la Fase 1 (persistenza dati) e poi
-  tenta di avviare il worker in background tramite `analyticspro_launch_background()`.
-- Se `proc_open`/`shell_exec` non sono disponibili (hosting condiviso), imposta
-  `enrichment_sync = 1` sul batch e il frontend passa automaticamente alla modalità
-  chunk-based via `api/data/enrich_chunk.php`.
-- La funzione `analyticspro_enrich_batch_coordinates_chunk()` è condivisa tra il pulsante
-  "Rigenera coordinate mancanti" (`batch_id=0`) e l'import (`batch_id>0`): nessuna
-  duplicazione di logica.
+- `api/data/import.php` in modalità `process` esegue:
+  1. Fase 1: persistenza dati catastali
+  2. Fase 2: geolocalizzazione sincrona delle particelle uniche
+- La risoluzione coordinate usa la funzione condivisa
+  `analyticspro_resolve_parcel_coordinates(array $property, array &$memo)`, con memoizzazione:
+  - cache `comune|provincia → belfiore`
+  - cache `belfiore|foglio|particella → coordinate`
+- Catena Belfiore: codice esplicito → indice inverso da nomi file GML (`BBBB_NOME_ple.gml`)
+  → `analyticspro_resolve_cod_catastale()` (fallback su JSON/DB).
+- Soglia di sicurezza configurabile (`IMPORT_SYNC_MAX_UNIQUE`, default `2000`): oltre soglia
+  la richiesta processa una parte e lascia il resto al fallback chunk (`enrichment_sync = 1`)
+  via `api/data/enrich_chunk.php` usando la **stessa** funzione condivisa.
 
 ### Risposta di errore strutturata di enrich_chunk
 
@@ -529,8 +527,13 @@ riprovare all'infinito.
 
 ## Nuova UI dell'importatore
 
-- L'alert "Import completato: N righe salvate. Geolocalizzazione dei marker in corso" è stato
-  rimosso. Le stesse informazioni appaiono nel container `#enrichment-status-container`.
+- Nessun alert browser di completamento import.
+- Tutto lo stato è nel riquadro unico `#enrichment-status-container`:
+  - fase corrente (`Lettura file`, `Analisi duplicati`, `Salvataggio dati`,
+    `Geolocalizzazione`, `Completato`)
+  - barra di avanzamento
+  - logger scorrevole in stile console (timestamp + livello)
+  - riepilogo finale (`coord_source`, fallimenti, particelle non risolte)
 - Il loop `enrichChunkLoop` si ferma immediatamente su errori non recuperabili mostrando
   il messaggio di errore nell'UI con sfondo rosso.
 

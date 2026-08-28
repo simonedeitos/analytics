@@ -1032,7 +1032,7 @@
         let sourceIcon = '';
         let sourceText = '';
 
-        if (addressData.source === 'CatastoDB' || addressData.source === 'WFS-AdE' || addressData.source === 'Cache') {
+        if (['CatastoDB', 'WFS-AdE', 'Cache', 'gml_locale', 'zornade', 'wfs', 'cache'].includes(addressData.source)) {
             sourceIcon = '<i class="bi bi-database-check text-success ms-1" title="Coordinate precise da database catasto"></i>';
             sourceText = `✓ Database Catasto (${formatAreaString(addressData.area_mq)})`;
         } else if (addressData.jittered) {
@@ -1106,10 +1106,14 @@
      */
     function applyJitterToDuplicates(addresses) {
         const coordsMap = new Map(); // "lat,lng" → [addr1, addr2, ...]
+        const preciseSources = new Set(['CatastoDB', 'WFS-AdE', 'Cache', 'gml_locale', 'zornade', 'wfs', 'cache']);
 
         // Group by coordinates
         addresses.forEach(addr => {
             if (Number.isFinite(addr.lat) && Number.isFinite(addr.lng)) {
+                if (preciseSources.has(String(addr.source || ''))) {
+                    return;
+                }
                 const key = `${addr.lat.toFixed(6)},${addr.lng.toFixed(6)}`;
                 if (!coordsMap.has(key)) coordsMap.set(key, []);
                 coordsMap.get(key).push(addr);
