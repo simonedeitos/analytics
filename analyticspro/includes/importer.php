@@ -73,49 +73,99 @@ function analyticspro_owner_identity_signature(array $owner): string
     return implode('|', array_map(static fn ($part) => $part ?? '', $parts));
 }
 
+/**
+ * Cerca nella riga una colonna il cui nome corrisponde (normalizzato) a uno degli alias.
+ * La normalizzazione rimuove accenti, apostrofi, underscore/trattini, converte in
+ * maiuscolo e collassa gli spazi — stessa logica di analyticspro_gml_norm_nome_comune().
+ *
+ * @param array<string,mixed> $row     La riga dell'import (chiavi = nomi colonna originali)
+ * @param string[]            $aliases Lista di alias da cercare nell'ordine dato
+ * @return array{0:string,1:string}    [valore trovato (stringa), nome colonna trovata] oppure ['','']
+ */
+function analyticspro_row_pick(array $row, array $aliases): array
+{
+    // Funzione di normalizzazione locale (non richiede gml_catalog.php)
+    $norm = static function (string $s): string {
+        $s = strtoupper(trim($s));
+        $s = strtr($s, [
+            'À' => 'A', 'Á' => 'A', 'Â' => 'A', 'Ä' => 'A',
+            'È' => 'E', 'É' => 'E', 'Ê' => 'E', 'Ë' => 'E',
+            'Ì' => 'I', 'Í' => 'I', 'Î' => 'I', 'Ï' => 'I',
+            'Ò' => 'O', 'Ó' => 'O', 'Ô' => 'O', 'Ö' => 'O',
+            'Ù' => 'U', 'Ú' => 'U', 'Û' => 'U', 'Ü' => 'U',
+        ]);
+        $s = str_replace(["'", "\xe2\x80\x99", '`', '_', '-', '.'], ' ', $s);
+        $s = preg_replace('/[^A-Z0-9 ]+/u', ' ', $s) ?? $s;
+        return trim(preg_replace('/\s+/', ' ', $s) ?? $s);
+    };
+
+    // Costruisce la mappa normalizzata delle colonne presenti nella riga
+    $normalizedKeys = [];
+    foreach (array_keys($row) as $colName) {
+        $normalizedKeys[$norm((string) $colName)] = (string) $colName;
+    }
+
+    // Cerca ogni alias nella mappa
+    foreach ($aliases as $alias) {
+        $aliasNorm = $norm($alias);
+        if (isset($normalizedKeys[$aliasNorm])) {
+            $originalCol = $normalizedKeys[$aliasNorm];
+            return [trim((string) ($row[$originalCol] ?? '')), $originalCol];
+        }
+    }
+
+    return ['', ''];
+}
+
 function analyticspro_extract_row_payload(array $row): array
 {
-    $contacts = analyticspro_parse_contacts((string) ($row['Contatti'] ?? $row['contatti'] ?? ''));
-    $surname = trim((string) ($row['Cognome'] ?? $row['Nome'] ?? ''));
+    // ---- Estrazione tollerante con alias -----------------------------------
+    [$comune]        = analyticspro_row_pick($row, ['Comune', 'COMUNE', 'Comune Immobile', 'Citta', 'Città', 'Municipio']);
+    [$provinciaRaw]  = analyticspro_row_pick($row, ['Provincia', 'PROVINCIA', 'Prov', 'Sigla', 'Pr']);
+    [$foglio]        = analyticspro_row_pick($row, ['Foglio', 'FOGLIO', 'Fg', 'Foglio Catastale']);
+    [$particella]    = analyticspro_row_pick($row, ['Particella', 'PARTICELLA', 'Part', 'Mappale', 'Numero']);
+    [$subalterno]    = analyticspro_row_pick($row, ['Subalterno', 'SUBALTERNO', 'Sub']);
+    [$codCatRaw]     = analyticspro_row_pick($row, ['Codice Catastale', 'CODICE CATASTALE', 'Belfiore', 'Cod Catastale']);
+
+    $provincia = strtoupper(trim($provinciaRaw));
+
+    $resolvedCod = analyticspro_resolve_cod_catastale($codCatRaw, $comune, $provincia);
+
+    // ---- Campi non catastali (nomi colonna già stabili) --------------------
+    $contacts  = analyticspro_parse_contacts((string) ($row['Contatti'] ?? $row['contatti'] ?? ''));
+    $surname   = trim((string) ($row['Cognome'] ?? $row['Nome'] ?? ''));
     $givenName = trim((string) ($row['Nome1'] ?? $row['Nome Proprietario'] ?? $row['NomeProprietario'] ?? ''));
-    $cf = trim((string) ($row['Codice Fiscale'] ?? $row['Codice fiscale'] ?? ''));
-    $provincia = strtoupper(trim((string) ($row['Provincia'] ?? '')));
-    $comune = trim((string) ($row['Comune'] ?? ''));
-    $resolvedCod = analyticspro_resolve_cod_catastale(
-        (string) ($row['Codice Catastale'] ?? ''),
-        $comune,
-        $provincia
-    );
+    $cf        = trim((string) ($row['Codice Fiscale'] ?? $row['Codice fiscale'] ?? ''));
 
     return [
         'property' => [
-            'provincia' => $provincia,
-            'comune' => $comune,
+            'provincia'     => $provincia,
+            'comune'        => $comune,
             'cod_catastale' => trim((string) ($resolvedCod['cod'] ?? '')),
-            'sezione' => trim((string) ($row['Sezione'] ?? '')),
-            'foglio' => trim((string) ($row['Foglio'] ?? '')),
-            'particella' => trim((string) ($row['Particella'] ?? '')),
-            'subalterno' => trim((string) ($row['Subalterno'] ?? '')),
-            'indirizzo' => trim((string) ($row['Indirizzo'] ?? '')),
-            'civico' => trim((string) ($row['Civico'] ?? '')),
-            'categoria' => trim((string) ($row['Categoria'] ?? '')),
-            'classe' => trim((string) ($row['Classe'] ?? '')),
-            'consistenza' => trim((string) ($row['Consistenza'] ?? '')),
-            'superficie' => trim((string) ($row['Superficie'] ?? '')),
-            'rendita' => trim((string) ($row['Rendita'] ?? '')),
-            'titolarita' => trim((string) ($row['Titolarita'] ?? $row['Titolarità'] ?? '')),
-            'quota' => trim((string) ($row['Quota'] ?? '')),
+            'sezione'       => trim((string) ($row['Sezione'] ?? '')),
+            'foglio'        => $foglio,
+            'particella'    => $particella,
+            'subalterno'    => $subalterno,
+            'indirizzo'     => trim((string) ($row['Indirizzo'] ?? '')),
+            'civico'        => trim((string) ($row['Civico'] ?? '')),
+            'categoria'     => trim((string) ($row['Categoria'] ?? '')),
+            'classe'        => trim((string) ($row['Classe'] ?? '')),
+            'consistenza'   => trim((string) ($row['Consistenza'] ?? '')),
+            'superficie'    => trim((string) ($row['Superficie'] ?? '')),
+            'rendita'       => trim((string) ($row['Rendita'] ?? '')),
+            'titolarita'    => trim((string) ($row['Titolarita'] ?? $row['Titolarità'] ?? '')),
+            'quota'         => trim((string) ($row['Quota'] ?? '')),
         ],
         'owner' => [
-            'tipo' => preg_match('/^\d{11}$/', $cf) ? 'azienda' : 'persona',
-            'nome' => $givenName,
-            'cognome' => $surname,
+            'tipo'          => preg_match('/^\d{11}$/', $cf) ? 'azienda' : 'persona',
+            'nome'          => $givenName,
+            'cognome'       => $surname,
             'codice_fiscale' => $cf,
-            'telefono' => $contacts['phones'][0] ?? '',
-            'indirizzo' => trim((string) ($row['Indirizzo Proprietario'] ?? $row['Indirizzo'] ?? '')),
-            'email' => $contacts['emails'][0] ?? '',
-            'data_nascita' => analyticspro_parse_birth_date((string) ($row['Data Nascita'] ?? '')),
-            'genere' => analyticspro_guess_gender($cf),
+            'telefono'      => $contacts['phones'][0] ?? '',
+            'indirizzo'     => trim((string) ($row['Indirizzo Proprietario'] ?? $row['Indirizzo'] ?? '')),
+            'email'         => $contacts['emails'][0] ?? '',
+            'data_nascita'  => analyticspro_parse_birth_date((string) ($row['Data Nascita'] ?? '')),
+            'genere'        => analyticspro_guess_gender($cf),
         ],
     ];
 }

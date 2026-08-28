@@ -71,6 +71,21 @@ analyticspro_render_header('Importa dati', ['app_assets' => true]);
             </button>
         </div>
     </div>
+
+    <!-- Logger import: visibile durante e dopo l'import -->
+    <div id="import-log-container" class="card border-0 shadow-sm mb-4" style="display:none">
+        <div class="card-header fw-semibold d-flex align-items-center gap-2">
+            <i class="bi bi-terminal"></i>
+            Log importazione
+        </div>
+        <div class="card-body p-0">
+            <div id="import-log-body"
+                 style="background:#1e1e1e;color:#d4d4d4;font-family:monospace;font-size:.8rem;
+                        max-height:300px;overflow-y:auto;padding:0.75rem;white-space:pre-wrap;
+                        user-select:text;cursor:text;">
+            </div>
+        </div>
+    </div>
 </div>
 
 <div class="modal fade" id="import-overlay" tabindex="-1" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
@@ -78,21 +93,11 @@ analyticspro_render_header('Importa dati', ['app_assets' => true]);
         <div class="modal-content">
             <div class="modal-body p-4 text-center">
                 <div class="spinner-border text-primary mb-3"></div>
-                <h2 class="h5">Non chiudere la pagina finché l'importazione non è completata</h2>
-                <div class="progress my-3" style="height: 10px;"><div id="import-progress-bar" class="progress-bar" style="width:0%"></div></div>
-                <p class="small text-muted mb-0" id="import-progress-text">Preparazione import...</p>
+                <h2 class="h5">Import e geolocalizzazione in corso — non chiudere la pagina</h2>
+                <div class="progress my-3" style="height: 10px;"><div id="import-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" style="width:100%"></div></div>
+                <p class="small text-muted mb-0" id="import-progress-text">Salvataggio dati e ricerca coordinate…</p>
             </div>
         </div>
     </div>
 </div>
 <?php analyticspro_render_footer(true); ?>
-<!-- Enrichment status bar: shown by pollEnrichment() after import completes -->
-<div id="enrichment-status-container" class="container mt-3" style="display:none">
-    <div class="alert alert-info py-2 mb-0">
-        <div class="progress mb-2" style="height:8px">
-            <div id="enrichment-progress-bar" class="progress-bar bg-primary progress-bar-striped progress-bar-animated" style="width:0%"></div>
-        </div>
-        <p id="enrichment-progress-text" class="small mb-0">Geolocalizzazione marker in corso...</p>
-        <div id="enrichment-report" class="small mt-2 d-none"></div>
-    </div>
-</div>
