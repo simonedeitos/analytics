@@ -496,7 +496,11 @@
         const text      = document.getElementById('enrichment-progress-text');
         if (container) container.style.display = '';
 
-        while (true) {
+        const maxIterations = 240; // ~10 minutes at 2.5 s per poll
+        let   iterations    = 0;
+
+        while (iterations < maxIterations) {
+            iterations++;
             let batch;
             try {
                 const payload = await api(`${state.importProgressEndpoint}?batch_id=${batchId}`);
@@ -536,6 +540,9 @@
             // Still processing — poll again after 2.5 s.
             await new Promise(resolve => setTimeout(resolve, 2500));
         }
+
+        // Max iterations reached — stop polling to avoid infinite background requests.
+        if (text) text.textContent = 'Timeout polling geolocalizzazione. Ricarica la pagina per aggiornare i marker.';
     }
 
     // ---- ADE log modal ----

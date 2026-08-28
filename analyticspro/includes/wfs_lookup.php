@@ -77,12 +77,15 @@ function analyticspro_wfs_open_cache_db(): SQLite3
     $db->exec('CREATE INDEX IF NOT EXISTS idx_particelle_cache_lookup ON particelle_cache(cod_catastale, foglio, particella)');
 
     // Migration 003: add `source` column to existing databases that were created before
-    // this column was introduced.  SQLite will raise an error if the column already
-    // exists; we catch and ignore that specific condition.
-    try {
-        @$db->exec("ALTER TABLE particelle_cache ADD COLUMN source VARCHAR(20) DEFAULT 'WFS-AdE'");
-    } catch (Throwable) {
-        // Column already exists — safe to ignore.
+    // this column was introduced.  SQLite returns error code 1 with "duplicate column name"
+    // when the column already exists, which is safe to ignore.  Any other error is logged.
+    $migrated = @$db->exec("ALTER TABLE particelle_cache ADD COLUMN source VARCHAR(20) DEFAULT 'WFS-AdE'");
+    if (!$migrated) {
+        $errMsg = $db->lastErrorMsg();
+        // "duplicate column name" means the migration was already applied — safe to ignore.
+        if (stripos($errMsg, 'duplicate column') === false) {
+            error_log('[WFS cache] Migration 003 unexpected error: ' . $errMsg);
+        }
     }
 
     return $db;

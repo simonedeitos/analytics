@@ -209,10 +209,6 @@ function analyticspro_lookup_cadastral_coordinates(array $property): array
             $cached = $codCatastale !== ''
                 ? analyticspro_wfs_get_cached_particella($db, $codCatastale, $foglio, $particella)
                 : null;
-            // Also check the Zornade-keyed cache entry if comune/provincia are available.
-            if ($cached === null && $comune !== '' && $provincia !== '') {
-                $cached = analyticspro_zornade_get_cached_particella($db, $comune, $provincia, $foglio, $particella);
-            }
             if ($cached !== null) {
                 $db->close();
                 $db = null;
@@ -234,7 +230,7 @@ function analyticspro_lookup_cadastral_coordinates(array $property): array
         if ($comune !== '' && $provincia !== '') {
             $now      = microtime(true);
             $elapsed  = $now - $lastZornadeCallAt;
-            $minGap   = 0.18; // ~180 ms gap → stays well within 10 000 req/h
+            $minGap   = 0.40; // 400 ms gap → ≤ 9 000 req/h, safely within 10 000 req/h limit
             if ($lastZornadeCallAt > 0.0 && $elapsed < $minGap) {
                 usleep((int) (($minGap - $elapsed) * 1_000_000));
             }
@@ -574,7 +570,7 @@ function analyticspro_enrich_batch_coordinates(int $batchId): void
                 if ($comune !== '' && $provincia !== '') {
                     $now     = microtime(true);
                     $elapsed = $now - $lastZornadeCallAt;
-                    $minGap  = 0.18;
+                    $minGap  = 0.40; // 400 ms gap → ≤ 9 000 req/h
                     if ($lastZornadeCallAt > 0.0 && $elapsed < $minGap) {
                         usleep((int) (($minGap - $elapsed) * 1_000_000));
                     }

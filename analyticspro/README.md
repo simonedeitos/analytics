@@ -243,7 +243,7 @@ delle Entrate** (INSPIRE) se Zornade non è configurato o non trova la particell
 
 ### Rate limiting
 
-- **Zornade**: gap minimo di ~180 ms tra chiamate live (≈ 20.000 req/h max, dentro il limite di 10.000 req/h dichiarato).
+- **Zornade**: gap minimo di ~400 ms tra chiamate live (≤ 9.000 req/h, dentro il limite di 10.000 req/h dichiarato).
   Se la risposta contiene l'header `X-RateLimit-Remaining` il codice lo legge;
   se la risposta è `429` con `Retry-After`, il worker aspetta il tempo indicato.
 - **WFS-AdE**: gap minimo di 500 ms tra chiamate live (comportamento invariato rispetto alle versioni precedenti).
