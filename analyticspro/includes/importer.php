@@ -990,9 +990,9 @@ function analyticspro_enrich_batch_coordinates_chunk(int $batchId, int $limit = 
     )->execute(['delta' => $chunkProcessed, 'id' => $batchId]);
 
     // Controlla se rimangono particelle
-    $remaining = (int) $pdo->query(
-        'SELECT COUNT(*) FROM properties WHERE import_batch_id = ' . (int) $batchId . ' AND lat IS NULL'
-    )->fetchColumn();
+    $remainStmt = $pdo->prepare('SELECT COUNT(*) FROM properties WHERE import_batch_id = :bid AND lat IS NULL');
+    $remainStmt->execute(['bid' => $batchId]);
+    $remaining = (int) $remainStmt->fetchColumn();
     $done = ($remaining === 0);
 
     if ($done) {

@@ -409,23 +409,24 @@ function analyticspro_gml_lookup(
 
     // ------------------------------------------------------------------
     // Strategia 1 & 2: indice SQLite
+    // Se l'indice è valido ma non contiene la particella, restituiamo null
+    // senza eseguire la ricerca streaming (che è riservata ai comuni non indicizzati).
     // ------------------------------------------------------------------
-    if (analyticspro_gml_parcel_index_valid($belfiore)) {
+    $indexValid = analyticspro_gml_parcel_index_valid($belfiore);
+    if ($indexValid) {
         $dbPath = analyticspro_gml_index_dir() . '/' . $belfiore . '.sqlite';
         if (is_file($dbPath)) {
-            $result = analyticspro_gml_lookup_in_index($dbPath, $codFoglio, $particella, $normPart);
-            if ($result !== null) {
-                return $result;
-            }
+            return analyticspro_gml_lookup_in_index($dbPath, $codFoglio, $particella, $normPart);
         }
-    } else {
-        error_log('[gml_catalog] Indice particelle non disponibile per ' . $belfiore
-            . '. Indicizzare il comune dalla pagina Admin → Import GML.');
+        return null;
     }
+
+    error_log('[gml_catalog] Indice particelle non disponibile per ' . $belfiore
+        . '. Indicizzare il comune dalla pagina Admin → Import GML.');
 
     // ------------------------------------------------------------------
     // Strategia 3: ricerca diretta in streaming sul _ple.gml
-    // Usata quando l'indice non è disponibile, solo se il file è ≤ 60 MB
+    // Usata SOLO quando l'indice non è disponibile, e solo se il file è ≤ 60 MB
     // (evita timeout su file molto grandi).
     // ------------------------------------------------------------------
     return analyticspro_gml_lookup_streaming($belfiore, $codFoglio, $normPart, $particella);
@@ -446,7 +447,7 @@ function analyticspro_gml_lookup_in_index(
         $db = new SQLite3($dbPath, SQLITE3_OPEN_READONLY);
 
         // Tentativo 1: foglio esatto + particella esatta
-        $row = analyticspro_gml_sqlite_lookup_row($db, $codFoglio, ':cf', $particella, $normPart);
+        $row = analyticspro_gml_sqlite_lookup_row($db, $codFoglio, $particella, $normPart);
         if ($row !== null) {
             $db->close();
             return analyticspro_gml_make_result($row, $codFoglio, $particella);
@@ -490,7 +491,6 @@ function analyticspro_gml_lookup_in_index(
 function analyticspro_gml_sqlite_lookup_row(
     SQLite3 $db,
     string  $codFoglio,
-    string  $cfParam,
     string  $particella,
     string  $normPart
 ): ?array {
