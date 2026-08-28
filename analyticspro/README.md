@@ -54,9 +54,10 @@ viene lanciato in background tramite `analyticspro_launch_background()`. Questo 
    `enrichment_processed`, `enrichment_total`.
 6. Isola gli errori per singola particella senza abortire l'arricchimento.
 
-Se `proc_open`/`shell_exec` non sono disponibili (hosting limitati), il fallback sincrono
-esegue l'arricchimento nello stesso processo subito dopo la Fase 1.
-La Fase 1 è sempre atomicamente completata prima di qualsiasi chiamata WFS.
+Se `proc_open`/`shell_exec` non sono disponibili (hosting limitati), il batch rimane con
+`enrichment_status = 'pending'` e viene recuperato dal **cron di recupero batch orfani**
+(vedi sezione *Cron di recupero batch orfani*). La Fase 1 è sempre atomicamente completata
+prima di qualsiasi chiamata di rete, e la risposta HTTP torna sempre immediatamente al browser.
 
 ## Cifratura dati sensibili
 
@@ -213,40 +214,62 @@ ciascun job nella tabella "Job recenti".
 
 ---
 
-## Geolocalizzazione particelle: Zornade + fallback WFS
+## Geolocalizzazione particelle: Zornade API v2 + fallback WFS
 
 AnalyticsPRO geolocalizza ogni immobile (da foglio/particella catastale a lat/lng) usando
-**Zornade** come provider primario, con fallback automatico al **WFS pubblico dell'Agenzia
+**Zornade API v2** come provider primario, con fallback automatico al **WFS pubblico dell'Agenzia
 delle Entrate** (INSPIRE) se Zornade non è configurato o non trova la particella.
 
-### Come configurare Zornade
+### Come configurare Zornade API v2
 
-1. Registrati su [https://app.zornade.com](https://app.zornade.com) e genera il tuo token API personale.
+1. Registrati su [https://zornade.com](https://zornade.com) e genera il tuo token API personale
+   (scope richiesto: `parcels:read`).
 2. Apri il file `.env` sul server (non committare questo file nel repository):
    ```
-   ZORNADE_API_KEY=<il-tuo-token-reale>
-   ZORNADE_API_BASE_URL=https://app.zornade.com/api
+   ZORNADE_API_KEY=zrn_<il-tuo-token-reale>
+   ZORNADE_API_BASE_URL=https://api.zornade.com/api/v2
    ```
+   > **Nota**: la base URL corretta per API v2 è `https://api.zornade.com/api/v2`.
+   > Il valore precedente `https://app.zornade.com/api` era errato.
 3. Riavvia/ricarica l'applicazione. Il worker di arricchimento userà automaticamente Zornade.
 
 > **Importante**: il token non deve mai comparire nel codice sorgente, nei log applicativi,
 > né in risposte JSON verso il client. Solo il file `.env` sul server deve contenerlo.
+
+### Autenticazione API v2
+
+L'autenticazione avviene **esclusivamente** tramite l'header `x-api-key: <token>`.
+**Non usare mai** `Authorization: Bearer` su API v2 — la documentazione ufficiale lo vieta
+esplicitamente (la risposta sarebbe `UNAUTHORIZED_NO_AUTH_HEADER` o `UNAUTHORIZED_INVALID_JWT_FORMAT`).
+
+### Mapping campi Zornade → dati catastali
+
+| Campo Zornade    | Dato catastale AnalyticsPRO | Note |
+|------------------|-----------------------------|------|
+| `comune_code`    | Codice catastale Belfiore   | es. "H501" per Roma — risolto da comune+provincia tramite `comuni_catastali.json` |
+| `foglio`         | Foglio                      | numero foglio |
+| `label`          | Particella                  | numero/lettera particella visibile sulla mappa catastale |
+| `sezione_urbana` | Sezione catastale           | opzionale |
+
+### Rate limiting (Zornade API v2)
+
+- **Limite ufficiale**: 1.000 richieste/ora per token (`X-RateLimit-Limit` lo conferma).
+- **Gap applicato**: ~500 ms tra chiamate live consecutive, come precauzione pratica per batch
+  di poche decine di particelle. Non è un tentativo di distribuire esattamente il quota oraria:
+  con pochi import cliente al giorno il limite di 1.000 req/h non dovrebbe mai essere raggiunto.
+- Se la risposta è `429`, il campo `retry_after_seconds` nel body JSON viene rispettato
+  (attesa progressiva, non sleep fisso).
+- **WFS-AdE**: gap minimo di 500 ms tra chiamate live (comportamento invariato).
 
 ### Comportamento di fallback
 
 | Scenario | Azione |
 |---|---|
 | `ZORNADE_API_KEY` vuoto o assente | salta Zornade, usa WFS-AdE direttamente |
-| Zornade risponde HTTP non-200 | log con prefisso `[Zornade]`, usa WFS-AdE |
-| Zornade non trova la particella (`ok: false`) | usa WFS-AdE |
+| `comune_code` non risolvibile | log `[Zornade]`, usa WFS-AdE |
+| Zornade risponde HTTP non-200 | log `[Zornade]` con codice errore e messaggio, usa WFS-AdE |
+| Zornade non trova la particella | usa WFS-AdE |
 | Entrambi i provider falliscono | la proprietà rimane senza lat/lng (importazione non bloccata) |
-
-### Rate limiting
-
-- **Zornade**: gap minimo di ~400 ms tra chiamate live (≤ 9.000 req/h, dentro il limite di 10.000 req/h dichiarato).
-  Se la risposta contiene l'header `X-RateLimit-Remaining` il codice lo legge;
-  se la risposta è `429` con `Retry-After`, il worker aspetta il tempo indicato.
-- **WFS-AdE**: gap minimo di 500 ms tra chiamate live (comportamento invariato rispetto alle versioni precedenti).
 
 ### Cache locale
 
@@ -255,17 +278,49 @@ Tutti i risultati (sia Zornade che WFS-AdE) vengono salvati in un database SQLit
 provider che ha risolto la particella). Le chiamate successive per la stessa particella
 non richiedono alcuna richiesta HTTP.
 
+La cache è indicizzata per `(cod_catastale, foglio, particella)`, dove `cod_catastale` è
+il codice Belfiore anche per i risultati Zornade — la cache è quindi condivisa tra i due provider.
+
+### Flusso a due fasi: persistenza immediata + arricchimento coordinate
+
+**Fase 1 — Persistenza dati (sincrona, sempre garantita)**  
+`api/data/import.php` chiama direttamente `analyticspro_process_import_batch_payload()` nella
+stessa richiesta HTTP, scrivendo **tutte** le righe del file in `properties` con
+`lat = NULL`, `lng = NULL`, `posizione_verificata = 0`, senza effettuare alcuna chiamata di rete.
+La risposta HTTP torna sempre al browser subito dopo la Fase 1, indipendentemente dall'esito
+del worker di arricchimento.
+
+**Fase 2 — Arricchimento coordinate (background/cron)**  
+Subito dopo la Fase 1, `analyticspro_launch_background()` tenta di avviare
+`cron/enrich_property_coordinates.php` in background.
+
+Se il background worker **non può partire** (hosting che non supporta `proc_open`/`shell_exec`),
+il batch rimane con `enrichment_status = 'pending'` e viene recuperato dal cron di recupero.
+La risposta HTTP torna comunque immediatamente — non c'è più alcun fallback sincrono che blocchi il browser.
+
+### Cron di recupero batch orfani (OBBLIGATORIO su hosting senza proc_open)
+
+Se il tuo hosting non supporta `proc_open` o `shell_exec`, **installa questo cron job reale**
+per recuperare i batch non arricchiti automaticamente:
+
+```
+* * * * * php /percorso/assoluto/analyticspro/cron/enrich_pending_batches.php >> /percorso/log/enrich_pending.log 2>&1
+```
+
+Sostituisci `/percorso/assoluto/` con il percorso reale sul tuo server.
+
+Il cron seleziona tutti i batch con `enrichment_status = 'pending'` (worker non partito)
+o `enrichment_status = 'processing'` da più di 15 minuti (worker morto a metà) e li elabora
+in sequenza. Un batch che fallisce non blocca quelli successivi (error isolation).
+
 ### Stato di arricchimento nella UI
 
 Dopo il completamento dell'import, nella pagina **Importa** compare automaticamente una
 barra di avanzamento con il testo "Geolocalizzazione: X/Y marker" che si aggiorna ogni
 ~2,5 secondi finché l'arricchimento non è completato.
 
-- **Completato**: la mappa si aggiorna silenziosamente con i nuovi marker geolocalizzati.
-- **Fallito**: viene mostrato un messaggio che invita a verificare la configurazione Zornade/WFS.
+### Diagnostica: health check Zornade
 
-### Aggiustamento schema risposta Zornade
-
-Se lo schema JSON restituito dalla tua istanza Zornade differisce da quello assunto
-(campo `data.centroide.lat/lng`), modifica la funzione `analyticspro_zornade_extract_lat_lng()`
-in `analyticspro/includes/zornade_lookup.php` — ogni accesso ai campi è protetto da `isset()`.
+La funzione `analyticspro_zornade_health_check()` in `includes/zornade_lookup.php`
+chiama `GET /health` (nessuna autenticazione richiesta) e ritorna lo status/versione del
+servizio Zornade. Utile per un futuro pulsante "Testa connessione Zornade" in admin.

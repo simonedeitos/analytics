@@ -66,12 +66,14 @@ try {
             analyticspro_json(['ok' => false, 'error' => $e->getMessage()], 500);
         }
 
-        // Phase 2: coordinate enrichment involves slow network calls — keep it async.
-        // Fall back to synchronous execution if background launch is unavailable.
+        // Phase 2: coordinate enrichment involves slow network calls — always async.
+        // If the background worker cannot be launched (e.g. proc_open/shell_exec not
+        // available on this host), the batch remains with enrichment_status = 'pending'
+        // and will be picked up by the scheduled cron job:
+        //   * * * * * php /path/to/analyticspro/cron/enrich_pending_batches.php >> /path/to/log 2>&1
+        // The HTTP response always returns immediately after Phase 1 completes.
         $enrichWorker = ANALYTICSPRO_ROOT . '/cron/enrich_property_coordinates.php';
-        if (!analyticspro_launch_background($enrichWorker, [$batchId])) {
-            analyticspro_enrich_batch_coordinates($batchId);
-        }
+        analyticspro_launch_background($enrichWorker, [$batchId]);
 
         $savedStmt = $pdo->prepare('SELECT processed_rows FROM import_batches WHERE id = ?');
         $savedStmt->execute([$batchId]);
