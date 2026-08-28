@@ -1,4 +1,8 @@
 <?php
+// NOTE: Phase 1 (property/owner persistence) is now always executed synchronously
+// inside the HTTP request (api/data/import.php).  This script is kept as a manual
+// diagnostic tool only — it can be used to re-run Phase 1 for a batch whose payload
+// file is still on disk, but it is no longer invoked as part of the normal import flow.
 
 declare(strict_types=1);
 

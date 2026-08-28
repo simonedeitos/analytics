@@ -51,21 +51,32 @@ try {
             'rows' => $rows,
             'decisions' => $decisions,
         ];
+
+        // Write the payload to disk so the cron script can be used for manual/diagnostic
+        // re-processing if needed.  Phase 1 itself runs synchronously below.
         $payloadPath = ANALYTICSPRO_ROOT . '/storage/import_payloads/import_' . $batchId . '.json';
         file_put_contents($payloadPath, json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
 
-        $worker = ANALYTICSPRO_ROOT . '/cron/process_import_batch.php';
-        if (!analyticspro_launch_background($worker, [$batchId, $payloadPath])) {
+        // Phase 1: persist cadastral data synchronously in this very HTTP request so the
+        // outcome (success or failure) is immediate and certain.  A background worker is
+        // no longer needed for this phase.
+        try {
             analyticspro_process_import_batch_payload($batchId, $payload);
-            // process_import_batch.php launches enrichment on its own when run as a
-            // background worker; when we use the sync fallback we must do it here.
-            $enrichWorker = ANALYTICSPRO_ROOT . '/cron/enrich_property_coordinates.php';
-            if (!analyticspro_launch_background($enrichWorker, [$batchId])) {
-                analyticspro_enrich_batch_coordinates($batchId);
-            }
+        } catch (Throwable $e) {
+            analyticspro_json(['ok' => false, 'error' => $e->getMessage()], 500);
         }
 
-        analyticspro_json(['ok' => true, 'batch_id' => $batchId]);
+        // Phase 2: coordinate enrichment involves slow network calls — keep it async.
+        // Fall back to synchronous execution if background launch is unavailable.
+        $enrichWorker = ANALYTICSPRO_ROOT . '/cron/enrich_property_coordinates.php';
+        if (!analyticspro_launch_background($enrichWorker, [$batchId])) {
+            analyticspro_enrich_batch_coordinates($batchId);
+        }
+
+        $savedStmt = $pdo->prepare('SELECT processed_rows FROM import_batches WHERE id = ?');
+        $savedStmt->execute([$batchId]);
+        $saved = (int) $savedStmt->fetchColumn();
+        analyticspro_json(['ok' => true, 'batch_id' => $batchId, 'saved_rows' => $saved, 'total_rows' => count($rows)]);
     }
 
     throw new RuntimeException('Modalità import non valida.');
