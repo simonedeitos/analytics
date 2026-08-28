@@ -278,6 +278,7 @@ function analyticspro_fetch_subusers(int $tenantId): array
 
 function analyticspro_lookup_cod_catastale(string $comune, string $provincia): ?string
 {
+    require_once __DIR__ . '/importer.php';
     require_once __DIR__ . '/wfs_lookup.php';
 
     if (function_exists('analyticspro_resolve_cod_catastale')) {
