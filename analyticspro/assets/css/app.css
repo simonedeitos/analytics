@@ -232,14 +232,65 @@ body {
     display: inline-block; border-radius: 50%;
     border: 1px solid rgba(0,0,0,.2); vertical-align: middle;
 }
-.map-popup-table td, .map-popup-table th { font-size: .8rem; }
-.map-popup .accordion-button { font-size: .85rem; }
-.map-popup .accordion-body { font-size: .82rem; }
-.analyticspro-cluster-icon { background: transparent; border: 0; }
-.dataTable td .btn-sm { padding: .2rem .45rem; }
-.help-steps li { margin-bottom: .55rem; }
-.property-inline-control { min-width: 120px; }
-.small-select[multiple] { min-height: 88px; }
+.analyticspro-cluster-icon {
+    background: transparent !important;
+    border: none !important;
+}
+.analyticspro-cluster-icon svg {
+    border-radius: 50%;
+    display: block;
+    filter: drop-shadow(0 2px 6px rgba(0,0,0,0.28));
+}
+
+/* ----- Spiderfy (chiocciola) ----------------------------------------- */
+.leaflet-cluster-spider-leg {
+    stroke: #555 !important;
+    stroke-width: 1.5px !important;
+    stroke-opacity: 0.55 !important;
+}
+
+/* ----- Popup professionale marker ------------------------------------ */
+.map-popup-wrapper {
+    max-width: 430px;
+}
+.map-popup-card {
+    border: 1px solid #dde3ee;
+    border-radius: .5rem;
+    overflow: hidden;
+    font-size: .84rem;
+    box-shadow: 0 2px 12px rgba(42,81,159,.10);
+}
+.map-popup-card .card-header {
+    background: var(--ap-blue-light);
+    border-bottom: 1px solid #dde3ee;
+}
+.map-popup-card .card-footer {
+    background: #f8fafd;
+    border-top: 1px solid #dde3ee;
+}
+.popup-section-label {
+    font-size: .7rem;
+    font-weight: 700;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    color: var(--ap-muted);
+    margin-bottom: .35rem;
+}
+.property-owner-row {
+    padding: .3rem 0;
+}
+.property-owner-row + .property-owner-row {
+    border-top: 1px dashed #e0e6f0;
+    margin-top: .3rem;
+    padding-top: .35rem;
+}
+.owner-meta {
+    color: var(--ap-muted);
+    font-size: .75rem;
+    margin-top: .1rem;
+}
+
+/* ----- Report filter bar -------------------------------------------- */
 .report-filter-bar {
     background: #f8f9fb;
     border: 1px solid #e8edf5;
@@ -249,25 +300,20 @@ body {
 .report-filter-bar .form-label {
     color: var(--ap-muted);
 }
-.map-popup-professional {
-    max-width: 420px;
-}
-.map-popup-professional .card {
-    border: 1px solid #e8edf5;
-}
-.map-popup-professional .property-owner-row + .property-owner-row {
-    border-top: 1px dashed #e8edf5;
-    margin-top: .5rem;
-    padding-top: .5rem;
-}
-.map-popup-professional .owner-meta {
-    color: var(--ap-muted);
-    font-size: .75rem;
-}
+
+/* ----- Detail modal wrapper ----------------------------------------- */
 .property-detail-wrapper {
-    max-width: 420px;
+    max-width: 440px;
     margin: 0 auto;
 }
+
+/* ----- DataTable buttons -------------------------------------------- */
+.dataTable td .btn-sm { padding: .2rem .45rem; }
+
+/* ----- Misc ---------------------------------------------------------- */
+.help-steps li { margin-bottom: .55rem; }
+.property-inline-control { min-width: 120px; }
+.small-select[multiple] { min-height: 88px; }
 
 /* ----- Drop Zone (importa.php) --------------------------------------- */
 .drop-zone {
@@ -315,13 +361,12 @@ body {
     min-width: 240px;
     flex: 1 1 240px;
 }
-
 #assigned-save {
     white-space: nowrap;
     flex-shrink: 0;
 }
 
-/* Admin sub-nav (secondary tabs inside admin pages) */
+/* ----- Admin sub-nav ------------------------------------------------- */
 .ap-admin-subnav .nav-link { color: var(--ap-blue); }
 .ap-admin-subnav .nav-link.active {
     background: var(--ap-blue);
