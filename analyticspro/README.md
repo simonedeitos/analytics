@@ -210,3 +210,62 @@ Subito dopo aver avviato un import (da entrambe le modalità) si apre automatica
 una finestra modale con il **log in tempo reale** del job. Puoi riaprirla in qualsiasi
 momento cliccando il pulsante <kbd><i class="bi bi-terminal"></i></kbd> accanto a
 ciascun job nella tabella "Job recenti".
+
+---
+
+## Geolocalizzazione particelle: Zornade + fallback WFS
+
+AnalyticsPRO geolocalizza ogni immobile (da foglio/particella catastale a lat/lng) usando
+**Zornade** come provider primario, con fallback automatico al **WFS pubblico dell'Agenzia
+delle Entrate** (INSPIRE) se Zornade non è configurato o non trova la particella.
+
+### Come configurare Zornade
+
+1. Registrati su [https://app.zornade.com](https://app.zornade.com) e genera il tuo token API personale.
+2. Apri il file `.env` sul server (non committare questo file nel repository):
+   ```
+   ZORNADE_API_KEY=<il-tuo-token-reale>
+   ZORNADE_API_BASE_URL=https://app.zornade.com/api
+   ```
+3. Riavvia/ricarica l'applicazione. Il worker di arricchimento userà automaticamente Zornade.
+
+> **Importante**: il token non deve mai comparire nel codice sorgente, nei log applicativi,
+> né in risposte JSON verso il client. Solo il file `.env` sul server deve contenerlo.
+
+### Comportamento di fallback
+
+| Scenario | Azione |
+|---|---|
+| `ZORNADE_API_KEY` vuoto o assente | salta Zornade, usa WFS-AdE direttamente |
+| Zornade risponde HTTP non-200 | log con prefisso `[Zornade]`, usa WFS-AdE |
+| Zornade non trova la particella (`ok: false`) | usa WFS-AdE |
+| Entrambi i provider falliscono | la proprietà rimane senza lat/lng (importazione non bloccata) |
+
+### Rate limiting
+
+- **Zornade**: gap minimo di ~400 ms tra chiamate live (≤ 9.000 req/h, dentro il limite di 10.000 req/h dichiarato).
+  Se la risposta contiene l'header `X-RateLimit-Remaining` il codice lo legge;
+  se la risposta è `429` con `Retry-After`, il worker aspetta il tempo indicato.
+- **WFS-AdE**: gap minimo di 500 ms tra chiamate live (comportamento invariato rispetto alle versioni precedenti).
+
+### Cache locale
+
+Tutti i risultati (sia Zornade che WFS-AdE) vengono salvati in un database SQLite locale
+(`cache/catasto/catasto_cache.db`, tabella `particelle_cache`, colonna `source` con il
+provider che ha risolto la particella). Le chiamate successive per la stessa particella
+non richiedono alcuna richiesta HTTP.
+
+### Stato di arricchimento nella UI
+
+Dopo il completamento dell'import, nella pagina **Importa** compare automaticamente una
+barra di avanzamento con il testo "Geolocalizzazione: X/Y marker" che si aggiorna ogni
+~2,5 secondi finché l'arricchimento non è completato.
+
+- **Completato**: la mappa si aggiorna silenziosamente con i nuovi marker geolocalizzati.
+- **Fallito**: viene mostrato un messaggio che invita a verificare la configurazione Zornade/WFS.
+
+### Aggiustamento schema risposta Zornade
+
+Se lo schema JSON restituito dalla tua istanza Zornade differisce da quello assunto
+(campo `data.centroide.lat/lng`), modifica la funzione `analyticspro_zornade_extract_lat_lng()`
+in `analyticspro/includes/zornade_lookup.php` — ogni accesso ai campi è protetto da `isset()`.
