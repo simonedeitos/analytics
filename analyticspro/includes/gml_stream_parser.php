@@ -299,13 +299,21 @@ function analyticspro_gml_parse_ref(string $ref): ?array
 /**
  * Produce il codice foglio a 6 caratteri: NNNN (4 cifre) + A (allegato) + S (sviluppo).
  * '0' in posizione 5 o 6 significa assente.
+ *
+ * Se $allegato/$sviluppo sono vuoti, tenta di estrarre l'eventuale lettera
+ * direttamente dal campo $foglio (es. '33A' → num=33, lett=A).
  */
 function analyticspro_gml_codice_foglio(string $foglio, string $allegato = '', string $sviluppo = ''): string
 {
-    $num = (int) $foglio;
-    $all = ($allegato !== '' && $allegato !== '0') ? strtoupper($allegato[0]) : '0';
-    $svi = ($sviluppo !== '' && $sviluppo !== '0') ? strtoupper($sviluppo[0]) : '0';
-    return sprintf('%04d', $num) . $all . $svi;
+    $num  = ltrim(preg_replace('/\D/', '', $foglio) ?? '', '0');
+    if ($num === '') {
+        $num = '0';
+    }
+    $lett = strtoupper(preg_replace('/[^A-Za-z]/', '', $foglio) ?? '');
+    $all  = ($allegato !== '' && $allegato !== '0') ? strtoupper($allegato[0])
+          : ($lett !== '' ? $lett[0] : '0');
+    $svi  = ($sviluppo !== '' && $sviluppo !== '0') ? strtoupper($sviluppo[0]) : '0';
+    return str_pad($num, 4, '0', STR_PAD_LEFT) . $all . $svi;
 }
 
 // ---------------------------------------------------------------------------

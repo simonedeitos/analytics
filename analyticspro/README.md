@@ -2,6 +2,8 @@
 
 Webapp PHP/PDO multi-tenant per importare dati catastali, salvarli su MySQL/MariaDB e visualizzarli su mappa, report e analitiche.
 
+**Requisiti PHP**: **PHP 8.0+** (il codice usa `match()`, `str_contains()`, `catch (Throwable)` senza variabile e altri costrutti 8.0+).
+
 ## Setup rapido
 
 1. Copia `analyticspro/.env.example` in `analyticspro/.env` e configura:
@@ -349,11 +351,15 @@ analyticspro/storage/gml_index/      ← indici JSON e SQLite (deny HTTP via .ht
 1. Andare su **Admin → Import GML**.
 2. Trascinare le cartelle dei file GML (anche più cartelle contemporaneamente, struttura annidata).
    Sono accettati file `*_ple.gml` / `*_map.gml` e archivi `.zip`.
+   Ogni ulteriore trascinamento **accumula** i file invece di sovrascrivere la selezione precedente.
 3. Premere **Carica e rigenera catalogo** — il catalogo viene rigenerato automaticamente.
 4. Per ogni comune caricato, premere **Indicizza tutti i comuni** (o il pulsante per singolo comune)
-   per costruire l'indice SQLite delle particelle — necessario per il lookup O(1).
+   per avviare l'indicizzazione in background. Un log live mostra il progresso comune per comune.
+   L'indicizzazione è **atomica**: un indice è considerato valido solo se la costruzione
+   è terminata con successo (flag `meta['complete']` nel database SQLite).
 5. Usare lo strumento **Diagnostica** per verificare che il numero di feature lette coincida
    con l'attributo `numberMatched` del GML.
+   Nota: l'analisi può richiedere alcuni minuti sui comuni grandi.
 
 ### Catena di risoluzione coordinate (ordine di priorità)
 
@@ -367,6 +373,9 @@ Al momento dell'arricchimento coordinate di ogni riga importata:
 
 La sorgente è salvata nel campo `coord_source` della tabella `properties`
 (aggiunto dalla migration `004_add_coord_source_to_properties.sql`).
+
+I job di indicizzazione GML sono gestiti dalle tabelle `gml_index_jobs` / `gml_index_job_log`
+(aggiunte dalla migration `005_add_gml_index_jobs.sql`).
 
 ### Protezione HTTP
 

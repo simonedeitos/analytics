@@ -12,6 +12,19 @@ declare(strict_types=1);
 require dirname(__DIR__) . '/includes/gml_stream_parser.php';
 require dirname(__DIR__) . '/includes/geo_centroid.php';
 
+// Bootstrapping minimo per caricare gml_catalog.php in modo standalone
+if (!defined('ANALYTICSPRO_ROOT')) {
+    define('ANALYTICSPRO_ROOT', dirname(__DIR__));
+}
+// Stub di analyticspro_db() per i test standalone (non viene usata nelle funzioni testate)
+if (!function_exists('analyticspro_db')) {
+    function analyticspro_db(): never
+    {
+        throw new RuntimeException('analyticspro_db() non disponibile in modalità test');
+    }
+}
+require_once dirname(__DIR__) . '/includes/gml_catalog.php';
+
 $FIXTURE = dirname(__DIR__) . '/tests/fixtures/B394_test_ple.gml';
 
 function stream_assert(bool $cond, string $msg): void
@@ -132,3 +145,84 @@ $latValues = array_column($pts, 'lat');
 stream_assert(!in_array(1.0, $latValues, true), 'le coordinate del boundedBy non devono comparire nel ring esterno');
 
 echo "OK — tutti i test superati\n";
+
+// ============================================================
+// 11. analyticspro_gml_norm_particella
+// ============================================================
+stream_assert(analyticspro_gml_norm_particella('0147') === '147',   'norm_particella(0147) deve essere 147');
+stream_assert(analyticspro_gml_norm_particella('147/A') === '147A', 'norm_particella(147/A) deve essere 147A');
+stream_assert(analyticspro_gml_norm_particella(' 147 ') === '147',  'norm_particella( 147 ) deve essere 147');
+stream_assert(analyticspro_gml_norm_particella('147a') === '147A',  'norm_particella(147a) deve essere 147A');
+
+// ============================================================
+// 12. analyticspro_gml_codice_foglio con lettera nel campo foglio
+// ============================================================
+stream_assert(analyticspro_gml_codice_foglio('33A') === '0033A0',  'codice_foglio(33A) deve essere 0033A0');
+stream_assert(analyticspro_gml_codice_foglio('33', 'A') === '0033A0', 'codice_foglio(33,A) deve essere 0033A0');
+stream_assert(analyticspro_gml_codice_foglio('33') === '003300',   'codice_foglio(33) invariato deve essere 003300');
+
+// ============================================================
+// 13. analyticspro_gml_sanitize_filename — nomi reali ADE
+// ============================================================
+$CATALOG_PATTERN = '/^([A-Za-z][0-9]{3})_(.+?)_(ple|map)\.gml$/i';
+
+$s1 = analyticspro_gml_sanitize_filename("F704_SANT'ANGELO_ple.gml");
+stream_assert($s1 !== null, "sanitize_filename(SANT'ANGELO) non deve essere null");
+stream_assert(preg_match($CATALOG_PATTERN, (string) $s1) === 1, "sanitize_filename(SANT'ANGELO) deve fare match con la regex del catalogo");
+
+$s2 = analyticspro_gml_sanitize_filename('B394_CASTIGLIONE DELLE STIVIERE_ple.gml');
+stream_assert($s2 !== null, 'sanitize_filename(CASTIGLIONE DELLE STIVIERE) non deve essere null');
+stream_assert(preg_match($CATALOG_PATTERN, (string) $s2) === 1, 'sanitize_filename(CASTIGLIONE DELLE STIVIERE) deve fare match con la regex del catalogo');
+
+// Path traversal → null
+$s3 = analyticspro_gml_sanitize_filename('../../etc/passwd');
+stream_assert($s3 === null, 'sanitize_filename(../../etc/passwd) deve essere null (path traversal)');
+
+// ============================================================
+// 14. Nome comune estratto dal filename
+// ============================================================
+// Simula la logica del catalogo: ucwords(mb_strtolower(str_replace('_', ' ', $m[2])))
+$filenameRaw = 'B394_CALCINATO_ple.gml';
+preg_match('/^([A-Za-z][0-9]{3})_(.+?)_(ple|map)\.gml$/i', $filenameRaw, $mTest);
+$nomeTest = ucwords(mb_strtolower(str_replace('_', ' ', $mTest[2])));
+stream_assert($nomeTest === 'Calcinato', 'Nome dal filename B394_CALCINATO_ple.gml deve essere "Calcinato", ottenuto: ' . $nomeTest);
+
+// ============================================================
+// 15. Area con buco: area netta < area lorda del ring esterno
+// ============================================================
+$extRing3 = $features[2]['ext'][0];
+$intRing3 = $features[2]['int'][0];
+$areaLorda = analyticspro_ring_area_m2($extRing3);
+$areaBuco  = analyticspro_ring_area_m2($intRing3);
+$areaNetta = $areaLorda - $areaBuco;
+stream_assert($areaNetta < $areaLorda, 'Area netta (con buco) deve essere < area lorda del ring esterno');
+stream_assert($areaNetta > 0.0, 'Area netta (con buco) deve essere > 0');
+
+// ============================================================
+// 16. Centroide con ring interno di verso CCW (stesso verso dell'esterno — caso non standard)
+// ============================================================
+// Crea un quadrato esterno CCW e un buco CCW (stesso verso dell'esterno).
+// Il codice originale usava sign=-1 per i buchi, che funzionava correttamente
+// solo se il buco era CW. Con la nuova implementazione basata su abs() il
+// risultato è corretto indipendentemente dall'orientamento.
+$outerCCW = [
+    ['lat' => 45.00, 'lng' => 10.00],
+    ['lat' => 45.02, 'lng' => 10.00],
+    ['lat' => 45.02, 'lng' => 10.02],
+    ['lat' => 45.00, 'lng' => 10.02],
+    ['lat' => 45.00, 'lng' => 10.00],
+];
+// Buco CCW (stesso verso dell'esterno — caso che il codice originale non gestiva)
+$innerCCW = [
+    ['lat' => 45.009, 'lng' => 10.009],
+    ['lat' => 45.011, 'lng' => 10.009],
+    ['lat' => 45.011, 'lng' => 10.011],
+    ['lat' => 45.009, 'lng' => 10.011],
+    ['lat' => 45.009, 'lng' => 10.009],
+];
+$ptHole = analyticspro_interior_point($outerCCW, [$innerCCW]);
+stream_assert($ptHole !== null, 'interior_point con buco CCW non deve essere null');
+stream_assert(analyticspro_point_in_polygon($ptHole, $outerCCW), 'interior_point con buco CCW deve essere dentro il ring esterno');
+stream_assert(!analyticspro_point_in_polygon($ptHole, $innerCCW), 'interior_point con buco CCW non deve essere nel buco');
+
+echo "OK — tutti i test aggiuntivi superati\n";
