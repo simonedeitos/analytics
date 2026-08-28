@@ -9,28 +9,6 @@ analyticspro_api_guard();
 
 analyticspro_api_require_auth();
 
-/**
- * @return array<string, true>
- */
-function analyticspro_import_batches_columns_progress(PDO $pdo): array
-{
-    static $cached = null;
-    if (is_array($cached)) {
-        return $cached;
-    }
-    $cached = [];
-    try {
-        foreach ($pdo->query('SHOW COLUMNS FROM import_batches') ?: [] as $row) {
-            if (isset($row['Field'])) {
-                $cached[(string) $row['Field']] = true;
-            }
-        }
-    } catch (Throwable $exception) {
-        error_log('[import_progress] schema_read_error: ' . $exception->getMessage());
-    }
-    return $cached;
-}
-
 try {
     $batchId = (int) analyticspro_get('batch_id');
     if ($batchId <= 0) {
@@ -39,32 +17,18 @@ try {
 
     $tenantId = analyticspro_current_tenant_id();
     $user = analyticspro_current_user();
-    $pdo = analyticspro_db();
-    $columns = analyticspro_import_batches_columns_progress($pdo);
-    $hasUserId = isset($columns['user_id']);
     $sql = 'SELECT * FROM import_batches WHERE id = :id';
     $params = ['id' => $batchId];
-    if (($user['role'] ?? '') !== 'admin' && $hasUserId) {
+    if (($user['role'] ?? '') !== 'admin') {
         $sql .= ' AND user_id = :tenant_id';
         $params['tenant_id'] = $tenantId;
     }
 
-    $stmt = $pdo->prepare($sql);
+    $stmt = analyticspro_db()->prepare($sql);
     $stmt->execute($params);
     $batch = $stmt->fetch();
     if (!$batch) {
-        if (($user['role'] ?? '') === 'admin') {
-            throw new RuntimeException('batch_not_found: Batch non trovato.');
-        }
-        throw new RuntimeException('permission_denied: Batch non accessibile per il tenant corrente.');
-    }
-
-    if (($user['role'] ?? '') !== 'admin' && !$hasUserId) {
-        $scopeStmt = $pdo->prepare('SELECT COUNT(*) FROM properties WHERE import_batch_id = :batch_id AND user_id = :tenant_id');
-        $scopeStmt->execute(['batch_id' => $batchId, 'tenant_id' => $tenantId]);
-        if ((int) $scopeStmt->fetchColumn() === 0) {
-            throw new RuntimeException('permission_denied: Batch non accessibile per il tenant corrente.');
-        }
+        throw new RuntimeException('Batch non trovato.');
     }
 
     $batch['progress_percent'] = (int) round(((int) $batch['processed_rows'] / max((int) $batch['total_rows'], 1)) * 100);
@@ -83,17 +47,5 @@ try {
 
     analyticspro_json(['ok' => true, 'batch' => $batch]);
 } catch (Throwable $exception) {
-    $message = $exception->getMessage();
-    $errorCode = 'db_error';
-    if (str_starts_with($message, 'batch_not_found:')) {
-        $errorCode = 'batch_not_found';
-        $message = trim(substr($message, strlen('batch_not_found:')));
-    } elseif (str_starts_with($message, 'permission_denied:')) {
-        $errorCode = 'permission_denied';
-        $message = trim(substr($message, strlen('permission_denied:')));
-    } elseif ($exception instanceof PDOException && (string) $exception->getCode() === '42S22') {
-        $errorCode = 'missing_column';
-    }
-    error_log('[import_progress] ' . $errorCode . ': ' . $message);
-    analyticspro_json(['ok' => false, 'error_code' => $errorCode, 'error' => $message], 404);
+    analyticspro_json(['ok' => false, 'error' => $exception->getMessage()], 404);
 }

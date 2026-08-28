@@ -10,7 +10,6 @@
         role: root.dataset.role,
         tenantId: root.dataset.tenantId || '',
         selectedTenant: root.dataset.selectedTenant || '',
-        canViewPhone: root.dataset.canViewPhone === '1',
         canImport: root.dataset.canImport === '1',
         canExport: root.dataset.canExport === '1',
         canViewReports: root.dataset.canViewReports === '1',
@@ -29,7 +28,6 @@
         charts: {},
         tables: {},
         overlay: importOverlayEl ? new bootstrap.Modal(importOverlayEl) : null,
-        assignedFilter: 'all',
     };
 
     const STATE_OPTIONS = {
@@ -41,7 +39,6 @@
         in_vendita_altri: 'In Vendita ALTRI',
         altro: 'Altro',
     };
-    const isAssignedPage = Boolean(document.getElementById('assigned-table'));
 
     function escapeHtml(value) {
         return String(value ?? '').replace(/[&<>'"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char]));
@@ -94,10 +91,7 @@
         }
         const payload = await response.json();
         if (!response.ok || payload.ok === false) {
-            const error = new Error(payload.error || 'Operazione non riuscita');
-            error.errorCode = payload.error_code || 'request_error';
-            error.details = payload.details || null;
-            throw error;
+            throw new Error(payload.error || 'Operazione non riuscita');
         }
         return payload;
     }
@@ -110,12 +104,9 @@
     }
 
     async function loadProperties() {
-        const assignedUrl = state.role === 'subuser'
-            ? `${state.propertiesEndpoint}?mode=assigned`
-            : `${state.propertiesEndpoint}?mode=assigned&assignment_filter=${encodeURIComponent(state.assignedFilter || 'all')}`;
         const [allPayload, assignedPayload] = await Promise.all([
             api(withTenant(`${state.propertiesEndpoint}?mode=all`)),
-            api(withTenant(assignedUrl)),
+            api(withTenant(`${state.propertiesEndpoint}?mode=assigned${state.role !== 'subuser' ? '&subuser_id=' : ''}`)),
         ]);
         state.properties = allPayload.properties || [];
         state.subusers = allPayload.subusers || [];
@@ -126,14 +117,11 @@
         if (state.canViewReports || state.role !== 'subuser') renderReportTable();
         if (state.canViewAnalytics || state.role !== 'subuser') renderCharts();
         populateAssignedSubuserFilter();
-        populateAssignedStatusFilter();
     }
 
     function updateKpis() {
         const ownerCount = state.properties.reduce((sum, property) => sum + (property.owners?.length || 0), 0);
-        const phoneCount = state.canViewPhone
-            ? state.properties.reduce((sum, property) => sum + (property.owners || []).filter(owner => owner.telefono).length, 0)
-            : 0;
+        const phoneCount = state.properties.reduce((sum, property) => sum + (property.owners || []).filter(owner => owner.telefono).length, 0);
         const assignedCount = state.role === 'subuser'
             ? state.assignedProperties.length
             : state.properties.filter(property => (property.assignments || []).length > 0).length;
@@ -144,9 +132,7 @@
         };
         setKpi('properties', state.properties.length);
         setKpi('owners', ownerCount);
-        if (state.canViewPhone) {
-            setKpi('phones', phoneCount);
-        }
+        setKpi('phones', phoneCount);
         setKpi('assigned', assignedCount);
     }
 
@@ -154,31 +140,33 @@
         return (property.owners || []).map(owner => {
             const icon = owner.tipo === 'azienda' ? 'bi-building' : 'bi-person';
             const fullName = `${owner.cognome || ''} ${owner.nome || ''}`.trim() || 'Intestatario';
-            const phone = state.canViewPhone && owner.telefono ? ` · ${escapeHtml(owner.telefono)}` : '';
-            return `<span class="owner-badge"><i class="bi ${icon}"></i>${escapeHtml(fullName)}${phone}</span>`;
+            return `<span class="owner-badge"><i class="bi ${icon}"></i>${escapeHtml(fullName)}${owner.telefono ? ` · ${escapeHtml(owner.telefono)}` : ''}</span>`;
         }).join(' ');
     }
 
     function buildAssignmentSummary(property) {
-        const names = (property.assignments || []).map(assignment => assignment.subuser_name).filter(Boolean);
-        if (!names.length) {
-            return '<span class="text-muted">— non assegnato</span>';
-        }
-        return escapeHtml(names.join(', '));
+        return (property.assignments || []).map(assignment => `<span class="assignment-badge">${escapeHtml(assignment.subuser_name)}</span>`).join(' ');
     }
 
     function buildSelectOptions(selected) {
         return Object.entries(STATE_OPTIONS).map(([value, label]) => `<option value="${value}" ${value === selected ? 'selected' : ''}>${escapeHtml(label)}</option>`).join('');
     }
 
-    function rowActions(property) {
+    function buildAssignmentSelect(property) {
+        if (state.role === 'subuser' || !state.subusers.length) return buildAssignmentSummary(property);
+        const selected = new Set((property.assignments || []).map(item => Number(item.subuser_id)));
+        return `<select class="form-select form-select-sm small-select assignment-select" multiple>${state.subusers.map(subuser => `<option value="${subuser.id}" ${selected.has(Number(subuser.id)) ? 'selected' : ''}>${escapeHtml(`${subuser.nome} ${subuser.cognome}`)}</option>`).join('')}</select>`;
+    }
+
+    function editableColumns(property) {
         const disabled = property.can_edit ? '' : 'disabled';
-        const assignIcon = state.role === 'subuser' ? 'bi-people' : 'bi-person-plus';
         return `
-            <div class="d-flex gap-1">
-                <button class="btn btn-outline-primary btn-sm property-edit" data-property-id="${property.id}" ${disabled}><i class="bi bi-pencil-square"></i></button>
-                <button class="btn btn-outline-secondary btn-sm property-assign" data-property-id="${property.id}" ${disabled}><i class="bi ${assignIcon}"></i></button>
-            </div>
+            <select class="form-select form-select-sm property-inline-control state-select" ${disabled}>${buildSelectOptions(property.stato)}</select>
+            <input class="form-control form-control-sm property-inline-control mt-1 custom-state-input" value="${escapeHtml(property.stato_personalizzato || '')}" placeholder="Stato personalizzato" ${disabled}>
+            <input type="color" class="form-control form-control-color form-control-sm mt-1 color-input" value="${escapeHtml(property.colore_marker || '#0d6efd')}" ${disabled}>
+            <textarea class="form-control form-control-sm mt-1 note-input" rows="2" placeholder="Aggiungi nota" ${disabled}></textarea>
+            ${buildAssignmentSelect(property)}
+            <button class="btn btn-primary btn-sm mt-2 property-save" data-property-id="${property.id}" ${disabled}>Salva</button>
         `;
     }
 
@@ -194,14 +182,14 @@
             subalterno: property.subalterno || '',
             categoria: property.categoria || '',
             stato: STATE_OPTIONS[property.stato] || property.stato,
-            colore: `<span class="color-dot" style="background:${escapeHtml(property.colore_marker || '#0d6efd')}"></span>`,
+            colore: `<span class="color-dot" style="background:${escapeHtml(property.colore_marker || '#0d6efd')}"></span> ${escapeHtml(property.colore_marker || '')}`,
             owners: buildOwnerSummary(property),
-            assigned_to: buildAssignmentSummary(property),
-            actions: rowActions(property),
+            assignments: buildAssignmentSummary(property),
+            editor: editableColumns(property),
         }));
     }
 
-    function initDataTable(selector, rows, canExport, options = {}) {
+    function initDataTable(selector, rows, canExport) {
         if (state.tables[selector]) {
             state.tables[selector].destroy();
             $(selector).empty().append('<thead></thead><tfoot></tfoot><tbody></tbody>');
@@ -219,12 +207,12 @@
             { title: 'Stato', data: 'stato' },
             { title: 'Colore', data: 'colore' },
             { title: 'Intestatari', data: 'owners' },
-            { title: 'Assegnato a', data: 'assigned_to' },
-            { title: 'Azioni', data: 'actions' },
+            { title: 'Assegnazioni', data: 'assignments' },
+            { title: 'Modifica', data: 'editor' },
         ];
 
         const theadHtml = `<tr>${columns.map(column => `<th>${column.title}</th>`).join('')}</tr>`;
-        const tfootHtml = `<tr>${columns.map(column => `<th>${column.title === 'Azioni' ? '' : `<input type="text" class="form-control form-control-sm" placeholder="Filtra ${column.title}">`}</th>`).join('')}</tr>`;
+        const tfootHtml = `<tr>${columns.map(column => `<th>${column.title === 'Modifica' ? '' : `<input type="text" class="form-control form-control-sm" placeholder="Filtra ${column.title}">`}</th>`).join('')}</tr>`;
         $(`${selector} thead`).html(theadHtml);
         $(`${selector} tfoot`).html(tfootHtml);
 
@@ -249,27 +237,6 @@
                 }
             });
         });
-
-        if (options.topFilters) {
-            const filterContainerId = selector === '#report-table' ? 'report-table-filters' : '';
-            if (filterContainerId) {
-                const host = document.getElementById(filterContainerId);
-                if (host) {
-                    host.innerHTML = '';
-                    columns.forEach((column, index) => {
-                        if (column.title === 'Azioni') return;
-                        const wrapper = document.createElement('div');
-                        wrapper.className = 'col-12 col-md-6 col-lg-3';
-                        wrapper.innerHTML = `<label class="form-label small mb-1">${escapeHtml(column.title)}</label><input type="text" class="form-control form-control-sm" placeholder="Filtra">`;
-                        const input = wrapper.querySelector('input');
-                        input.addEventListener('input', () => {
-                            state.tables[selector].column(index).search(input.value).draw();
-                        });
-                        host.appendChild(wrapper);
-                    });
-                }
-            }
-        }
     }
 
     function renderAssignedTable() {
@@ -279,7 +246,7 @@
 
     function renderReportTable() {
         if (!document.getElementById('report-table')) return;
-        initDataTable('#report-table', buildTableData(state.properties), state.role !== 'subuser', { topFilters: true });
+        initDataTable('#report-table', buildTableData(state.properties), state.role !== 'subuser');
     }
 
     function renderMap() {
@@ -306,37 +273,7 @@
                 { position: 'topright' }
             ).addTo(state.map);
 
-            state.markers = L.markerClusterGroup({
-                iconCreateFunction(cluster) {
-                    const markers = cluster.getAllChildMarkers();
-                    const counts = {};
-                    markers.forEach(marker => {
-                        const color = marker.options.markerColor || '#0d6efd';
-                        counts[color] = (counts[color] || 0) + 1;
-                    });
-                    const total = markers.length || 1;
-                    const radius = total < 10 ? 18 : (total < 50 ? 22 : 26);
-                    let start = 0;
-                    const segments = Object.entries(counts).map(([color, count]) => {
-                        const angle = (count / total) * Math.PI * 2;
-                        const end = start + angle;
-                        const x1 = 50 + Math.cos(start) * 46;
-                        const y1 = 50 + Math.sin(start) * 46;
-                        const x2 = 50 + Math.cos(end) * 46;
-                        const y2 = 50 + Math.sin(end) * 46;
-                        const largeArc = angle > Math.PI ? 1 : 0;
-                        const path = `M 50 50 L ${x1.toFixed(2)} ${y1.toFixed(2)} A 46 46 0 ${largeArc} 1 ${x2.toFixed(2)} ${y2.toFixed(2)} Z`;
-                        start = end;
-                        return `<path d="${path}" fill="${escapeHtml(color)}"></path>`;
-                    }).join('');
-                    const svg = `<svg viewBox="0 0 100 100" width="${radius * 2}" height="${radius * 2}" aria-hidden="true">${segments}<circle cx="50" cy="50" r="18" fill="rgba(255,255,255,.92)"></circle><text x="50" y="56" text-anchor="middle" font-size="28" font-weight="700" fill="#1f2a37">${total}</text></svg>`;
-                    return L.divIcon({
-                        html: `<span class="cluster-pie">${svg}</span>`,
-                        className: 'ap-cluster-icon',
-                        iconSize: L.point(radius * 2, radius * 2),
-                    });
-                },
-            });
+            state.markers = L.markerClusterGroup();
             state.map.addLayer(state.markers);
         }
 
@@ -349,7 +286,6 @@
                 fillColor: property.colore_marker || '#2A519F',
                 fillOpacity: 0.9,
                 weight: 2,
-                markerColor: property.colore_marker || '#2A519F',
             });
             marker.bindPopup(buildPopupHtml(property), { maxWidth: 420 });
             state.markers.addLayer(marker);
@@ -362,35 +298,18 @@
     }
 
     function buildPopupHtml(property) {
-        const assignmentText = buildAssignmentSummary(property);
-        const assignmentBtn = property.can_edit && state.role !== 'subuser'
-            ? `<button class="btn btn-outline-secondary btn-sm property-assign ms-2" data-property-id="${property.id}" title="Assegna subutenti"><i class="bi bi-person-plus"></i></button>`
-            : '';
-        const ownerCards = (property.owners || []).map(owner => {
-            const icon = owner.tipo === 'azienda' ? 'bi-building' : 'bi-person';
-            const nomeCompleto = `${owner.cognome || ''} ${owner.nome || ''}`.trim() || 'Intestatario';
-            const contactRows = [
-                owner.codice_fiscale ? `<div><span class="text-muted">Codice fiscale</span><br><span>${escapeHtml(owner.codice_fiscale)}</span></div>` : '',
-                owner.data_nascita ? `<div><span class="text-muted">Data nascita</span><br><span>${escapeHtml(owner.data_nascita)}</span></div>` : '',
-                owner.genere ? `<div><span class="text-muted">Genere</span><br><span>${escapeHtml(owner.genere)}</span></div>` : '',
-                property.titolarita ? `<div><span class="text-muted">Titolarità</span><br><span>${escapeHtml(property.titolarita)}</span></div>` : '',
-                property.quota ? `<div><span class="text-muted">Quota</span><br><span>${escapeHtml(property.quota)}</span></div>` : '',
-                owner.indirizzo ? `<div><span class="text-muted">Indirizzo</span><br><span>${escapeHtml(owner.indirizzo)}</span></div>` : '',
-                owner.email ? `<div><span class="text-muted">Email</span><br><span>${escapeHtml(owner.email)}</span></div>` : '',
-                state.canViewPhone && owner.telefono ? `<div><span class="text-muted">Telefono</span><br><span>${escapeHtml(owner.telefono)}</span></div>` : '',
-            ].filter(Boolean).join('');
-            return `<div class="border rounded p-2 mb-2">
-                <div class="fw-semibold mb-1"><i class="bi ${icon} me-1"></i>${escapeHtml(nomeCompleto)}</div>
-                <div class="small d-grid gap-1">${contactRows || '<span class="text-muted">Nessun dettaglio disponibile</span>'}</div>
-            </div>`;
-        }).join('');
+        const ownerRows = (property.owners || []).map(owner => `
+            <tr>
+                <td><i class="bi ${owner.tipo === 'azienda' ? 'bi-building' : 'bi-person'} me-1"></i>${escapeHtml(`${owner.cognome || ''} ${owner.nome || ''}`.trim())}</td>
+                <td>${escapeHtml(owner.codice_fiscale || '—')}</td>
+                <td>${escapeHtml(owner.telefono || '—')}</td>
+            </tr>`).join('');
         return `
             <div class="map-popup" data-property-id="${property.id}">
                 <div class="fw-semibold mb-2">${escapeHtml(property.comune)} · F.${escapeHtml(property.foglio)} P.${escapeHtml(property.particella)}</div>
                 <div class="small text-muted mb-2">${escapeHtml(`${property.indirizzo || ''} ${property.civico || ''}`.trim())} · ${escapeHtml(property.categoria || 'Categoria N/D')}</div>
-                <div class="small mb-2"><strong>Assegnati:</strong> ${assignmentText}${assignmentBtn}</div>
-                <div class="mb-2"><strong class="small">Intestatario</strong><div class="mt-1">${ownerCards || '<span class="text-muted small">Nessun intestatario</span>'}</div></div>
-                ${property.can_edit ? `<button class="btn btn-primary btn-sm property-edit" data-property-id="${property.id}"><i class="bi bi-pencil-square me-1"></i>Modifica marker</button>` : ''}
+                <table class="table table-sm map-popup-table"><thead><tr><th>Intestatario</th><th>CF/P.IVA</th><th>Telefono</th></tr></thead><tbody>${ownerRows}</tbody></table>
+                ${editableColumns(property)}
                 <div class="mt-2 small">${(property.notes || []).map(note => `<div class="note-badge"><strong>${escapeHtml(note.author_name_snapshot)}</strong> ${escapeHtml(note.created_at)} · ${escapeHtml(note.testo)}</div>`).join('') || '<span class="text-muted">Nessuna nota</span>'}</div>
             </div>`;
     }
@@ -423,7 +342,7 @@
     function renderCharts() {
         destroyCharts();
         const owners = state.properties.flatMap(property => property.owners || []);
-        const withPhone = state.canViewPhone ? owners.filter(owner => owner.telefono).length : 0;
+        const withPhone = owners.filter(owner => owner.telefono).length;
         const withEmail = owners.filter(owner => owner.email).length;
         const withPiva  = owners.filter(owner => owner.tipo === 'azienda').length;
         const genders = owners.reduce((acc, owner) => { const key = owner.genere || 'N/D'; acc[key] = (acc[key] || 0) + 1; return acc; }, {});
@@ -439,17 +358,11 @@
             if (el) el.textContent = value.toLocaleString('it-IT');
         };
         setKpiAnalytics('total', owners.length);
-        if (state.canViewPhone) {
-            setKpiAnalytics('phone', withPhone);
-        }
+        setKpiAnalytics('phone', withPhone);
         setKpiAnalytics('email', withEmail);
         setKpiAnalytics('piva',  withPiva);
 
-        if (state.canViewPhone) {
-            pieChart('chart-contacts', ['Con telefono', 'Con email', 'Senza contatti'], [withPhone, withEmail, Math.max(owners.length - Math.max(withPhone, withEmail), 0)]);
-        } else {
-            pieChart('chart-contacts', ['Con email', 'Senza email'], [withEmail, Math.max(owners.length - withEmail, 0)]);
-        }
+        pieChart('chart-contacts', ['Con telefono', 'Con email', 'Senza contatti'], [withPhone, withEmail, Math.max(owners.length - Math.max(withPhone, withEmail), 0)]);
         pieChart('chart-gender', Object.keys(genders), Object.values(genders));
         barChart('chart-age', Object.keys(ages), Object.values(ages), 'Intestatari');
         pieChart('chart-province', Object.keys(provinces), Object.values(provinces));
@@ -458,110 +371,24 @@
         pieChart('chart-titolarita', Object.keys(ownership), Object.values(ownership));
     }
 
-    function assignmentCounts() {
-        const base = isAssignedPage ? state.assignedProperties : state.properties;
-        const total = base.length;
-        const assigned = base.filter(property => (property.assignments || []).length > 0).length;
-        return { total, assigned, unassigned: Math.max(total - assigned, 0) };
-    }
-
     function populateAssignedSubuserFilter() {
         const select = document.getElementById('assigned-subuser-filter');
         if (!select) return;
         select.innerHTML = `<option value="">${state.role === 'subuser' ? 'Le mie assegnazioni' : 'Tutte le assegnazioni'}</option>` + state.subusers.map(subuser => `<option value="${subuser.id}">${escapeHtml(`${subuser.nome} ${subuser.cognome}`)}</option>`).join('');
     }
 
-    function populateAssignedStatusFilter() {
-        const select = document.getElementById('assigned-status-filter');
-        if (!select || !isAssignedPage) return;
-        const counts = assignmentCounts();
-        select.innerHTML = [
-            `<option value="all" ${state.assignedFilter === 'all' ? 'selected' : ''}>Tutti (${counts.total})</option>`,
-            `<option value="assigned" ${state.assignedFilter === 'assigned' ? 'selected' : ''}>Assegnati (${counts.assigned})</option>`,
-            `<option value="unassigned" ${state.assignedFilter === 'unassigned' ? 'selected' : ''}>Non assegnati (${counts.unassigned})</option>`,
-        ].join('');
-    }
-
-    function ensureEditorModal() {
-        if (document.getElementById('property-editor-modal')) return;
-        const modalHtml = `
-            <div class="modal fade" id="property-editor-modal" tabindex="-1" aria-hidden="true">
-                <div class="modal-dialog modal-lg modal-dialog-scrollable">
-                    <div class="modal-content">
-                        <div class="modal-header">
-                            <h5 class="modal-title">Modifica marker</h5>
-                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button>
-                        </div>
-                        <div class="modal-body">
-                            <input type="hidden" id="editor-property-id" value="">
-                            <div class="row g-3">
-                                <div class="col-md-6">
-                                    <label class="form-label small">Stato</label>
-                                    <select id="editor-state" class="form-select form-select-sm"></select>
-                                </div>
-                                <div class="col-md-6">
-                                    <label class="form-label small">Colore marker</label>
-                                    <input type="color" id="editor-color" class="form-control form-control-color">
-                                </div>
-                                <div class="col-12">
-                                    <label class="form-label small">Stato personalizzato</label>
-                                    <input id="editor-custom-state" class="form-control form-control-sm" placeholder="Stato personalizzato">
-                                </div>
-                                <div class="col-12">
-                                    <label class="form-label small">Nota</label>
-                                    <textarea id="editor-note" rows="2" class="form-control form-control-sm" placeholder="Aggiungi nota"></textarea>
-                                </div>
-                                <div class="col-12" id="editor-assignment-wrapper">
-                                    <label class="form-label small">Assegna subutenti</label>
-                                    <div id="editor-assignment-list" class="d-flex flex-wrap gap-2"></div>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="modal-footer">
-                            <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Annulla</button>
-                            <button type="button" class="btn btn-primary btn-sm" id="editor-save-btn">Salva</button>
-                        </div>
-                    </div>
-                </div>
-            </div>`;
-        document.body.insertAdjacentHTML('beforeend', modalHtml);
-    }
-
-    function openPropertyEditor(propertyId, assignmentsOnly = false) {
-        const property = state.properties.find(item => Number(item.id) === Number(propertyId))
-            || state.assignedProperties.find(item => Number(item.id) === Number(propertyId));
-        if (!property) return;
-        ensureEditorModal();
-        const modalEl = document.getElementById('property-editor-modal');
-        const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
-        document.getElementById('editor-property-id').value = String(property.id);
-        document.getElementById('editor-state').innerHTML = buildSelectOptions(property.stato);
-        document.getElementById('editor-color').value = property.colore_marker || '#0d6efd';
-        document.getElementById('editor-custom-state').value = property.stato_personalizzato || '';
-        document.getElementById('editor-note').value = '';
-        const assignmentWrapper = document.getElementById('editor-assignment-wrapper');
-        const assignmentList = document.getElementById('editor-assignment-list');
-        if (state.role === 'subuser' || !property.can_edit || !state.subusers.length) {
-            assignmentWrapper.classList.add('d-none');
-        } else {
-            assignmentWrapper.classList.remove('d-none');
-            const selected = new Set((property.assignments || []).map(item => Number(item.subuser_id)));
-            assignmentList.innerHTML = state.subusers.map(subuser => `
-                <label class="border rounded px-2 py-1 small">
-                    <input type="checkbox" class="form-check-input me-1 editor-assignment-check" value="${subuser.id}" ${selected.has(Number(subuser.id)) ? 'checked' : ''}>
-                    ${escapeHtml(`${subuser.nome} ${subuser.cognome}`)}
-                </label>
-            `).join('');
-        }
-        modalEl.dataset.assignmentsOnly = assignmentsOnly ? '1' : '0';
-        modal.show();
-    }
-
-    async function saveProperty(button, payloadOverride = null) {
-        const propertyId = Number(payloadOverride?.property_id || button?.dataset?.propertyId || 0);
+    async function saveProperty(button) {
+        const wrapper = button.closest('[data-property-id]') || button.closest('tr');
+        const propertyId = Number(button.dataset.propertyId || wrapper?.dataset.propertyId || 0);
         if (!propertyId) return;
+        const stateSelect = wrapper.querySelector('.state-select');
+        const colorInput = wrapper.querySelector('.color-input');
+        const noteInput = wrapper.querySelector('.note-input');
+        const customStateInput = wrapper.querySelector('.custom-state-input');
+        const assignmentSelect = wrapper.querySelector('.assignment-select');
+        const assignments = assignmentSelect ? Array.from(assignmentSelect.selectedOptions).map(option => Number(option.value)) : undefined;
 
-        if (button) button.disabled = true;
+        button.disabled = true;
         try {
             await api(state.propertyUpdateEndpoint, {
                 method: 'POST',
@@ -569,19 +396,18 @@
                 body: JSON.stringify({
                     csrf_token: state.csrfToken,
                     property_id: propertyId,
-                    stato: payloadOverride?.stato,
-                    stato_personalizzato: payloadOverride?.stato_personalizzato || '',
-                    colore_marker: payloadOverride?.colore_marker,
-                    note: payloadOverride?.note || '',
-                    assignments: payloadOverride?.assignments,
+                    stato: stateSelect?.value,
+                    stato_personalizzato: customStateInput?.value || '',
+                    colore_marker: colorInput?.value,
+                    note: noteInput?.value || '',
+                    assignments,
                 }),
             });
             await loadProperties();
         } catch (error) {
             alert(error.message);
-            throw error;
         } finally {
-            if (button) button.disabled = false;
+            button.disabled = false;
         }
     }
 
@@ -640,15 +466,17 @@
         // Phase 1 completed synchronously: persistence is done, show result now.
         state.overlay?.hide();
         await loadProperties();
-        const progressTextAfterImport = document.getElementById('import-progress-text');
-        if (progressTextAfterImport) {
-            progressTextAfterImport.textContent = `Import completato: ${processPayload.saved_rows ?? processPayload.total_rows ?? rows.length} righe salvate.`;
-        }
+        const savedRows = processPayload.saved_rows ?? processPayload.total_rows ?? rows.length;
+        alert(`Import completato: ${savedRows} righe salvate. Geolocalizzazione dei marker in corso.`);
         // Phase 2 (coordinate enrichment): if the background worker was launched
         // successfully, poll its status. If not (enrichment_sync = true), drive the
         // enrichment directly via repeated chunk calls so the spinner always terminates.
-        if (processPayload.batch_id && state.enrichChunkEndpoint) {
-            enrichChunkLoop(0, { scopeBatchId: Number(processPayload.batch_id) || 0 }).catch(() => {});
+        if (processPayload.batch_id) {
+            if (processPayload.enrichment_sync) {
+                enrichChunkLoop(processPayload.batch_id).catch(() => {});
+            } else {
+                pollEnrichment(processPayload.batch_id).catch(() => {});
+            }
         }
     }
 
@@ -728,7 +556,7 @@
                 stalledSince++;
                 if (stalledSince >= 6 && state.enrichChunkEndpoint) {
                     if (text) text.textContent = 'Worker background non disponibile — geolocalizzazione sincrona in corso...';
-                    enrichChunkLoop(0, { scopeBatchId: Number(batchId) || 0 }).catch(() => {});
+                    enrichChunkLoop(batchId).catch(() => {});
                     return; // lascia enrichChunkLoop guidare la UI
                 }
             } else if (processed !== lastProcessed) {
@@ -748,34 +576,19 @@
      * Modalità sincrona: chiama ripetutamente enrich_chunk fino al completamento.
      * Usata quando il worker in background non è disponibile.
      */
-    function showEnrichmentRetry(textEl, retryBtn, message, retryHandler) {
-        if (textEl) {
-            textEl.textContent = message;
-            textEl.classList.add('text-danger');
-        }
-        if (retryBtn) {
-            retryBtn.classList.remove('d-none');
-            retryBtn.onclick = retryHandler;
-        }
-    }
-
-    async function enrichChunkLoop(batchId, options = {}) {
+    async function enrichChunkLoop(batchId) {
         const container = document.getElementById('enrichment-status-container');
         const bar       = document.getElementById('enrichment-progress-bar');
         const text      = document.getElementById('enrichment-progress-text');
         const reportEl  = document.getElementById('enrichment-report');
-        const retryBtn  = document.getElementById('enrichment-retry-btn');
-        const scopeBatchId = Number(options.scopeBatchId || 0);
         if (container) container.style.display = '';
         if (reportEl) {
             reportEl.className = 'small mt-2 d-none';
             reportEl.innerHTML = '';
         }
-        if (retryBtn) retryBtn.classList.add('d-none');
 
         const maxChunks = 500; // sicurezza — max 500 * 25 = 12 500 particelle
-        let calls = 0;
-        let consecutiveFailures = 0;
+        let   calls     = 0;
 
         if (text) text.textContent = 'Geolocalizzazione sincrona in corso...';
 
@@ -783,23 +596,9 @@
             calls++;
             let result;
             try {
-                const scopedQuery = scopeBatchId > 0 ? `&scope_batch_id=${encodeURIComponent(String(scopeBatchId))}` : '';
-                result = await api(`${state.enrichChunkEndpoint}?batch_id=${batchId}&limit=25${scopedQuery}`);
-                consecutiveFailures = 0;
-            } catch (error) {
-                consecutiveFailures++;
-                if (consecutiveFailures >= 3) {
-                    const serverCode = error?.errorCode ? ` [${error.errorCode}]` : '';
-                    const reason = error?.message ? ` ${error.message}` : '';
-                    showEnrichmentRetry(
-                        text,
-                        retryBtn,
-                        `Geolocalizzazione interrotta dopo 3 tentativi falliti.${serverCode}${reason}`,
-                        () => enrichChunkLoop(batchId, options).catch(() => {})
-                    );
-                    return;
-                }
-                await new Promise(resolve => setTimeout(resolve, 1200));
+                result = await api(`${state.enrichChunkEndpoint}?batch_id=${batchId}&limit=25`);
+            } catch {
+                await new Promise(resolve => setTimeout(resolve, 2000));
                 continue;
             }
 
@@ -820,14 +619,10 @@
             }
 
             if (result.status === 'failed') {
-                const serverCode = result.error_code ? ` [${result.error_code}]` : '';
-                const reason = result.error ? ` ${result.error}` : '';
-                showEnrichmentRetry(
-                    text,
-                    retryBtn,
-                    `Geolocalizzazione non riuscita.${serverCode}${reason}`,
-                    () => enrichChunkLoop(batchId, options).catch(() => {})
-                );
+                if (text) {
+                    text.textContent = 'Geolocalizzazione non riuscita. Verifica la configurazione GML / Zornade / WFS nel file .env.';
+                    text.classList.add('text-danger');
+                }
                 if (bar) bar.classList.replace('bg-primary', 'bg-danger');
                 return;
             }
@@ -836,12 +631,7 @@
             await new Promise(resolve => setTimeout(resolve, 200));
         }
 
-        showEnrichmentRetry(
-            text,
-            retryBtn,
-            'Geolocalizzazione parziale: limite chiamate raggiunto.',
-            () => enrichChunkLoop(batchId, options).catch(() => {})
-        );
+        if (text) text.textContent = 'Geolocalizzazione parziale: limite chiamate raggiunto. Usa "Rigenera coordinate mancanti" per continuare.';
     }
 
     function renderEnrichmentReport(report) {
@@ -1165,25 +955,11 @@
             const colorInput = wrapper?.querySelector('.color-input');
             if (colorInput) colorInput.value = defaultColorForState(event.target.value);
         }
-        if (event.target.id === 'editor-state') {
-            const colorInput = document.getElementById('editor-color');
-            if (colorInput) colorInput.value = defaultColorForState(event.target.value);
-        }
         if (event.target.id === 'assigned-subuser-filter') {
             const subuserId = event.target.value;
-            const assignmentFilter = encodeURIComponent(state.assignedFilter || 'all');
-            api(withTenant(`${state.propertiesEndpoint}?mode=assigned&assignment_filter=${assignmentFilter}${subuserId ? `&subuser_id=${subuserId}` : ''}`)).then(payload => {
+            api(withTenant(`${state.propertiesEndpoint}?mode=assigned${subuserId ? `&subuser_id=${subuserId}` : ''}`)).then(payload => {
                 state.assignedProperties = payload.properties || [];
                 renderAssignedTable();
-            }).catch(error => alert(error.message));
-        }
-        if (event.target.id === 'assigned-status-filter') {
-            state.assignedFilter = event.target.value || 'all';
-            const subuserId = document.getElementById('assigned-subuser-filter')?.value || '';
-            api(withTenant(`${state.propertiesEndpoint}?mode=assigned&assignment_filter=${encodeURIComponent(state.assignedFilter)}${subuserId ? `&subuser_id=${subuserId}` : ''}`)).then(payload => {
-                state.assignedProperties = payload.properties || [];
-                renderAssignedTable();
-                populateAssignedStatusFilter();
             }).catch(error => alert(error.message));
         }
         if (event.target.id === 'ade-zips') {
@@ -1195,36 +971,13 @@
     });
 
     document.addEventListener('click', event => {
-        const editButton = event.target.closest('.property-edit');
-        if (editButton) {
+        const saveButton = event.target.closest('.property-save');
+        if (saveButton) {
             event.preventDefault();
-            openPropertyEditor(Number(editButton.dataset.propertyId || 0), false);
-        }
-        const assignButton = event.target.closest('.property-assign');
-        if (assignButton) {
-            event.preventDefault();
-            openPropertyEditor(Number(assignButton.dataset.propertyId || 0), true);
+            saveProperty(saveButton);
         }
         if (event.target.id === 'refresh-map') {
             loadProperties().catch(error => alert(error.message));
-        }
-        if (event.target.id === 'editor-save-btn') {
-            const propertyId = Number(document.getElementById('editor-property-id')?.value || 0);
-            const assignments = Array.from(document.querySelectorAll('.editor-assignment-check:checked')).map(el => Number(el.value));
-            const payload = {
-                property_id: propertyId,
-                stato: document.getElementById('editor-state')?.value || undefined,
-                stato_personalizzato: document.getElementById('editor-custom-state')?.value || '',
-                colore_marker: document.getElementById('editor-color')?.value || undefined,
-                note: document.getElementById('editor-note')?.value || '',
-                assignments,
-            };
-            saveProperty(event.target, payload).then(() => {
-                const modalEl = document.getElementById('property-editor-modal');
-                if (modalEl) {
-                    bootstrap.Modal.getOrCreateInstance(modalEl).hide();
-                }
-            }).catch(() => {});
         }
         if (event.target.id === 'ade-zips-submit') {
             submitAdeUpload('ade-zips', 'ade-zips-submit', 'zip', '<i class="bi bi-cloud-upload me-1"></i>Importa', '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Caricamento...').catch(error => alert(error.message));
@@ -1285,6 +1038,13 @@
             const jobId = logBtn.dataset.jobId;
             const label = logBtn.dataset.jobLabel || `Job #${jobId}`;
             adeLogModal.open(Number(jobId), label);
+        }
+    });
+
+    document.getElementById('assigned-save')?.addEventListener('click', async () => {
+        const buttons = Array.from(document.querySelectorAll('#assigned-table .property-save:not([disabled])'));
+        for (const button of buttons) {
+            await saveProperty(button);
         }
     });
 

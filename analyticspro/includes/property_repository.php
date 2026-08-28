@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-function analyticspro_visible_property_scope(array $user, string $mode, ?int $filterSubuserId = null, string $assignmentFilter = 'all'): array
+function analyticspro_visible_property_scope(array $user, string $mode, ?int $filterSubuserId = null): array
 {
     $joins = [];
     $where = [];
@@ -23,18 +23,13 @@ function analyticspro_visible_property_scope(array $user, string $mode, ?int $fi
     }
 
     if ($mode === 'assigned') {
+        $joins[] = 'INNER JOIN property_assignments pa_filter ON pa_filter.property_id = p.id';
         if (($user['role'] ?? '') === 'subuser') {
-            $joins[] = 'INNER JOIN property_assignments pa_filter ON pa_filter.property_id = p.id';
             $where[] = 'pa_filter.subuser_id = :assignment_subuser';
             $params['assignment_subuser'] = (int) $user['id'];
         } elseif ($filterSubuserId) {
-            $joins[] = 'INNER JOIN property_assignments pa_filter ON pa_filter.property_id = p.id';
             $where[] = 'pa_filter.subuser_id = :assignment_subuser';
             $params['assignment_subuser'] = $filterSubuserId;
-        } elseif ($assignmentFilter === 'assigned') {
-            $where[] = 'EXISTS (SELECT 1 FROM property_assignments pa_filter WHERE pa_filter.property_id = p.id)';
-        } elseif ($assignmentFilter === 'unassigned') {
-            $where[] = 'NOT EXISTS (SELECT 1 FROM property_assignments pa_filter WHERE pa_filter.property_id = p.id)';
         }
     }
 
@@ -61,9 +56,9 @@ function analyticspro_property_can_edit(array $user, array $property): bool
     return false;
 }
 
-function analyticspro_fetch_properties_payload(array $user, string $mode = 'all', ?int $filterSubuserId = null, string $assignmentFilter = 'all'): array
+function analyticspro_fetch_properties_payload(array $user, string $mode = 'all', ?int $filterSubuserId = null): array
 {
-    [$joins, $where, $params] = analyticspro_visible_property_scope($user, $mode, $filterSubuserId, $assignmentFilter);
+    [$joins, $where, $params] = analyticspro_visible_property_scope($user, $mode, $filterSubuserId);
     $sql = 'SELECT DISTINCT p.*, tenant.nome AS tenant_nome, tenant.cognome AS tenant_cognome FROM properties p JOIN users tenant ON tenant.id = p.user_id ' . implode(' ', $joins);
     if ($where) {
         $sql .= ' WHERE ' . implode(' AND ', $where);
@@ -110,23 +105,20 @@ function analyticspro_fetch_properties_payload(array $user, string $mode = 'all'
     $payload = [];
     foreach ($properties as $property) {
         $propertyId = (int) $property['id'];
-        $showPhone = analyticspro_tenant_phone_visibility((int) $property['user_id']);
+        $showPhone = analyticspro_is_admin() || analyticspro_tenant_phone_visibility((int) $property['user_id']);
         $owners = [];
         foreach ($ownersByProperty[$propertyId] ?? [] as $owner) {
-            $ownerRecord = [
+            $owners[] = [
                 'tipo' => $owner['tipo'],
                 'nome' => analyticspro_decrypt($owner['nome_enc']),
                 'cognome' => analyticspro_decrypt($owner['cognome_enc']),
                 'codice_fiscale' => analyticspro_decrypt($owner['codice_fiscale_enc']),
+                'telefono' => $showPhone ? analyticspro_decrypt($owner['telefono_enc']) : null,
                 'indirizzo' => analyticspro_decrypt($owner['indirizzo_enc']),
                 'email' => analyticspro_decrypt($owner['email_enc']),
                 'data_nascita' => $owner['data_nascita'],
                 'genere' => $owner['genere'],
             ];
-            if ($showPhone) {
-                $ownerRecord['telefono'] = analyticspro_decrypt($owner['telefono_enc']);
-            }
-            $owners[] = $ownerRecord;
         }
 
         $notes = array_map(static fn ($note) => [
