@@ -1,0 +1,433 @@
+<?php
+
+declare(strict_types=1);
+
+/**
+ * Catalogo e indici locali per i file GML ADE.
+ *
+ * Struttura delle directory:
+ *   storage/gml/            → file GML appiattiti  (e .htaccess deny-all)
+ *   storage/gml_index/      → indici JSON/SQLite    (e .htaccess deny-all)
+ *     catalogo.json         → ['B394' => ['ple' => path, 'map' => path, 'nome' => ...]]
+ *     {BELFIORE}_fogli.json → indice codici foglio dal _map.gml
+ *     {BELFIORE}.sqlite     → indice particelle per lookup O(1)
+ */
+
+require_once __DIR__ . '/gml_stream_parser.php';
+require_once __DIR__ . '/geo_centroid.php';
+
+// ---------------------------------------------------------------------------
+// Directory helper
+// ---------------------------------------------------------------------------
+
+function analyticspro_gml_dir(): string
+{
+    return ANALYTICSPRO_ROOT . '/storage/gml';
+}
+
+function analyticspro_gml_index_dir(): string
+{
+    return ANALYTICSPRO_ROOT . '/storage/gml_index';
+}
+
+// ---------------------------------------------------------------------------
+// Catalogo
+// ---------------------------------------------------------------------------
+
+/**
+ * Ricostruisce (o legge dalla cache) il catalogo dei file GML.
+ *
+ * Il catalogo è un array indicizzato per codice Belfiore:
+ *   ['B394' => [
+ *       'ple'      => '/path/B394_..._ple.gml',
+ *       'map'      => '/path/B394_..._map.gml',
+ *       'nome'     => 'Calcinato',
+ *       'size_ple' => 12345678,
+ *       'size_map' => 234567,
+ *       'mtime'    => 1700000000,
+ *   ]]
+ *
+ * @return array<string,array>
+ */
+function analyticspro_gml_build_catalog(bool $force = false): array
+{
+    $indexDir  = analyticspro_gml_index_dir();
+    $gmlDir    = analyticspro_gml_dir();
+    $cachePath = $indexDir . '/catalogo.json';
+
+    analyticspro_gml_ensure_dirs();
+
+    if (!$force && is_file($cachePath)) {
+        $raw = @file_get_contents($cachePath);
+        if ($raw !== false) {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded)) {
+                return $decoded;
+            }
+        }
+    }
+
+    $catalog = [];
+
+    if (!is_dir($gmlDir)) {
+        return $catalog;
+    }
+
+    $files = glob($gmlDir . '/*.gml') ?: [];
+    foreach ($files as $path) {
+        $basename = basename($path);
+        // Pattern: BBBB_something_(ple|map).gml
+        if (!preg_match('/^([A-Za-z][0-9]{3})_(.+?)_(ple|map)\.gml$/i', $basename, $m)) {
+            continue;
+        }
+
+        $belfiore = strtoupper($m[1]);
+        $type     = strtolower($m[3]); // 'ple' or 'map'
+
+        if (!isset($catalog[$belfiore])) {
+            $catalog[$belfiore] = [
+                'ple'      => null,
+                'map'      => null,
+                'nome'     => analyticspro_gml_nome_comune($belfiore),
+                'size_ple' => 0,
+                'size_map' => 0,
+                'mtime'    => 0,
+            ];
+        }
+
+        $stat = stat($path);
+        $size = $stat !== false ? (int) $stat['size'] : 0;
+        $mtime = $stat !== false ? (int) $stat['mtime'] : 0;
+
+        $catalog[$belfiore][$type]         = $path;
+        $catalog[$belfiore]['size_' . $type] = $size;
+        if ($mtime > $catalog[$belfiore]['mtime']) {
+            $catalog[$belfiore]['mtime'] = $mtime;
+        }
+    }
+
+    ksort($catalog);
+    file_put_contents($cachePath, json_encode($catalog, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+    return $catalog;
+}
+
+/**
+ * Costruisce l'indice dei codici foglio per un comune (dal _map.gml).
+ * Cache in {BELFIORE}_fogli.json, invalidata se il GML è più recente.
+ *
+ * @return array<string,string>  codFoglio → label
+ */
+function analyticspro_gml_foglio_index(string $belfiore): array
+{
+    $belfiore  = strtoupper($belfiore);
+    $indexDir  = analyticspro_gml_index_dir();
+    $cachePath = $indexDir . '/' . $belfiore . '_fogli.json';
+
+    $catalog = analyticspro_gml_build_catalog();
+    $entry   = $catalog[$belfiore] ?? null;
+    if ($entry === null || empty($entry['map'])) {
+        return [];
+    }
+
+    $mapPath = $entry['map'];
+    $gmlMtime = @filemtime($mapPath) ?: 0;
+
+    if (is_file($cachePath) && filemtime($cachePath) >= $gmlMtime) {
+        $raw = @file_get_contents($cachePath);
+        if ($raw !== false) {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded)) {
+                return $decoded;
+            }
+        }
+    }
+
+    $fogli = [];
+    analyticspro_gml_stream_zonings($mapPath, static function (array $f) use (&$fogli): bool {
+        if ($f['codFoglio'] !== '') {
+            $fogli[$f['codFoglio']] = $f['label'];
+        }
+        return false;
+    });
+
+    file_put_contents($cachePath, json_encode($fogli, JSON_PRETTY_PRINT));
+    return $fogli;
+}
+
+// ---------------------------------------------------------------------------
+// Indice particelle SQLite (O(1) lookup)
+// ---------------------------------------------------------------------------
+
+/**
+ * Apre (creando se necessario) il database SQLite dell'indice particelle.
+ */
+function analyticspro_gml_open_parcel_db(string $belfiore): SQLite3
+{
+    $belfiore = strtoupper($belfiore);
+    analyticspro_gml_ensure_dirs();
+    $dbPath = analyticspro_gml_index_dir() . '/' . $belfiore . '.sqlite';
+    $db = new SQLite3($dbPath, SQLITE3_OPEN_READWRITE | SQLITE3_OPEN_CREATE);
+    $db->exec('PRAGMA journal_mode=WAL');
+    $db->exec('PRAGMA synchronous=NORMAL');
+    $db->exec('CREATE TABLE IF NOT EXISTS parcels (
+        cod_foglio TEXT NOT NULL,
+        particella TEXT NOT NULL,
+        lat        REAL NOT NULL,
+        lon        REAL NOT NULL,
+        area_mq    REAL NOT NULL DEFAULT 0,
+        PRIMARY KEY (cod_foglio, particella)
+    )');
+    $db->exec('CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)');
+    return $db;
+}
+
+/**
+ * Costruisce l'indice particelle SQLite per un comune.
+ * Esegue una singola scansione completa del _ple.gml.
+ *
+ * @param  callable(int,int):void|null  $progressCb  ($processed, $total)
+ */
+function analyticspro_gml_build_parcel_index(string $belfiore, ?callable $progressCb = null): int
+{
+    $belfiore = strtoupper($belfiore);
+    $catalog  = analyticspro_gml_build_catalog();
+    $entry    = $catalog[$belfiore] ?? null;
+    if ($entry === null || empty($entry['ple'])) {
+        throw new RuntimeException('File _ple.gml non trovato per il comune: ' . $belfiore);
+    }
+
+    $plePath = $entry['ple'];
+    $db      = analyticspro_gml_open_parcel_db($belfiore);
+
+    $db->exec('BEGIN');
+    $stmt = $db->prepare('INSERT OR REPLACE INTO parcels (cod_foglio, particella, lat, lon, area_mq)
+                          VALUES (:cod_foglio, :particella, :lat, :lon, :area_mq)');
+
+    $count   = 0;
+    $batchSz = 500;
+    $buf     = [];
+
+    $flush = static function () use ($db, $stmt, &$buf, &$count): void {
+        foreach ($buf as $row) {
+            $stmt->bindValue(':cod_foglio', $row[0], SQLITE3_TEXT);
+            $stmt->bindValue(':particella', $row[1], SQLITE3_TEXT);
+            $stmt->bindValue(':lat',        $row[2], SQLITE3_FLOAT);
+            $stmt->bindValue(':lon',        $row[3], SQLITE3_FLOAT);
+            $stmt->bindValue(':area_mq',    $row[4], SQLITE3_FLOAT);
+            $stmt->execute();
+            $count++;
+        }
+        $buf = [];
+        $db->exec('COMMIT');
+        $db->exec('BEGIN');
+    };
+
+    analyticspro_gml_stream_parcels($plePath, static function (array $f) use (&$buf, &$count, $batchSz, $flush, $progressCb): bool {
+        if ($f['codFoglio'] === '' || $f['particella'] === '') {
+            return false;
+        }
+
+        $extRings = $f['ext'];
+        $intRings = $f['int'];
+        if ($extRings === []) {
+            return false;
+        }
+
+        $exterior = analyticspro_largest_ring($extRings) ?? $extRings[0];
+        $pt       = analyticspro_interior_point($exterior, $intRings);
+        if ($pt === null) {
+            return false;
+        }
+
+        $areaMq = analyticspro_ring_area_m2($exterior);
+
+        $buf[] = [$f['codFoglio'], $f['particella'], $pt['lat'], $pt['lng'], $areaMq];
+
+        if (count($buf) >= $batchSz) {
+            $flush();
+            if ($progressCb !== null) {
+                $progressCb($count, 0);
+            }
+        }
+        return false;
+    });
+
+    $flush();
+
+    // Aggiorna metadati
+    $metaStmt = $db->prepare("INSERT OR REPLACE INTO meta (key,value) VALUES (:key, :value)");
+    $metaStmt->bindValue(':key', 'indexed_at', SQLITE3_TEXT);
+    $metaStmt->bindValue(':value', (string) time(), SQLITE3_TEXT);
+    $metaStmt->execute();
+    $metaStmt->bindValue(':key', 'count', SQLITE3_TEXT);
+    $metaStmt->bindValue(':value', (string) $count, SQLITE3_TEXT);
+    $metaStmt->execute();
+
+    if ($progressCb !== null) {
+        $progressCb($count, $count);
+    }
+
+    return $count;
+}
+
+/**
+ * Controlla se l'indice SQLite di un comune è valido (esiste e non è più vecchio del GML).
+ */
+function analyticspro_gml_parcel_index_valid(string $belfiore): bool
+{
+    $belfiore  = strtoupper($belfiore);
+    $dbPath    = analyticspro_gml_index_dir() . '/' . $belfiore . '.sqlite';
+    if (!is_file($dbPath)) {
+        return false;
+    }
+
+    $catalog = analyticspro_gml_build_catalog();
+    $entry   = $catalog[$belfiore] ?? null;
+    if ($entry === null || empty($entry['ple'])) {
+        return false;
+    }
+
+    $gmlMtime = @filemtime($entry['ple']) ?: 0;
+    $dbMtime  = @filemtime($dbPath) ?: 0;
+
+    return $dbMtime >= $gmlMtime;
+}
+
+// ---------------------------------------------------------------------------
+// Lookup principale
+// ---------------------------------------------------------------------------
+
+/**
+ * Ricerca le coordinate di una particella catastale nel repository GML locale.
+ *
+ * @return array{lat:float,lon:float,area_mq:float,ref:string,local_id:string,cod_foglio:string}|null
+ */
+function analyticspro_gml_lookup(
+    string $belfiore,
+    string $foglio,
+    string $particella,
+    string $allegato = '',
+    string $sviluppo = ''
+): ?array {
+    $belfiore  = strtoupper($belfiore);
+    $codFoglio = analyticspro_gml_codice_foglio($foglio, $allegato, $sviluppo);
+
+    // Assicura che l'indice sia disponibile
+    if (!analyticspro_gml_parcel_index_valid($belfiore)) {
+        // Prova a costruirlo (solo se il file GML esiste)
+        $catalog = analyticspro_gml_build_catalog();
+        $entry   = $catalog[$belfiore] ?? null;
+        if ($entry === null || empty($entry['ple'])) {
+            return null;
+        }
+
+        try {
+            analyticspro_gml_build_parcel_index($belfiore);
+        } catch (Throwable $e) {
+            error_log('[gml_catalog] Impossibile costruire indice per ' . $belfiore . ': ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    $dbPath = analyticspro_gml_index_dir() . '/' . $belfiore . '.sqlite';
+    if (!is_file($dbPath)) {
+        return null;
+    }
+
+    try {
+        $db   = new SQLite3($dbPath, SQLITE3_OPEN_READONLY);
+        $stmt = $db->prepare('SELECT lat, lon, area_mq FROM parcels WHERE cod_foglio = :cf AND particella = :p LIMIT 1');
+        $stmt->bindValue(':cf', $codFoglio, SQLITE3_TEXT);
+        $stmt->bindValue(':p',  $particella, SQLITE3_TEXT);
+        $result = $stmt->execute();
+        if ($result === false) {
+            return null;
+        }
+        $row = $result->fetchArray(SQLITE3_ASSOC);
+        if ($row === false) {
+            return null;
+        }
+
+        return [
+            'lat'       => (float) $row['lat'],
+            'lon'       => (float) $row['lon'],
+            'area_mq'   => (float) $row['area_mq'],
+            'ref'       => $belfiore . '_' . $codFoglio . '.' . $particella,
+            'local_id'  => '',
+            'cod_foglio'=> $codFoglio,
+        ];
+    } catch (Throwable $e) {
+        error_log('[gml_catalog] SQLite error per ' . $belfiore . ': ' . $e->getMessage());
+        return null;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Helper
+// ---------------------------------------------------------------------------
+
+function analyticspro_gml_ensure_dirs(): void
+{
+    foreach ([analyticspro_gml_dir(), analyticspro_gml_index_dir()] as $dir) {
+        if (!is_dir($dir)) {
+            mkdir($dir, 0775, true);
+        }
+        $htaccess = $dir . '/.htaccess';
+        if (!is_file($htaccess)) {
+            file_put_contents($htaccess, "Require all denied\n");
+        }
+    }
+}
+
+/**
+ * Cerca il nome del comune nel DB locale (tabella cadastral_comuni).
+ * Ritorna stringa vuota se non trovato.
+ */
+function analyticspro_gml_nome_comune(string $belfiore): string
+{
+    try {
+        $pdo  = analyticspro_db();
+        $stmt = $pdo->prepare('SELECT nome FROM cadastral_comuni WHERE cod_catastale = :b LIMIT 1');
+        $stmt->execute(['b' => strtoupper($belfiore)]);
+        $row  = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $row !== false ? (string) $row['nome'] : '';
+    } catch (Throwable $e) {
+        return '';
+    }
+}
+
+/**
+ * Sanitizza il nome di un file GML per lo storage.
+ * Restituisce null se il nome non è valido.
+ */
+function analyticspro_gml_sanitize_filename(string $raw): ?string
+{
+    $base = basename($raw);
+    // Accetta solo pattern: BBBB_something_(ple|map).gml  o  .zip
+    if (preg_match('/^[A-Za-z0-9_\-]+\.(gml|zip)$/i', $base)) {
+        return $base;
+    }
+    return null;
+}
+
+/**
+ * Verifica che il contenuto di un file GML contenga almeno una feature catastale.
+ */
+function analyticspro_gml_validate_content(string $path): bool
+{
+    $fh = @fopen($path, 'rb');
+    if ($fh === false) {
+        return false;
+    }
+    $content = '';
+    $read    = 0;
+    while ($read < 65536 && !feof($fh)) {
+        $chunk    = (string) fread($fh, 4096);
+        $content .= $chunk;
+        $read    += strlen($chunk);
+    }
+    fclose($fh);
+
+    return str_contains($content, 'CadastralParcel')
+        || str_contains($content, 'CadastralZoning');
+}

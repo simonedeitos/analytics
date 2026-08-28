@@ -324,3 +324,76 @@ barra di avanzamento con il testo "Geolocalizzazione: X/Y marker" che si aggiorn
 La funzione `analyticspro_zornade_health_check()` in `includes/zornade_lookup.php`
 chiama `GET /health` (nessuna autenticazione richiesta) e ritorna lo status/versione del
 servizio Zornade. Utile per un futuro pulsante "Testa connessione Zornade" in admin.
+
+---
+
+## Import GML locale
+
+### Scopo
+
+Sostituisce il lookup on-demand via WFS pubblico dell'Agenzia delle Entrate (fragile:
+HTTP 403 dal WAF Akamai, rate-limit, lento) con un **repository locale di file GML ufficiali ADE**.
+
+### Struttura delle cartelle
+
+```
+analyticspro/storage/gml/            ← file GML appiattiti (deny HTTP via .htaccess)
+analyticspro/storage/gml_index/      ← indici JSON e SQLite (deny HTTP via .htaccess)
+  catalogo.json                      ← BELFIORE → {ple, map, nome, size, mtime}
+  {BELFIORE}_fogli.json              ← indice codici foglio dal _map.gml
+  {BELFIORE}.sqlite                  ← indice particelle per lookup O(1)
+```
+
+### Procedura operativa per l'admin
+
+1. Andare su **Admin → Import GML**.
+2. Trascinare le cartelle dei file GML (anche più cartelle contemporaneamente, struttura annidata).
+   Sono accettati file `*_ple.gml` / `*_map.gml` e archivi `.zip`.
+3. Premere **Carica e rigenera catalogo** — il catalogo viene rigenerato automaticamente.
+4. Per ogni comune caricato, premere **Indicizza tutti i comuni** (o il pulsante per singolo comune)
+   per costruire l'indice SQLite delle particelle — necessario per il lookup O(1).
+5. Usare lo strumento **Diagnostica** per verificare che il numero di feature lette coincida
+   con l'attributo `numberMatched` del GML.
+
+### Catena di risoluzione coordinate (ordine di priorità)
+
+Al momento dell'arricchimento coordinate di ogni riga importata:
+
+1. **GML locale** (`analyticspro_gml_lookup`) — offline, O(1), sorgente: `gml_locale`
+2. **Cache SQLite** (`cache/catasto/catasto_cache.db`) — sorgente: `cache`
+3. **Zornade** (se configurato) — sorgente: `zornade`
+4. **WFS on-demand ADE** (fallback finale, rate-limit 500 ms) — sorgente: `wfs`
+5. Fallimento → riga marcata senza coordinate, import NON interrotto
+
+La sorgente è salvata nel campo `coord_source` della tabella `properties`
+(aggiunto dalla migration `004_add_coord_source_to_properties.sql`).
+
+### Protezione HTTP
+
+Le directory `storage/gml/` e `storage/gml_index/` contengono un `.htaccess` con
+`Require all denied`. Per Nginx, aggiungere nel blocco server:
+
+```nginx
+location ~* /storage/gml(_index)?/ {
+    deny all;
+    return 403;
+}
+```
+
+### Parser GML streaming
+
+Il file `includes/gml_stream_parser.php` implementa un parser a blocchi (chunk 1 MB)
+che:
+- Non usa `DOMDocument::load()` (memory-unsafe su file da centinaia di MB).
+- Non usa `XMLReader::next($localName)` (bug: confronta il nome qualificato).
+- Isola ogni `<X:CadastralParcel>` tramite regex, gestendo l'elemento a cavallo di due chunk.
+- Esclude i `posList` interni a `gml:Envelope`/`boundedBy`.
+- È indipendente da namespace e prefissi.
+
+### Test
+
+```bash
+php analyticspro/tests/gml_stream_smoke.php   # parser streaming + centroide
+php analyticspro/tests/gml_parser_smoke.php   # parser DOM esistente
+php analyticspro/tests/ade_sql_import_smoke.php
+```
