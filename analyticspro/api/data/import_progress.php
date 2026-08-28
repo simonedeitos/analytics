@@ -32,6 +32,9 @@ try {
     }
 
     $batch['progress_percent'] = (int) round(((int) $batch['processed_rows'] / max((int) $batch['total_rows'], 1)) * 100);
+    $batch['enrichment_percent'] = $batch['enrichment_total'] > 0
+        ? (int) round(((int) $batch['enrichment_processed'] / (int) $batch['enrichment_total']) * 100)
+        : 0;
     analyticspro_json(['ok' => true, 'batch' => $batch]);
 } catch (Throwable $exception) {
     analyticspro_json(['ok' => false, 'error' => $exception->getMessage()], 404);
