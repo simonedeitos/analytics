@@ -19,6 +19,7 @@ if (analyticspro_is_subuser() && empty($subuserPermissions['can_view_analytics']
 
 $tenantId       = analyticspro_current_tenant_id();
 $selectedTenant = analyticspro_is_admin() ? (string) analyticspro_get('tenant_id', 'all') : (string) $tenantId;
+$canViewPhone   = analyticspro_tenant_phone_visibility($tenantId);
 
 analyticspro_render_header('Analitiche', ['app_assets' => true]);
 ?>
@@ -26,7 +27,7 @@ analyticspro_render_header('Analitiche', ['app_assets' => true]);
      data-role="<?= analyticspro_h((string) $user['role']) ?>"
      data-tenant-id="<?= analyticspro_h((string) ($tenantId ?? '')) ?>"
      data-selected-tenant="<?= analyticspro_h($selectedTenant) ?>"
-     data-can-view-phone="<?= analyticspro_tenant_phone_visibility($tenantId) ? '1' : '0' ?>"
+     data-can-view-phone="<?= $canViewPhone ? '1' : '0' ?>"
      data-can-import="<?= !analyticspro_is_subuser() || !empty($subuserPermissions['can_import']) ? '1' : '0' ?>"
      data-can-view-reports="<?= !analyticspro_is_subuser() || !empty($subuserPermissions['can_view_reports']) ? '1' : '0' ?>"
      data-can-view-analytics="1"
@@ -47,6 +48,7 @@ analyticspro_render_header('Analitiche', ['app_assets' => true]);
                 </div>
             </div>
         </div>
+        <?php if ($canViewPhone): ?>
         <div class="col-6 col-md-3">
             <div class="card border-0 shadow-sm text-center h-100">
                 <div class="card-body py-3">
@@ -56,6 +58,7 @@ analyticspro_render_header('Analitiche', ['app_assets' => true]);
                 </div>
             </div>
         </div>
+        <?php endif; ?>
         <div class="col-6 col-md-3">
             <div class="card border-0 shadow-sm text-center h-100">
                 <div class="card-body py-3">
@@ -149,4 +152,3 @@ analyticspro_render_header('Analitiche', ['app_assets' => true]);
     </div>
 </div>
 <?php analyticspro_render_footer(true); ?>
-

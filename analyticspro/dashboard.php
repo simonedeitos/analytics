@@ -15,6 +15,7 @@ $tenantId           = analyticspro_current_tenant_id();
 $selectedTenant     = analyticspro_is_admin() ? (string) analyticspro_get('tenant_id', 'all') : (string) $tenantId;
 $subuserPermissions = analyticspro_is_subuser() ? analyticspro_get_subuser_permissions((int) $user['id']) : null;
 $tenants            = analyticspro_is_admin() ? analyticspro_fetch_tenants() : [];
+$canViewPhone       = analyticspro_tenant_phone_visibility($tenantId);
 
 analyticspro_render_header('Dashboard', ['app_assets' => true]);
 ?>
@@ -22,7 +23,7 @@ analyticspro_render_header('Dashboard', ['app_assets' => true]);
      data-role="<?= analyticspro_h((string) $user['role']) ?>"
      data-tenant-id="<?= analyticspro_h((string) ($tenantId ?? '')) ?>"
      data-selected-tenant="<?= analyticspro_h($selectedTenant) ?>"
-     data-can-view-phone="<?= analyticspro_tenant_phone_visibility($tenantId) ? '1' : '0' ?>"
+     data-can-view-phone="<?= $canViewPhone ? '1' : '0' ?>"
      data-can-import="<?= !analyticspro_is_subuser() || !empty($subuserPermissions['can_import']) ? '1' : '0' ?>"
      data-can-view-reports="<?= !analyticspro_is_subuser() || !empty($subuserPermissions['can_view_reports']) ? '1' : '0' ?>"
      data-can-view-analytics="<?= !analyticspro_is_subuser() || !empty($subuserPermissions['can_view_analytics']) ? '1' : '0' ?>"
@@ -55,7 +56,9 @@ analyticspro_render_header('Dashboard', ['app_assets' => true]);
     <div class="row g-3 mb-4">
         <div class="col-6 col-xl-3"><div class="card metric-card border-0 shadow-sm"><div class="card-body"><div class="text-muted small">Immobili visibili</div><div class="display-6" data-kpi="properties">—</div></div></div></div>
         <div class="col-6 col-xl-3"><div class="card metric-card border-0 shadow-sm"><div class="card-body"><div class="text-muted small">Intestatari correnti</div><div class="display-6" data-kpi="owners">—</div></div></div></div>
+        <?php if ($canViewPhone): ?>
         <div class="col-6 col-xl-3"><div class="card metric-card border-0 shadow-sm"><div class="card-body"><div class="text-muted small">Con telefono visibile</div><div class="display-6" data-kpi="phones">—</div></div></div></div>
+        <?php endif; ?>
         <div class="col-6 col-xl-3"><div class="card metric-card border-0 shadow-sm"><div class="card-body"><div class="text-muted small">Marker assegnati a me</div><div class="display-6" data-kpi="assigned">—</div></div></div></div>
     </div>
 

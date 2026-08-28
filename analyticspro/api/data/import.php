@@ -66,27 +66,16 @@ try {
             analyticspro_json(['ok' => false, 'error' => $e->getMessage()], 500);
         }
 
-        // Phase 2: coordinate enrichment involves slow network calls — always async.
-        // If the background worker cannot be launched (e.g. proc_open/shell_exec not
-        // available on this host), the batch remains with enrichment_status = 'pending'
-        // and enrichment_sync = 1. The frontend will switch to the chunk-based sync
-        // fallback via api/data/enrich_chunk.php.
-        // The HTTP response always returns immediately after Phase 1 completes.
-        $enrichWorker = ANALYTICSPRO_ROOT . '/cron/enrich_property_coordinates.php';
-        $backgroundLaunched = analyticspro_launch_background($enrichWorker, [$batchId]);
-        if (!$backgroundLaunched) {
-            try {
-                $pdo->prepare('UPDATE import_batches SET enrichment_sync = 1 WHERE id = :id')
-                    ->execute(['id' => $batchId]);
-            } catch (Throwable) {
-                // Non critico — il frontend userà il watchdog come fallback
-            }
-        }
+        // Phase 2: l'enrichment automatico usa lo stesso endpoint/loop del pulsante
+        // "Rigenera coordinate mancanti" (api/data/enrich_chunk.php), limitato al batch.
+        // Forziamo enrichment_sync=1 per guidare sempre il flusso sincrono lato frontend.
+        $pdo->prepare('UPDATE import_batches SET enrichment_sync = 1 WHERE id = :id')
+            ->execute(['id' => $batchId]);
 
         $savedStmt = $pdo->prepare('SELECT processed_rows FROM import_batches WHERE id = ?');
         $savedStmt->execute([$batchId]);
         $saved = (int) $savedStmt->fetchColumn();
-        analyticspro_json(['ok' => true, 'batch_id' => $batchId, 'saved_rows' => $saved, 'total_rows' => count($rows), 'enrichment_sync' => !$backgroundLaunched]);
+        analyticspro_json(['ok' => true, 'batch_id' => $batchId, 'saved_rows' => $saved, 'total_rows' => count($rows), 'enrichment_sync' => true]);
     }
 
     throw new RuntimeException('Modalità import non valida.');

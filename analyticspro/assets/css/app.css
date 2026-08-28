@@ -220,6 +220,7 @@ body {
 /* ----- Tables -------------------------------------------------------- */
 .table tfoot th { padding: .5rem; }
 .table tfoot input, .table tfoot select { width: 100%; min-width: 90px; }
+#report-table tfoot { display: none; }
 
 /* ----- Misc UI ------------------------------------------------------- */
 .assignment-badge, .owner-badge, .note-badge {
@@ -235,7 +236,6 @@ body {
 .map-popup-table td, .map-popup-table th { font-size: .8rem; }
 .help-steps li { margin-bottom: .55rem; }
 .property-inline-control { min-width: 120px; }
-.small-select[multiple] { min-height: 88px; }
 
 /* ----- Drop Zone (importa.php) --------------------------------------- */
 .drop-zone {
@@ -278,15 +278,32 @@ body {
     margin-bottom: .75rem;
 }
 
-/* ----- #assigned-save button ----------------------------------------- */
+/* ----- assegnati.php filters ----------------------------------------- */
 #assigned-subuser-filter {
     min-width: 240px;
     flex: 1 1 240px;
 }
 
-#assigned-save {
-    white-space: nowrap;
-    flex-shrink: 0;
+#assigned-status-filter {
+    min-width: 180px;
+    flex: 0 0 180px;
+}
+
+.ap-cluster-icon {
+    background: transparent;
+    border: 0;
+}
+.cluster-pie {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    filter: drop-shadow(0 1px 3px rgba(0,0,0,.25));
+}
+
+.dataTable tbody td {
+    vertical-align: middle;
+    padding-top: .45rem;
+    padding-bottom: .45rem;
 }
 
 /* Admin sub-nav (secondary tabs inside admin pages) */

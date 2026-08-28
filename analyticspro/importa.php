@@ -94,5 +94,8 @@ analyticspro_render_header('Importa dati', ['app_assets' => true]);
         </div>
         <p id="enrichment-progress-text" class="small mb-0">Geolocalizzazione marker in corso...</p>
         <div id="enrichment-report" class="small mt-2 d-none"></div>
+        <button id="enrichment-retry-btn" type="button" class="btn btn-outline-secondary btn-sm mt-2 d-none">
+            <i class="bi bi-arrow-repeat me-1"></i>Riprova
+        </button>
     </div>
 </div>
