@@ -467,9 +467,8 @@
         await loadProperties();
         const savedRows = processPayload.saved_rows ?? processPayload.total_rows ?? rows.length;
         alert(`Import completato: ${savedRows} righe salvate. Geolocalizzazione dei marker in corso in background.`);
-        // Phase 2 (coordinate enrichment) runs in the background; poll informatively
-        // but do not block the user — any enrichment failure will not block them.
-        pollImport(processPayload.batch_id).catch(() => {});
+        // Phase 2 (coordinate enrichment) runs in the background; poll and show progress.
+        pollEnrichment(processPayload.batch_id).catch(() => {});
     }
 
     async function pollImport(batchId) {
@@ -484,6 +483,65 @@
             if (batch.status === 'completed') return;
             if (batch.status === 'failed') throw new Error(batch.error_message || 'Import fallito');
             await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+    }
+
+    /**
+     * Polls enrichment (Phase 2) progress and shows a non-blocking status banner.
+     * Removes the banner once enrichment completes and silently reloads markers.
+     */
+    async function pollEnrichment(batchId) {
+        // Create a dismissible status banner below the main page content.
+        const banner = document.createElement('div');
+        banner.id = 'enrichment-banner';
+        banner.className = 'alert alert-info alert-dismissible d-flex align-items-center gap-2 position-fixed bottom-0 start-50 translate-middle-x mb-3 shadow';
+        banner.style.cssText = 'z-index:1055;min-width:320px;max-width:90vw;';
+        banner.innerHTML = `
+            <div class="spinner-border spinner-border-sm flex-shrink-0" role="status"><span class="visually-hidden">Caricamento…</span></div>
+            <span id="enrichment-banner-text">Geolocalizzazione marker in corso…</span>
+            <button type="button" class="btn-close ms-auto" aria-label="Chiudi"></button>`;
+        banner.querySelector('.btn-close')?.addEventListener('click', () => banner.remove());
+        document.body.appendChild(banner);
+
+        try {
+            while (true) {
+                const payload = await api(`${state.importProgressEndpoint}?batch_id=${batchId}`);
+                const batch = payload.batch;
+                const textEl = document.getElementById('enrichment-banner-text');
+                const total = Number(batch.enrichment_total) || 0;
+                const processed = Number(batch.enrichment_processed) || 0;
+                const status = batch.enrichment_status || 'pending';
+
+                if (textEl) {
+                    if (total > 0) {
+                        textEl.textContent = `Geolocalizzazione: ${processed}/${total} marker`;
+                    } else {
+                        textEl.textContent = 'Geolocalizzazione marker in corso…';
+                    }
+                }
+
+                if (status === 'completed') {
+                    if (textEl) textEl.textContent = total > 0 ? `Geolocalizzazione completata: ${processed}/${total} marker` : 'Geolocalizzazione completata.';
+                    banner.className = banner.className.replace('alert-info', 'alert-success');
+                    banner.querySelector('.spinner-border')?.remove();
+                    // Silently reload map markers.
+                    loadProperties().catch(() => {});
+                    await new Promise(resolve => setTimeout(resolve, 3000));
+                    banner.remove();
+                    return;
+                }
+
+                if (status === 'failed') {
+                    if (textEl) textEl.textContent = 'Geolocalizzazione fallita. Verifica la configurazione Zornade/WFS nel file .env.';
+                    banner.className = banner.className.replace('alert-info', 'alert-danger');
+                    banner.querySelector('.spinner-border')?.remove();
+                    return;
+                }
+
+                await new Promise(resolve => setTimeout(resolve, 2500));
+            }
+        } catch {
+            banner.remove();
         }
     }
 

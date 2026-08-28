@@ -210,3 +210,70 @@ Subito dopo aver avviato un import (da entrambe le modalità) si apre automatica
 una finestra modale con il **log in tempo reale** del job. Puoi riaprirla in qualsiasi
 momento cliccando il pulsante <kbd><i class="bi bi-terminal"></i></kbd> accanto a
 ciascun job nella tabella "Job recenti".
+
+---
+
+## Geolocalizzazione particelle: Zornade + fallback WFS
+
+AnalyticsPRO usa **Zornade** (https://app.zornade.com/api) come provider primario per
+convertire i riferimenti catastali (comune / foglio / particella) in coordinate
+geografiche (lat/lng) utilizzate dai marker sulla mappa.
+
+### Configurazione
+
+1. Registrati su [app.zornade.com](https://app.zornade.com) e genera il tuo **token API personale**.
+2. Aggiungi la riga seguente al file `.env` del server (**mai nel repository, mai in commit**):
+   ```
+   ZORNADE_API_KEY=<il tuo token>
+   ```
+3. Facoltativamente puoi sovrascrivere l'URL base (utile per ambienti di test/staging):
+   ```
+   ZORNADE_API_BASE_URL=https://app.zornade.com/api
+   ```
+
+Il file `.env.example` include già le variabili con valore vuoto come riferimento.
+
+### Comportamento di fallback
+
+```
+Cache SQLite  →  Zornade API  →  WFS AdE (fallback)  →  lat/lng NULL
+```
+
+1. Se la particella è già nella cache SQLite locale, viene usato il valore cachato
+   (il campo `source` indica quale provider l'ha risolta in origine).
+2. Se non è in cache e `ZORNADE_API_KEY` è configurata, viene chiamata Zornade.
+3. Se Zornade fallisce (errore HTTP, particella non trovata) o la chiave non è
+   configurata, viene usato il **WFS pubblico dell'Agenzia delle Entrate** come
+   fallback. I log di errore Zornade sono prefissati con `[Zornade]`.
+4. Se entrambi i provider falliscono, la riga resta con `lat/lng = NULL` — non
+   blocca l'import delle altre proprietà.
+
+### Rate-limiting
+
+| Provider | Limite dichiarato | Gap minimo applicato |
+|----------|------------------|----------------------|
+| Zornade  | 10 000 req/ora   | 175 ms tra chiamate  |
+| WFS AdE  | non dichiarato   | 500 ms tra chiamate  |
+
+Se Zornade risponde con `Retry-After` o `X-RateLimit-Remaining: 0`, il client
+rispetta automaticamente il valore indicato.
+
+### Stato di arricchimento nella UI
+
+Dopo ogni import viene mostrato un **banner in basso** con l'avanzamento in tempo
+reale della geolocalizzazione:
+
+- **"Geolocalizzazione: X/Y marker"** — elaborazione in corso (aggiornamento ogni ~2,5 s)
+- **"Geolocalizzazione completata"** — i nuovi marker appaiono sulla mappa automaticamente
+- **"Geolocalizzazione fallita"** — nessuna coordinata trovata; verifica la configurazione
+
+Il banner è dismissibile; se preferisci ignorarlo non impatta le funzionalità principali.
+
+### Debug
+
+- Controlla i log PHP (`error_log`) per messaggi prefissati con `[Zornade]` e `[WFS]`.
+- La cache SQLite si trova in `analyticspro/cache/catasto/catasto_cache.db`; il campo
+  `source` indica quale provider ha risolto ciascuna particella.
+- Lo stato di arricchimento è esposto dall'endpoint
+  `api/data/import_progress.php?batch_id=<id>` nei campi `enrichment_status`,
+  `enrichment_processed`, `enrichment_total`.

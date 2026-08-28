@@ -424,6 +424,7 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
 function analyticspro_enrich_batch_coordinates(int $batchId): void
 {
     require_once __DIR__ . '/wfs_lookup.php';
+    require_once __DIR__ . '/zornade_lookup.php';
 
     $pdo = analyticspro_db();
 
@@ -486,9 +487,10 @@ function analyticspro_enrich_batch_coordinates(int $batchId): void
         ? $pdo->prepare('UPDATE import_batches SET enrichment_processed = :processed WHERE id = :id')
         : null;
 
-    $lastWfsCallAt = 0.0;
-    $processed     = 0;
-    $errors        = 0;
+    $lastWfsCallAt     = 0.0;
+    $lastZornadeCallAt = 0.0;
+    $processed         = 0;
+    $errors            = 0;
 
     foreach ($uniqueParcels as $parcel) {
         $provincia  = (string) ($parcel['provincia']     ?? '');
@@ -527,32 +529,49 @@ function analyticspro_enrich_batch_coordinates(int $batchId): void
                 $lng      = (float) $cached['lng'];
                 $verified = 1;
             } else {
-                $now     = microtime(true);
-                $elapsed = $now - $lastWfsCallAt;
-                $minGap  = 0.5;
-                if ($lastWfsCallAt > 0.0 && $elapsed < $minGap) {
-                    usleep((int) (($minGap - $elapsed) * 1_000_000));
-                }
+                // --- Zornade (primary provider) ---
+                $lastZornadeCallAt = analyticspro_zornade_rate_limit($lastZornadeCallAt);
+                $zornadeData = analyticspro_zornade_lookup_particella($comune, $provincia, $foglio, $particella, $sezione);
 
-                $wfsData       = analyticspro_wfs_query_service($codCat, $foglio, $particella);
-                $lastWfsCallAt = microtime(true);
+                if ($zornadeData !== null && ($zornadeData['ok'] ?? false)) {
+                    // Zornade succeeded.
+                    if ($db !== null) {
+                        analyticspro_wfs_save_cached_particella($db, $codCat, $foglio, $particella, $zornadeData);
+                        $db->close();
+                        $db = null;
+                    }
+                    $lat      = (float) $zornadeData['lat'];
+                    $lng      = (float) $zornadeData['lng'];
+                    $verified = 1;
+                } else {
+                    // --- WFS-AdE (fallback) ---
+                    $now     = microtime(true);
+                    $elapsed = $now - $lastWfsCallAt;
+                    $minGap  = 0.5;
+                    if ($lastWfsCallAt > 0.0 && $elapsed < $minGap) {
+                        usleep((int) (($minGap - $elapsed) * 1_000_000));
+                    }
 
-                if ($wfsData !== null && ($wfsData['ok'] ?? false) && $db !== null) {
-                    analyticspro_wfs_save_cached_particella($db, $codCat, $foglio, $particella, $wfsData);
-                }
-                if ($db !== null) {
-                    $db->close();
-                }
+                    $wfsData       = analyticspro_wfs_query_service($codCat, $foglio, $particella);
+                    $lastWfsCallAt = microtime(true);
 
-                if ($wfsData === null || !($wfsData['ok'] ?? false)) {
-                    $processed++;
-                    $updateBatchProgress?->execute(['processed' => $processed, 'id' => $batchId]);
-                    continue;
-                }
+                    if ($wfsData !== null && ($wfsData['ok'] ?? false) && $db !== null) {
+                        analyticspro_wfs_save_cached_particella($db, $codCat, $foglio, $particella, $wfsData);
+                    }
+                    if ($db !== null) {
+                        $db->close();
+                    }
 
-                $lat      = (float) $wfsData['lat'];
-                $lng      = (float) $wfsData['lng'];
-                $verified = 1;
+                    if ($wfsData === null || !($wfsData['ok'] ?? false)) {
+                        $processed++;
+                        $updateBatchProgress?->execute(['processed' => $processed, 'id' => $batchId]);
+                        continue;
+                    }
+
+                    $lat      = (float) $wfsData['lat'];
+                    $lng      = (float) $wfsData['lng'];
+                    $verified = 1;
+                }
             }
 
             $params = [
