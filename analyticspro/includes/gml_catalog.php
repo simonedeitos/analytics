@@ -85,10 +85,16 @@ function analyticspro_gml_build_catalog(bool $force = false): array
         $type     = strtolower($m[3]); // 'ple' or 'map'
 
         if (!isset($catalog[$belfiore])) {
+            // Estrae il nome direttamente dal nome file (sorgente primaria, sempre disponibile)
+            $nomeFromFile = ucwords(mb_strtolower(str_replace('_', ' ', $m[2])));
+            // Fallback DB se il nome dal file è vuoto
+            if ($nomeFromFile === '') {
+                $nomeFromFile = analyticspro_gml_nome_comune($belfiore);
+            }
             $catalog[$belfiore] = [
                 'ple'      => null,
                 'map'      => null,
-                'nome'     => analyticspro_gml_nome_comune($belfiore),
+                'nome'     => $nomeFromFile,
                 'size_ple' => 0,
                 'size_map' => 0,
                 'mtime'    => 0,
@@ -154,29 +160,74 @@ function analyticspro_gml_foglio_index(string $belfiore): array
     return $fogli;
 }
 
+/**
+ * Normalizza una particella catastale per il confronto:
+ *   "0147"   → "147"
+ *   "147/A"  → "147A"
+ *   " 147 "  → "147"
+ *   "147a"   → "147A"
+ */
+function analyticspro_gml_norm_particella(string $s): string
+{
+    $s       = strtoupper(trim($s));
+    $digits  = ltrim(preg_replace('/\D/', '', $s) ?? '', '0');
+    $letters = preg_replace('/[^A-Z]/', '', $s) ?? '';
+    return ($digits === '' ? '0' : $digits) . $letters;
+}
+
 // ---------------------------------------------------------------------------
 // Indice particelle SQLite (O(1) lookup)
 // ---------------------------------------------------------------------------
 
 /**
  * Apre (creando se necessario) il database SQLite dell'indice particelle.
+ * Se il DB esiste ma manca la colonna `particella_norm`, lo invalida (rimozione)
+ * in modo che venga ricostruito dal worker.
  */
 function analyticspro_gml_open_parcel_db(string $belfiore): SQLite3
 {
     $belfiore = strtoupper($belfiore);
     analyticspro_gml_ensure_dirs();
     $dbPath = analyticspro_gml_index_dir() . '/' . $belfiore . '.sqlite';
+
+    // Migrazione: se il DB esiste ma non ha particella_norm, lo invalida (cancella)
+    // così verrà ricostruito con lo schema aggiornato.
+    if (is_file($dbPath)) {
+        try {
+            $checkDb = new SQLite3($dbPath, SQLITE3_OPEN_READONLY);
+            $res = $checkDb->query("PRAGMA table_info(parcels)");
+            $hasNorm = false;
+            while ($res && ($row = $res->fetchArray(SQLITE3_ASSOC)) !== false) {
+                if ($row['name'] === 'particella_norm') {
+                    $hasNorm = true;
+                    break;
+                }
+            }
+            $checkDb->close();
+            if (!$hasNorm) {
+                // Invalida l'indice: rimuovi il file così sarà ricostruito
+                @unlink($dbPath);
+                error_log('[gml_catalog] Indice ' . $belfiore . ' invalidato: schema aggiornato (particella_norm mancante), ricostruzione necessaria.');
+            }
+        } catch (Throwable $e) {
+            // Se non riusciamo ad aprirlo, lo rimuoviamo e ricominciamo
+            @unlink($dbPath);
+        }
+    }
+
     $db = new SQLite3($dbPath, SQLITE3_OPEN_READWRITE | SQLITE3_OPEN_CREATE);
     $db->exec('PRAGMA journal_mode=WAL');
     $db->exec('PRAGMA synchronous=NORMAL');
     $db->exec('CREATE TABLE IF NOT EXISTS parcels (
-        cod_foglio TEXT NOT NULL,
-        particella TEXT NOT NULL,
-        lat        REAL NOT NULL,
-        lon        REAL NOT NULL,
-        area_mq    REAL NOT NULL DEFAULT 0,
+        cod_foglio      TEXT NOT NULL,
+        particella      TEXT NOT NULL,
+        particella_norm TEXT NOT NULL,
+        lat             REAL NOT NULL,
+        lon             REAL NOT NULL,
+        area_mq         REAL NOT NULL DEFAULT 0,
         PRIMARY KEY (cod_foglio, particella)
     )');
+    $db->exec('CREATE INDEX IF NOT EXISTS idx_norm ON parcels(cod_foglio, particella_norm)');
     $db->exec('CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)');
     return $db;
 }
@@ -199,9 +250,13 @@ function analyticspro_gml_build_parcel_index(string $belfiore, ?callable $progre
     $plePath = $entry['ple'];
     $db      = analyticspro_gml_open_parcel_db($belfiore);
 
+    // Cancella il flag 'complete' prima di iniziare: rende l'indice non valido
+    // finché la costruzione non è terminata (indicizzazione atomica).
+    $db->exec("DELETE FROM meta WHERE key = 'complete'");
+
     $db->exec('BEGIN');
-    $stmt = $db->prepare('INSERT OR REPLACE INTO parcels (cod_foglio, particella, lat, lon, area_mq)
-                          VALUES (:cod_foglio, :particella, :lat, :lon, :area_mq)');
+    $stmt = $db->prepare('INSERT OR REPLACE INTO parcels (cod_foglio, particella, particella_norm, lat, lon, area_mq)
+                          VALUES (:cod_foglio, :particella, :particella_norm, :lat, :lon, :area_mq)');
 
     $count   = 0;
     $batchSz = 500;
@@ -209,11 +264,12 @@ function analyticspro_gml_build_parcel_index(string $belfiore, ?callable $progre
 
     $flush = static function () use ($db, $stmt, &$buf, &$count): void {
         foreach ($buf as $row) {
-            $stmt->bindValue(':cod_foglio', $row[0], SQLITE3_TEXT);
-            $stmt->bindValue(':particella', $row[1], SQLITE3_TEXT);
-            $stmt->bindValue(':lat',        $row[2], SQLITE3_FLOAT);
-            $stmt->bindValue(':lon',        $row[3], SQLITE3_FLOAT);
-            $stmt->bindValue(':area_mq',    $row[4], SQLITE3_FLOAT);
+            $stmt->bindValue(':cod_foglio',     $row[0], SQLITE3_TEXT);
+            $stmt->bindValue(':particella',     $row[1], SQLITE3_TEXT);
+            $stmt->bindValue(':particella_norm', $row[2], SQLITE3_TEXT);
+            $stmt->bindValue(':lat',             $row[3], SQLITE3_FLOAT);
+            $stmt->bindValue(':lon',             $row[4], SQLITE3_FLOAT);
+            $stmt->bindValue(':area_mq',         $row[5], SQLITE3_FLOAT);
             $stmt->execute();
             $count++;
         }
@@ -240,8 +296,15 @@ function analyticspro_gml_build_parcel_index(string $belfiore, ?callable $progre
         }
 
         $areaMq = analyticspro_ring_area_m2($exterior);
+        // Sottrai l'area dei ring interni (buchi) per una superficie netta corretta
+        foreach ($intRings as $hole) {
+            $areaMq -= analyticspro_ring_area_m2($hole);
+        }
+        if ($areaMq < 0) {
+            $areaMq = 0.0;
+        }
 
-        $buf[] = [$f['codFoglio'], $f['particella'], $pt['lat'], $pt['lng'], $areaMq];
+        $buf[] = [$f['codFoglio'], $f['particella'], analyticspro_gml_norm_particella($f['particella']), $pt['lat'], $pt['lng'], $areaMq];
 
         if (count($buf) >= $batchSz) {
             $flush();
@@ -262,6 +325,11 @@ function analyticspro_gml_build_parcel_index(string $belfiore, ?callable $progre
     $metaStmt->bindValue(':key', 'count', SQLITE3_TEXT);
     $metaStmt->bindValue(':value', (string) $count, SQLITE3_TEXT);
     $metaStmt->execute();
+    // Flag di completamento atomico: scritto SOLO a fine scansione riuscita.
+    // analyticspro_gml_parcel_index_valid() verifica questo flag.
+    $metaStmt->bindValue(':key', 'complete', SQLITE3_TEXT);
+    $metaStmt->bindValue(':value', '1', SQLITE3_TEXT);
+    $metaStmt->execute();
 
     if ($progressCb !== null) {
         $progressCb($count, $count);
@@ -271,7 +339,10 @@ function analyticspro_gml_build_parcel_index(string $belfiore, ?callable $progre
 }
 
 /**
- * Controlla se l'indice SQLite di un comune è valido (esiste e non è più vecchio del GML).
+ * Controlla se l'indice SQLite di un comune è valido:
+ * - file esiste
+ * - non è più vecchio del GML
+ * - contiene il flag meta['complete'] = '1' (scrittura atomica riuscita)
  */
 function analyticspro_gml_parcel_index_valid(string $belfiore): bool
 {
@@ -290,7 +361,22 @@ function analyticspro_gml_parcel_index_valid(string $belfiore): bool
     $gmlMtime = @filemtime($entry['ple']) ?: 0;
     $dbMtime  = @filemtime($dbPath) ?: 0;
 
-    return $dbMtime >= $gmlMtime;
+    if ($dbMtime < $gmlMtime) {
+        return false;
+    }
+
+    // Verifica flag di completamento atomico
+    try {
+        $db  = new SQLite3($dbPath, SQLITE3_OPEN_READONLY);
+        $res = $db->query("SELECT value FROM meta WHERE key = 'complete' LIMIT 1");
+        $complete = ($res !== false && ($row = $res->fetchArray(SQLITE3_NUM)) !== false)
+            ? ($row[0] === '1')
+            : false;
+        $db->close();
+        return $complete;
+    } catch (Throwable $e) {
+        return false;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -312,21 +398,12 @@ function analyticspro_gml_lookup(
     $belfiore  = strtoupper($belfiore);
     $codFoglio = analyticspro_gml_codice_foglio($foglio, $allegato, $sviluppo);
 
-    // Assicura che l'indice sia disponibile
+    // Se l'indice non è pronto, non lo costruiamo qui: restituiamo null
+    // lasciando proseguire la catena di fallback, e logghiamo un warning una tantum.
     if (!analyticspro_gml_parcel_index_valid($belfiore)) {
-        // Prova a costruirlo (solo se il file GML esiste)
-        $catalog = analyticspro_gml_build_catalog();
-        $entry   = $catalog[$belfiore] ?? null;
-        if ($entry === null || empty($entry['ple'])) {
-            return null;
-        }
-
-        try {
-            analyticspro_gml_build_parcel_index($belfiore);
-        } catch (Throwable $e) {
-            error_log('[gml_catalog] Impossibile costruire indice per ' . $belfiore . ': ' . $e->getMessage());
-            return null;
-        }
+        error_log('[gml_catalog] Indice particelle non disponibile per ' . $belfiore
+            . '. Indicizzare il comune dalla pagina Admin → Import GML.');
+        return null;
     }
 
     $dbPath = analyticspro_gml_index_dir() . '/' . $belfiore . '.sqlite';
@@ -335,15 +412,25 @@ function analyticspro_gml_lookup(
     }
 
     try {
-        $db   = new SQLite3($dbPath, SQLITE3_OPEN_READONLY);
+        $db  = new SQLite3($dbPath, SQLITE3_OPEN_READONLY);
+
+        // Primo tentativo: match esatto su particella (più preciso)
         $stmt = $db->prepare('SELECT lat, lon, area_mq FROM parcels WHERE cod_foglio = :cf AND particella = :p LIMIT 1');
         $stmt->bindValue(':cf', $codFoglio, SQLITE3_TEXT);
         $stmt->bindValue(':p',  $particella, SQLITE3_TEXT);
         $result = $stmt->execute();
-        if ($result === false) {
-            return null;
+        $row = ($result !== false) ? $result->fetchArray(SQLITE3_ASSOC) : false;
+
+        // Secondo tentativo: match normalizzato su particella_norm
+        if ($row === false) {
+            $normPart = analyticspro_gml_norm_particella($particella);
+            $stmt2 = $db->prepare('SELECT lat, lon, area_mq FROM parcels WHERE cod_foglio = :cf AND particella_norm = :pn LIMIT 1');
+            $stmt2->bindValue(':cf', $codFoglio, SQLITE3_TEXT);
+            $stmt2->bindValue(':pn', $normPart, SQLITE3_TEXT);
+            $result2 = $stmt2->execute();
+            $row = ($result2 !== false) ? $result2->fetchArray(SQLITE3_ASSOC) : false;
         }
-        $row = $result->fetchArray(SQLITE3_ASSOC);
+
         if ($row === false) {
             return null;
         }
@@ -387,10 +474,10 @@ function analyticspro_gml_nome_comune(string $belfiore): string
 {
     try {
         $pdo  = analyticspro_db();
-        $stmt = $pdo->prepare('SELECT nome FROM cadastral_comuni WHERE cod_catastale = :b LIMIT 1');
+        $stmt = $pdo->prepare('SELECT nome_comune FROM cadastral_comuni WHERE cod_catastale = :b LIMIT 1');
         $stmt->execute(['b' => strtoupper($belfiore)]);
         $row  = $stmt->fetch(PDO::FETCH_ASSOC);
-        return $row !== false ? (string) $row['nome'] : '';
+        return $row !== false ? (string) $row['nome_comune'] : '';
     } catch (Throwable $e) {
         return '';
     }
@@ -398,16 +485,21 @@ function analyticspro_gml_nome_comune(string $belfiore): string
 
 /**
  * Sanitizza il nome di un file GML per lo storage.
- * Restituisce null se il nome non è valido.
+ * Normalizza i caratteri non ASCII (spazi, apostrofi, ecc.) in underscore,
+ * garantendo protezione da path traversal tramite basename().
+ * Restituisce null se il nome non ha estensione .gml o .zip.
  */
 function analyticspro_gml_sanitize_filename(string $raw): ?string
 {
     $base = basename($raw);
-    // Accetta solo pattern: BBBB_something_(ple|map).gml  o  .zip
-    if (preg_match('/^[A-Za-z0-9_\-]+\.(gml|zip)$/i', $base)) {
-        return $base;
+    // Accetta solo .gml o .zip
+    if (!preg_match('/\.(gml|zip)$/i', $base)) {
+        return null;
     }
-    return null;
+    // Normalizza i caratteri non sicuri in underscore (spazi, apostrofi, ecc.)
+    $safe = preg_replace('/[^A-Za-z0-9._\-]+/', '_', $base);
+    $safe = preg_replace('/_+/', '_', $safe ?? '');
+    return ($safe !== '' && $safe !== '.' && $safe !== '..') ? $safe : null;
 }
 
 /**

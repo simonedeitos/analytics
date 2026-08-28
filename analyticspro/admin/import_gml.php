@@ -61,8 +61,11 @@ require __DIR__ . '/_admin_subnav.php';
                             Trascina qui le <strong>cartelle</strong> o i file GML/ZIP<br>
                             (anche più cartelle contemporaneamente, struttura annidata)
                         </div>
-                        <div class="mt-2">
+                        <div class="mt-2 d-flex gap-2 justify-content-center align-items-center">
                             <span class="badge bg-secondary" id="gml-drop-count">0 file selezionati</span>
+                            <button id="gml-drop-clear" class="btn btn-xs btn-outline-secondary" type="button" style="display:none">
+                                <i class="bi bi-x-circle me-1"></i>Svuota selezione
+                            </button>
                         </div>
                     </div>
 
@@ -103,6 +106,7 @@ require __DIR__ . '/_admin_subnav.php';
             <div class="card border-0 shadow-sm">
                 <div class="card-body">
                     <h2 class="h5 mb-3"><i class="bi bi-search me-1"></i>Diagnostica comune</h2>
+                    <p class="text-muted small mb-2"><i class="bi bi-info-circle me-1"></i>L'analisi può richiedere alcuni minuti sui comuni grandi.</p>
                     <div class="input-group mb-2">
                         <input id="gml-inspect-belfiore" type="text" class="form-control"
                                placeholder="Codice Belfiore (es. B394)" maxlength="4"
@@ -115,11 +119,23 @@ require __DIR__ . '/_admin_subnav.php';
 
                     <hr>
                     <h2 class="h5 mb-3"><i class="bi bi-database me-1"></i>Costruisci indice particelle</h2>
-                    <p class="text-muted small">Indicizza tutti i comuni presenti nel catalogo per abilitare il lookup O(1) durante l'import CSV.</p>
+                    <p class="text-muted small">Indicizza tutti i comuni presenti nel catalogo per abilitare il lookup O(1) durante l'import CSV.
+                        L'indicizzazione viene eseguita in background — un log live mostrerà lo stato.</p>
                     <button id="gml-build-index-btn" class="btn btn-warning btn-sm" type="button">
                         <i class="bi bi-gear me-1"></i>Indicizza tutti i comuni
                     </button>
                     <div id="gml-build-index-result" class="mt-2"></div>
+
+                    <!-- Log live indicizzazione -->
+                    <div id="gml-index-log-wrap" style="display:none" class="mt-3">
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <small class="text-muted fw-semibold" id="gml-index-log-title">Log indicizzazione</small>
+                            <span id="gml-index-log-status" class="badge bg-secondary">in coda</span>
+                        </div>
+                        <div id="gml-index-log-body"
+                             class="border rounded p-2 bg-dark text-white small"
+                             style="max-height:200px;overflow-y:auto;font-family:monospace;font-size:.78rem;white-space:pre-wrap"></div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -219,12 +235,22 @@ require __DIR__ . '/_admin_subnav.php';
 
     const dropZone   = document.getElementById('gml-drop-zone');
     const countBadge = document.getElementById('gml-drop-count');
+    const clearBtn   = document.getElementById('gml-drop-clear');
     const uploadBtn  = document.getElementById('gml-upload-btn');
+    let totalSkipped = 0;   // contatore cumulativo file scartati per pattern
 
     function updateDropCount() {
         countBadge.textContent = pendingFiles.length + ' file selezionati';
         uploadBtn.disabled = pendingFiles.length === 0;
+        clearBtn.style.display = pendingFiles.length > 0 ? '' : 'none';
     }
+
+    clearBtn.addEventListener('click', () => {
+        pendingFiles = [];
+        totalSkipped = 0;
+        updateDropCount();
+        document.getElementById('gml-upload-result').innerHTML = '';
+    });
 
     // Drag & drop con cartelle
     dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
@@ -287,23 +313,25 @@ require __DIR__ . '/_admin_subnav.php';
     }
 
     const GML_PATTERN = /^([A-Za-z]\d{3})_(.+?)_(ple|map)\.gml$/i;
-    let skippedByPattern = 0;
 
     function addFiles(files) {
-        skippedByPattern = 0;
-        const filtered = [];
+        // Accumula con deduplica per name + size (non sovrascrive)
+        const seen = new Set(pendingFiles.map(f => f.name + '|' + f.size));
+        let skippedThisDrop = 0;
         for (const f of files) {
-            if (/\.(zip)$/i.test(f.name)) {
-                filtered.push(f);
-            } else if (GML_PATTERN.test(f.name)) {
-                filtered.push(f);
+            if (/\.(zip)$/i.test(f.name) || GML_PATTERN.test(f.name)) {
+                const k = f.name + '|' + f.size;
+                if (!seen.has(k)) {
+                    pendingFiles.push(f);
+                    seen.add(k);
+                }
             } else {
-                skippedByPattern++;
+                skippedThisDrop++;
             }
         }
-        pendingFiles = filtered;
-        if (skippedByPattern > 0) {
-            showUploadResult('info', skippedByPattern + ' file ignorati (pattern non valido).');
+        totalSkipped += skippedThisDrop;
+        if (totalSkipped > 0) {
+            showUploadResult('info', totalSkipped + ' file ignorati in totale (pattern non valido).');
         }
         updateDropCount();
     }
@@ -402,6 +430,7 @@ require __DIR__ . '/_admin_subnav.php';
 
         showUploadResult(errors > 0 ? 'warning' : 'success', msg || 'Upload completato.');
         pendingFiles = [];
+        totalSkipped = 0;
         updateDropCount();
         loadCatalog();
     });
@@ -529,32 +558,102 @@ require __DIR__ . '/_admin_subnav.php';
     }
 
     // -------------------------------------------------------------------------
-    // Build index
+    // Build index (background job con log live)
     // -------------------------------------------------------------------------
 
     document.getElementById('gml-build-index-btn').addEventListener('click', () => buildIndex('ALL'));
 
+    const indexLogWrap   = document.getElementById('gml-index-log-wrap');
+    const indexLogBody   = document.getElementById('gml-index-log-body');
+    const indexLogStatus = document.getElementById('gml-index-log-status');
+    const indexLogTitle  = document.getElementById('gml-index-log-title');
+    let indexPollTimer   = null;
+
     function buildIndex(belfiore) {
         const div = document.getElementById('gml-build-index-result');
-        div.innerHTML = '<div class="text-muted small">Indicizzazione in corso per <strong>' + escHtml(belfiore) + '</strong>…</div>';
+        div.innerHTML = '<div class="text-muted small">Accodamento job in corso…</div>';
+
+        // Mostra il pannello log
+        indexLogWrap.style.display = '';
+        indexLogBody.textContent = '';
+        indexLogStatus.className = 'badge bg-secondary';
+        indexLogStatus.textContent = 'in coda';
+        indexLogTitle.textContent = 'Log indicizzazione (' + belfiore + ')';
+
+        // Ferma eventuale polling precedente
+        if (indexPollTimer !== null) {
+            clearTimeout(indexPollTimer);
+            indexPollTimer = null;
+        }
 
         const body = new URLSearchParams({ belfiore: belfiore, csrf_token: csrf });
         fetch(indexUrl, { method: 'POST', body })
             .then(r => r.json())
             .then(data => {
-                if (!data.ok) { div.innerHTML = '<div class="alert alert-danger small py-2">' + escHtml(data.error || 'Errore') + '</div>'; return; }
-                const results = data.results || {};
-                let total = 0, errors = 0;
-                for (const [b, r] of Object.entries(results)) {
-                    if (r.ok) total += r.n_parcels || 0; else errors++;
+                if (!data.ok) {
+                    div.innerHTML = '<div class="alert alert-danger small py-2">' + escHtml(data.error || 'Errore') + '</div>';
+                    if (data.job_id) {
+                        // Mostra il messaggio anche nel log
+                        appendLog('error', data.error || 'Errore avvio worker');
+                        indexLogStatus.className = 'badge bg-danger';
+                        indexLogStatus.textContent = 'failed';
+                    }
+                    return;
                 }
-                div.innerHTML = '<div class="alert alert-success small py-2">' +
-                    'Indicizzazione completata: <strong>' + Object.keys(results).length + '</strong> comuni, ' +
-                    '<strong>' + total.toLocaleString('it-IT') + '</strong> particelle indicizzate' +
-                    (errors > 0 ? ', <strong>' + errors + '</strong> errori' : '') + '.</div>';
-                loadCatalog();
+                div.innerHTML = '<div class="text-muted small">Job #' + data.job_id + ' avviato in background.</div>';
+                pollIndexJob(data.job_id, 0);
             })
-            .catch(() => { div.innerHTML = '<div class="alert alert-danger small py-2">Errore di rete.</div>'; });
+            .catch(() => {
+                div.innerHTML = '<div class="alert alert-danger small py-2">Errore di rete.</div>';
+            });
+    }
+
+    function appendLog(level, message) {
+        const colors = { info: '#aef', warning: '#fe8', error: '#f88' };
+        const prefix = { info: '[info]   ', warning: '[warn]   ', error: '[ERROR]  ' };
+        const color  = colors[level] || '#fff';
+        const line   = document.createElement('span');
+        line.style.color = color;
+        line.textContent = (prefix[level] || '') + message + '\n';
+        indexLogBody.appendChild(line);
+        indexLogBody.scrollTop = indexLogBody.scrollHeight;
+    }
+
+    function pollIndexJob(jobId, afterId) {
+        fetch(indexUrl + '?job_id=' + jobId + '&after_id=' + afterId)
+            .then(r => r.json())
+            .then(data => {
+                if (!data.ok) return;
+                const job  = data.job  || {};
+                const logs = data.logs || [];
+                let lastId = afterId;
+                for (const l of logs) {
+                    appendLog(l.level, l.message);
+                    lastId = Math.max(lastId, l.id);
+                }
+                const status = job.status || 'queued';
+                const statusBadge = { queued: 'bg-secondary', running: 'bg-primary', completed: 'bg-success', failed: 'bg-danger' };
+                indexLogStatus.className = 'badge ' + (statusBadge[status] || 'bg-secondary');
+                indexLogStatus.textContent = status;
+
+                if (status === 'completed' || status === 'failed') {
+                    const div = document.getElementById('gml-build-index-result');
+                    if (status === 'completed') {
+                        div.innerHTML = '<div class="alert alert-success small py-2">Indicizzazione completata (job #' + jobId + ').</div>';
+                        loadCatalog();
+                    } else {
+                        div.innerHTML = '<div class="alert alert-danger small py-2">Indicizzazione fallita (job #' + jobId + '): ' + escHtml(job.error_message || '') + '</div>';
+                    }
+                    return; // smetti di fare polling
+                }
+
+                // Continua a fare polling ogni 2 secondi
+                indexPollTimer = setTimeout(() => pollIndexJob(jobId, lastId), 2000);
+            })
+            .catch(() => {
+                // Riprova dopo 3 secondi in caso di errore di rete
+                indexPollTimer = setTimeout(() => pollIndexJob(jobId, afterId), 3000);
+            });
     }
 
     // -------------------------------------------------------------------------

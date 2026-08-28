@@ -2,6 +2,9 @@
 
 declare(strict_types=1);
 
+// L'analisi può richiedere alcuni minuti sui comuni grandi — rimuove il limite di esecuzione.
+set_time_limit(0);
+
 require dirname(__DIR__, 2) . '/includes/bootstrap.php';
 require_once ANALYTICSPRO_ROOT . '/includes/api_bootstrap.php';
 require_once ANALYTICSPRO_ROOT . '/includes/gml_catalog.php';

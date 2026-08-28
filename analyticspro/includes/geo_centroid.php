@@ -18,6 +18,9 @@ declare(strict_types=1);
 /**
  * Calcola il centroide d'area di un poligono.
  *
+ * Robusto rispetto al verso di rotazione dei ring: usa abs() sull'area
+ * e sottrae esplicitamente i buchi, indipendentemente dal loro orientamento.
+ *
  * @param  list<array{lat:float,lng:float}>  $exterior  Ring esterno (chiuso o aperto).
  * @param  list<list<array{lat:float,lng:float}>>  $interiors  Ring interni (buchi).
  * @return array{lat:float,lng:float}|null
@@ -25,15 +28,28 @@ declare(strict_types=1);
 function analyticspro_centroid(array $exterior, array $interiors = []): ?array
 {
     [$cxNum, $cyNum, $area] = analyticspro_centroid_ring($exterior, +1.0);
-    if (abs($area) < 1e-15) {
+
+    // Normalizza il verso: l'area dell'esterno deve essere sempre positiva
+    if ($area < 0) {
+        $area  = -$area;
+        $cxNum = -$cxNum;
+        $cyNum = -$cyNum;
+    }
+    if ($area < 1e-15) {
         return null;
     }
 
     foreach ($interiors as $hole) {
-        [$hxNum, $hyNum, $hArea] = analyticspro_centroid_ring($hole, -1.0);
-        $cxNum += $hxNum;
-        $cyNum += $hyNum;
-        $area  += $hArea;
+        [$hxNum, $hyNum, $hArea] = analyticspro_centroid_ring($hole, +1.0);
+        // Normalizza il verso del buco: area positiva, poi sottraiamo
+        if ($hArea < 0) {
+            $hArea = -$hArea;
+            $hxNum = -$hxNum;
+            $hyNum = -$hyNum;
+        }
+        $cxNum -= $hxNum;
+        $cyNum -= $hyNum;
+        $area  -= $hArea;
     }
 
     if (abs($area) < 1e-15) {
