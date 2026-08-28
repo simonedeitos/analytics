@@ -33,8 +33,7 @@ analyticspro_render_header('Mappa', ['app_assets' => true]);
 
     <div class="d-flex justify-content-between align-items-center mb-3 gap-3 flex-wrap">
         <div>
-            <h1 class="h3 mb-1">Mappa marker</h1>
-            <p class="text-muted small mb-0">Stato, colore, note e assegnazioni sono condivisi all'interno del tenant.</p>
+            <h1 class="h4 mb-1">Mappa marker</h1>
         </div>
         <div class="d-flex align-items-center gap-2 ms-lg-auto">
             <?php if (analyticspro_is_admin()): ?>
@@ -54,45 +53,45 @@ analyticspro_render_header('Mappa', ['app_assets' => true]);
         </div>
     </div>
 
-    <!-- Filtro stato mappa -->
+        <!-- Filtro stato mappa -->
     <div id="map-filter-panel" class="card mb-2">
-        <div class="card-body py-2">
-            <div class="d-flex flex-wrap align-items-center gap-2">
+        <div class="card-body py-1 px-2">
+            <div class="d-flex flex-wrap align-items-center gap-1" style="font-size: 0.75rem;">
                 <strong class="me-1">Filtro stato:</strong>
-                <div class="form-check form-check-inline">
-                    <input class="form-check-input map-stato-filter" type="checkbox" value="" id="filter-stato-null" checked>
+                <div class="form-check form-check-inline me-0">
+                    <input class="form-check-input map-stato-filter" type="checkbox" value="" id="filter-stato-null" checked style="width:0.75rem;height:0.75rem;">
                     <label class="form-check-label" for="filter-stato-null">Non impostato</label>
                 </div>
-                <div class="form-check form-check-inline">
-                    <input class="form-check-input map-stato-filter" type="checkbox" value="non_interessato" id="filter-stato-non-interessato" checked>
+                <div class="form-check form-check-inline me-0">
+                    <input class="form-check-input map-stato-filter" type="checkbox" value="non_interessato" id="filter-stato-non-interessato" checked style="width:0.75rem;height:0.75rem;">
                     <label class="form-check-label" for="filter-stato-non-interessato">Non Interessato</label>
                 </div>
-                <div class="form-check form-check-inline">
-                    <input class="form-check-input map-stato-filter" type="checkbox" value="interessato" id="filter-stato-interessato" checked>
+                <div class="form-check form-check-inline me-0">
+                    <input class="form-check-input map-stato-filter" type="checkbox" value="interessato" id="filter-stato-interessato" checked style="width:0.75rem;height:0.75rem;">
                     <label class="form-check-label" for="filter-stato-interessato">Interessato</label>
                 </div>
-                <div class="form-check form-check-inline">
-                    <input class="form-check-input map-stato-filter" type="checkbox" value="contattato" id="filter-stato-contattato" checked>
+                <div class="form-check form-check-inline me-0">
+                    <input class="form-check-input map-stato-filter" type="checkbox" value="contattato" id="filter-stato-contattato" checked style="width:0.75rem;height:0.75rem;">
                     <label class="form-check-label" for="filter-stato-contattato">Contattato</label>
                 </div>
-                <div class="form-check form-check-inline">
-                    <input class="form-check-input map-stato-filter" type="checkbox" value="da_contattare" id="filter-stato-da-contattare" checked>
+                <div class="form-check form-check-inline me-0">
+                    <input class="form-check-input map-stato-filter" type="checkbox" value="da_contattare" id="filter-stato-da-contattare" checked style="width:0.75rem;height:0.75rem;">
                     <label class="form-check-label" for="filter-stato-da-contattare">Da Contattare</label>
                 </div>
-                <div class="form-check form-check-inline">
-                    <input class="form-check-input map-stato-filter" type="checkbox" value="in_vendita_noi" id="filter-stato-in-vendita-noi" checked>
+                <div class="form-check form-check-inline me-0">
+                    <input class="form-check-input map-stato-filter" type="checkbox" value="in_vendita_noi" id="filter-stato-in-vendita-noi" checked style="width:0.75rem;height:0.75rem;">
                     <label class="form-check-label" for="filter-stato-in-vendita-noi">In Vendita NOI</label>
                 </div>
-                <div class="form-check form-check-inline">
-                    <input class="form-check-input map-stato-filter" type="checkbox" value="in_vendita_altri" id="filter-stato-in-vendita-altri" checked>
+                <div class="form-check form-check-inline me-0">
+                    <input class="form-check-input map-stato-filter" type="checkbox" value="in_vendita_altri" id="filter-stato-in-vendita-altri" checked style="width:0.75rem;height:0.75rem;">
                     <label class="form-check-label" for="filter-stato-in-vendita-altri">In Vendita ALTRI</label>
                 </div>
-                <div class="form-check form-check-inline">
-                    <input class="form-check-input map-stato-filter" type="checkbox" value="altro" id="filter-stato-altro" checked>
+                <div class="form-check form-check-inline me-0">
+                    <input class="form-check-input map-stato-filter" type="checkbox" value="altro" id="filter-stato-altro" checked style="width:0.75rem;height:0.75rem;">
                     <label class="form-check-label" for="filter-stato-altro">Altro</label>
                 </div>
-                <button id="btn-select-all-stati" class="btn btn-sm btn-outline-secondary">Seleziona tutti</button>
-                <button id="btn-apply-filter" class="btn btn-sm btn-primary">Applica</button>
+<button id="btn-select-all-stati" class="btn btn-xs btn-outline-secondary" style="font-size:0.7rem;padding:0.1rem 0.4rem;margin-left:2rem;">Seleziona tutti</button>
+<button id="btn-apply-filter" class="btn btn-xs btn-primary" style="font-size:0.7rem;padding:0.1rem 0.4rem;">Applica</button>
             </div>
         </div>
     </div>
