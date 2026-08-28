@@ -331,7 +331,7 @@ require __DIR__ . '/_admin_subnav.php';
         }
         totalSkipped += skippedThisDrop;
         if (totalSkipped > 0) {
-            showUploadResult('info', totalSkipped + ' file ignorati in totale (pattern non valido).');
+            showUploadResult('info', totalSkipped + ' file in totale.');
         }
         updateDropCount();
     }
