@@ -69,16 +69,24 @@ try {
         // Phase 2: coordinate enrichment involves slow network calls — always async.
         // If the background worker cannot be launched (e.g. proc_open/shell_exec not
         // available on this host), the batch remains with enrichment_status = 'pending'
-        // and will be picked up by the scheduled cron job:
-        //   * * * * * php /path/to/analyticspro/cron/enrich_pending_batches.php >> /path/to/log 2>&1
+        // and enrichment_sync = 1. The frontend will switch to the chunk-based sync
+        // fallback via api/data/enrich_chunk.php.
         // The HTTP response always returns immediately after Phase 1 completes.
         $enrichWorker = ANALYTICSPRO_ROOT . '/cron/enrich_property_coordinates.php';
-        analyticspro_launch_background($enrichWorker, [$batchId]);
+        $backgroundLaunched = analyticspro_launch_background($enrichWorker, [$batchId]);
+        if (!$backgroundLaunched) {
+            try {
+                $pdo->prepare('UPDATE import_batches SET enrichment_sync = 1 WHERE id = :id')
+                    ->execute(['id' => $batchId]);
+            } catch (Throwable) {
+                // Non critico — il frontend userà il watchdog come fallback
+            }
+        }
 
         $savedStmt = $pdo->prepare('SELECT processed_rows FROM import_batches WHERE id = ?');
         $savedStmt->execute([$batchId]);
         $saved = (int) $savedStmt->fetchColumn();
-        analyticspro_json(['ok' => true, 'batch_id' => $batchId, 'saved_rows' => $saved, 'total_rows' => count($rows)]);
+        analyticspro_json(['ok' => true, 'batch_id' => $batchId, 'saved_rows' => $saved, 'total_rows' => count($rows), 'enrichment_sync' => !$backgroundLaunched]);
     }
 
     throw new RuntimeException('Modalità import non valida.');
