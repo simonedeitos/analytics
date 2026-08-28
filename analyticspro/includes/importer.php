@@ -73,16 +73,72 @@ function analyticspro_owner_identity_signature(array $owner): string
     return implode('|', array_map(static fn ($part) => $part ?? '', $parts));
 }
 
+function analyticspro_normalize_import_header(string $header): string
+{
+    $header = trim($header);
+    if ($header === '') {
+        return '';
+    }
+    $header = mb_strtoupper($header, 'UTF-8');
+    $header = strtr($header, [
+        'À' => 'A', 'Á' => 'A', 'Â' => 'A', 'Ä' => 'A',
+        'È' => 'E', 'É' => 'E', 'Ê' => 'E', 'Ë' => 'E',
+        'Ì' => 'I', 'Í' => 'I', 'Î' => 'I', 'Ï' => 'I',
+        'Ò' => 'O', 'Ó' => 'O', 'Ô' => 'O', 'Ö' => 'O',
+        'Ù' => 'U', 'Ú' => 'U', 'Û' => 'U', 'Ü' => 'U',
+    ]);
+    $header = str_replace(["'", '’', '`'], '', $header);
+    $header = preg_replace('/[^A-Z0-9]+/u', ' ', $header) ?? $header;
+    return trim(preg_replace('/\s+/u', ' ', $header) ?? $header);
+}
+
+function analyticspro_extract_row_value(array $row, array $aliases): string
+{
+    $firstMatch = null;
+    foreach ($aliases as $alias) {
+        if (array_key_exists($alias, $row)) {
+            $value = trim((string) $row[$alias]);
+            if ($value !== '') {
+                return $value;
+            }
+            $firstMatch ??= $value;
+        }
+    }
+
+    $normalizedRow = [];
+    foreach ($row as $key => $value) {
+        $norm = analyticspro_normalize_import_header((string) $key);
+        if ($norm === '' || array_key_exists($norm, $normalizedRow)) {
+            continue;
+        }
+        $normalizedRow[$norm] = $value;
+    }
+
+    foreach ($aliases as $alias) {
+        $normAlias = analyticspro_normalize_import_header((string) $alias);
+        if ($normAlias !== '' && array_key_exists($normAlias, $normalizedRow)) {
+            $value = trim((string) $normalizedRow[$normAlias]);
+            if ($value !== '') {
+                return $value;
+            }
+            $firstMatch ??= $value;
+        }
+    }
+
+    return $firstMatch ?? '';
+}
+
 function analyticspro_extract_row_payload(array $row): array
 {
-    $contacts = analyticspro_parse_contacts((string) ($row['Contatti'] ?? $row['contatti'] ?? ''));
-    $surname = trim((string) ($row['Cognome'] ?? $row['Nome'] ?? ''));
-    $givenName = trim((string) ($row['Nome1'] ?? $row['Nome Proprietario'] ?? $row['NomeProprietario'] ?? ''));
-    $cf = trim((string) ($row['Codice Fiscale'] ?? $row['Codice fiscale'] ?? ''));
-    $provincia = strtoupper(trim((string) ($row['Provincia'] ?? '')));
-    $comune = trim((string) ($row['Comune'] ?? ''));
+    $contacts = analyticspro_parse_contacts(analyticspro_extract_row_value($row, ['Contatti']));
+    $surname = analyticspro_extract_row_value($row, ['Cognome', 'Nome']);
+    $givenName = analyticspro_extract_row_value($row, ['Nome1', 'Nome Proprietario', 'NomeProprietario', 'Nome']);
+    $cf = analyticspro_extract_row_value($row, ['Codice Fiscale']);
+    $provincia = strtoupper(analyticspro_extract_row_value($row, ['Provincia', 'Prov']));
+    $comune = analyticspro_extract_row_value($row, ['Comune', 'Comune Catastale', 'Comune Immobile']);
+    $codCatastale = analyticspro_extract_row_value($row, ['Codice Catastale', 'Codice Comune', 'Cod Comune', 'Codice Belfiore', 'Belfiore', 'Cod_Catastale']);
     $resolvedCod = analyticspro_resolve_cod_catastale(
-        (string) ($row['Codice Catastale'] ?? ''),
+        $codCatastale,
         $comune,
         $provincia
     );
@@ -92,19 +148,19 @@ function analyticspro_extract_row_payload(array $row): array
             'provincia' => $provincia,
             'comune' => $comune,
             'cod_catastale' => trim((string) ($resolvedCod['cod'] ?? '')),
-            'sezione' => trim((string) ($row['Sezione'] ?? '')),
-            'foglio' => trim((string) ($row['Foglio'] ?? '')),
-            'particella' => trim((string) ($row['Particella'] ?? '')),
-            'subalterno' => trim((string) ($row['Subalterno'] ?? '')),
-            'indirizzo' => trim((string) ($row['Indirizzo'] ?? '')),
-            'civico' => trim((string) ($row['Civico'] ?? '')),
-            'categoria' => trim((string) ($row['Categoria'] ?? '')),
-            'classe' => trim((string) ($row['Classe'] ?? '')),
-            'consistenza' => trim((string) ($row['Consistenza'] ?? '')),
-            'superficie' => trim((string) ($row['Superficie'] ?? '')),
-            'rendita' => trim((string) ($row['Rendita'] ?? '')),
-            'titolarita' => trim((string) ($row['Titolarita'] ?? $row['Titolarità'] ?? '')),
-            'quota' => trim((string) ($row['Quota'] ?? '')),
+            'sezione' => analyticspro_extract_row_value($row, ['Sezione']),
+            'foglio' => analyticspro_extract_row_value($row, ['Foglio']),
+            'particella' => analyticspro_extract_row_value($row, ['Particella']),
+            'subalterno' => analyticspro_extract_row_value($row, ['Subalterno', 'Sub']),
+            'indirizzo' => analyticspro_extract_row_value($row, ['Indirizzo']),
+            'civico' => analyticspro_extract_row_value($row, ['Civico']),
+            'categoria' => analyticspro_extract_row_value($row, ['Categoria']),
+            'classe' => analyticspro_extract_row_value($row, ['Classe']),
+            'consistenza' => analyticspro_extract_row_value($row, ['Consistenza']),
+            'superficie' => analyticspro_extract_row_value($row, ['Superficie']),
+            'rendita' => analyticspro_extract_row_value($row, ['Rendita']),
+            'titolarita' => analyticspro_extract_row_value($row, ['Titolarita', 'Titolarità']),
+            'quota' => analyticspro_extract_row_value($row, ['Quota']),
         ],
         'owner' => [
             'tipo' => preg_match('/^\d{11}$/', $cf) ? 'azienda' : 'persona',
@@ -112,9 +168,9 @@ function analyticspro_extract_row_payload(array $row): array
             'cognome' => $surname,
             'codice_fiscale' => $cf,
             'telefono' => $contacts['phones'][0] ?? '',
-            'indirizzo' => trim((string) ($row['Indirizzo Proprietario'] ?? $row['Indirizzo'] ?? '')),
+            'indirizzo' => analyticspro_extract_row_value($row, ['Indirizzo Proprietario', 'Indirizzo']),
             'email' => $contacts['emails'][0] ?? '',
-            'data_nascita' => analyticspro_parse_birth_date((string) ($row['Data Nascita'] ?? '')),
+            'data_nascita' => analyticspro_parse_birth_date(analyticspro_extract_row_value($row, ['Data Nascita'])),
             'genere' => analyticspro_guess_gender($cf),
         ],
     ];
@@ -340,64 +396,114 @@ function analyticspro_enrichment_report_add_failure(array &$report, array $parce
 }
 
 /**
- * @return array{lat:?float,lng:?float,verified:int,coord_source:?string,failure_code:?string,failure_note:string,cod_catastale:?string,resolution_source:string}
+ * @return array{lat:?float,lng:?float,coord_source:?string,belfiore:?string,belfiore_source:?string,failure_code:?string,failure_note:?string}
  */
-function analyticspro_enrich_resolve_single_parcel(array $parcel, float &$lastWfsCallAt, float &$lastZornadeCallAt): array
+function analyticspro_resolve_parcel_coordinates(array $property, array &$memo): array
 {
     require_once __DIR__ . '/wfs_lookup.php';
     require_once __DIR__ . '/zornade_lookup.php';
     require_once __DIR__ . '/gml_catalog.php';
 
-    $provincia      = (string) ($parcel['provincia'] ?? '');
-    $comune         = (string) ($parcel['comune'] ?? '');
-    $codCatInput    = (string) ($parcel['cod_catastale'] ?? '');
-    $sezione        = $parcel['sezione'] !== null ? (string) $parcel['sezione'] : null;
-    $foglioInput    = trim((string) ($parcel['foglio'] ?? ''));
-    $particellaInput = trim((string) ($parcel['particella'] ?? ''));
+    $memo['belfiore_map'] ??= [];
+    $memo['parcel_map'] ??= [];
+    $memo['stats'] ??= ['gml_lookup_calls' => 0];
+    $memo['last_wfs_call_at'] ??= 0.0;
+    $memo['last_zornade_call_at'] ??= 0.0;
+
+    $provincia       = trim((string) ($property['provincia'] ?? ''));
+    $comune          = trim((string) ($property['comune'] ?? ''));
+    $codCatInput     = strtoupper(trim((string) ($property['cod_catastale'] ?? '')));
+    $sezione         = $property['sezione'] ?? null;
+    $sezione         = $sezione !== null ? trim((string) $sezione) : null;
+    $foglioInput     = trim((string) ($property['foglio'] ?? ''));
+    $particellaInput = trim((string) ($property['particella'] ?? ''));
 
     if ($foglioInput === '' || $particellaInput === '') {
         return [
-            'lat' => null,
-            'lng' => null,
-            'verified' => 0,
-            'coord_source' => null,
+            'lat' => null, 'lng' => null, 'coord_source' => null,
+            'belfiore' => null, 'belfiore_source' => null,
             'failure_code' => 'dati_incompleti',
             'failure_note' => 'Foglio o particella mancanti nella riga importata',
-            'cod_catastale' => null,
-            'resolution_source' => 'non_risolto',
         ];
     }
 
-    $resolution = analyticspro_resolve_cod_catastale($codCatInput, $comune, $provincia);
-    $codCat     = $resolution['cod'];
-    if ($codCat === null) {
+    $belfiore = null;
+    $belfioreSource = null;
+    $belfioreNote = '';
+    if (analyticspro_is_valid_cod_catastale($codCatInput)) {
+        $belfiore = $codCatInput;
+        $belfioreSource = 'esplicito';
+    } else {
+        $comuneKey = analyticspro_gml_norm_nome_comune($comune) . '|' . analyticspro_gml_norm_provincia($provincia);
+        if (array_key_exists($comuneKey, $memo['belfiore_map'])) {
+            $cached = $memo['belfiore_map'][$comuneKey];
+            $belfiore = $cached['cod'];
+            $belfioreSource = $cached['source'];
+            $belfioreNote = (string) ($cached['note'] ?? '');
+        } else {
+            if ($comune !== '') {
+                $gmlCode = analyticspro_gml_belfiore_da_comune($comune, $provincia);
+                if (is_string($gmlCode) && $gmlCode !== '') {
+                    $belfiore = $gmlCode;
+                    $belfioreSource = 'gml_nomefile';
+                    $belfioreNote = 'Codice risolto dai nomi file GML locali';
+                }
+            }
+            if ($belfiore === null) {
+                $resolved = analyticspro_resolve_cod_catastale('', $comune, $provincia);
+                $code = $resolved['cod'] ?? null;
+                if (is_string($code) && analyticspro_is_valid_cod_catastale($code)) {
+                    $belfiore = strtoupper($code);
+                    $belfioreSource = ($resolved['source'] ?? '') === 'gml_catalogo'
+                        ? 'gml_nomefile'
+                        : (string) ($resolved['source'] ?? 'non_risolto');
+                    $belfioreNote = (string) ($resolved['note'] ?? '');
+                } else {
+                    $belfioreNote = (string) ($resolved['note'] ?? '');
+                    $belfioreSource = (string) ($resolved['source'] ?? 'non_risolto');
+                }
+            }
+            $memo['belfiore_map'][$comuneKey] = [
+                'cod' => $belfiore,
+                'source' => $belfioreSource,
+                'note' => $belfioreNote,
+            ];
+        }
+    }
+
+    if (!is_string($belfiore) || $belfiore === '') {
         return [
-            'lat' => null,
-            'lng' => null,
-            'verified' => 0,
-            'coord_source' => null,
+            'lat' => null, 'lng' => null, 'coord_source' => null,
+            'belfiore' => null, 'belfiore_source' => $belfioreSource,
             'failure_code' => 'comune_non_risolto',
-            'failure_note' => $resolution['note'],
-            'cod_catastale' => null,
-            'resolution_source' => $resolution['source'],
+            'failure_note' => $belfioreNote !== '' ? $belfioreNote : 'Comune non risolto',
         ];
     }
 
-    $gmlResult = analyticspro_gml_lookup($codCat, $foglioInput, $particellaInput);
+    $foglioKey = analyticspro_wfs_normalize_token($foglioInput);
+    $partKey   = analyticspro_gml_norm_particella($particellaInput);
+    $parcelKey = $belfiore . '|' . $foglioKey . '|' . $partKey;
+    if (array_key_exists($parcelKey, $memo['parcel_map'])) {
+        return $memo['parcel_map'][$parcelKey];
+    }
+
+    $memo['stats']['gml_lookup_calls'] = (int) ($memo['stats']['gml_lookup_calls'] ?? 0) + 1;
+    $gmlResult = analyticspro_gml_lookup($belfiore, $foglioInput, $particellaInput);
     if ($gmlResult !== null) {
-        return [
+        $result = [
             'lat' => (float) $gmlResult['lat'],
             'lng' => (float) $gmlResult['lon'],
-            'verified' => 1,
             'coord_source' => 'gml_locale',
+            'belfiore' => $belfiore,
+            'belfiore_source' => $belfioreSource,
             'failure_code' => null,
-            'failure_note' => '',
-            'cod_catastale' => $codCat,
-            'resolution_source' => $resolution['source'],
+            'failure_note' => null,
         ];
+        $memo['parcel_map'][$parcelKey] = $result;
+        return $result;
     }
 
-    $gmlDiag = analyticspro_gml_diagnose_lookup($codCat, $foglioInput, $particellaInput);
+    $gmlDiag = analyticspro_gml_diagnose_lookup($belfiore, $foglioInput, $particellaInput);
     $foglioRemote = analyticspro_wfs_normalize_token($foglioInput);
     $particellaRemote = analyticspro_wfs_normalize_token($particellaInput);
 
@@ -405,8 +511,8 @@ function analyticspro_enrich_resolve_single_parcel(array $parcel, float &$lastWf
     $db = null;
     if ($foglioRemote !== '' && $particellaRemote !== '') {
         try {
-            $db     = analyticspro_wfs_open_cache_db();
-            $cached = analyticspro_wfs_get_cached_particella($db, $codCat, $foglioRemote, $particellaRemote);
+            $db = analyticspro_wfs_open_cache_db();
+            $cached = analyticspro_wfs_get_cached_particella($db, $belfiore, $foglioRemote, $particellaRemote);
             if ($cached !== null) {
                 $db->close();
                 $db = null;
@@ -415,44 +521,39 @@ function analyticspro_enrich_resolve_single_parcel(array $parcel, float &$lastWf
             $db = null;
         }
     }
-
     if ($cached !== null && ($cached['ok'] ?? false)) {
-        return [
+        $result = [
             'lat' => (float) $cached['lat'],
             'lng' => (float) $cached['lng'],
-            'verified' => 1,
             'coord_source' => 'cache',
+            'belfiore' => $belfiore,
+            'belfiore_source' => $belfioreSource,
             'failure_code' => null,
-            'failure_note' => '',
-            'cod_catastale' => $codCat,
-            'resolution_source' => $resolution['source'],
+            'failure_note' => null,
         ];
+        $memo['parcel_map'][$parcelKey] = $result;
+        return $result;
     }
 
     $resolvedData = null;
     if ($foglioRemote !== '' && $particellaRemote !== '' && $comune !== '' && $provincia !== '') {
-        $now     = microtime(true);
-        $elapsed = $now - $lastZornadeCallAt;
-        $minGap  = 0.40;
-        if ($lastZornadeCallAt > 0.0 && $elapsed < $minGap) {
-            usleep((int) (($minGap - $elapsed) * 1_000_000));
+        $elapsed = microtime(true) - (float) $memo['last_zornade_call_at'];
+        if ((float) $memo['last_zornade_call_at'] > 0.0 && $elapsed < 0.40) {
+            usleep((int) ((0.40 - $elapsed) * 1_000_000));
         }
         $zornade = analyticspro_zornade_lookup_particella($comune, $provincia, $foglioRemote, $particellaRemote, $sezione);
-        $lastZornadeCallAt = microtime(true);
+        $memo['last_zornade_call_at'] = microtime(true);
         if ($zornade !== null && ($zornade['ok'] ?? false)) {
             $resolvedData = $zornade;
         }
     }
-
     if ($resolvedData === null && $foglioRemote !== '' && $particellaRemote !== '') {
-        $now     = microtime(true);
-        $elapsed = $now - $lastWfsCallAt;
-        $minGap  = 0.5;
-        if ($lastWfsCallAt > 0.0 && $elapsed < $minGap) {
-            usleep((int) (($minGap - $elapsed) * 1_000_000));
+        $elapsed = microtime(true) - (float) $memo['last_wfs_call_at'];
+        if ((float) $memo['last_wfs_call_at'] > 0.0 && $elapsed < 0.50) {
+            usleep((int) ((0.50 - $elapsed) * 1_000_000));
         }
-        $wfsData       = analyticspro_wfs_query_service($codCat, $foglioRemote, $particellaRemote);
-        $lastWfsCallAt = microtime(true);
+        $wfsData = analyticspro_wfs_query_service($belfiore, $foglioRemote, $particellaRemote);
+        $memo['last_wfs_call_at'] = microtime(true);
         if ($wfsData !== null && ($wfsData['ok'] ?? false)) {
             $resolvedData = $wfsData;
         }
@@ -471,22 +572,23 @@ function analyticspro_enrich_resolve_single_parcel(array $parcel, float &$lastWf
             if ($source === 'Zornade' && $comune !== '' && $provincia !== '') {
                 analyticspro_zornade_save_cached_particella($db, $comune, $provincia, $foglioRemote, $particellaRemote, $resolvedData);
             } else {
-                analyticspro_wfs_save_cached_particella($db, $codCat, $foglioRemote, $particellaRemote, $resolvedData);
+                analyticspro_wfs_save_cached_particella($db, $belfiore, $foglioRemote, $particellaRemote, $resolvedData);
             }
             $db->close();
         }
 
-        $source = $resolvedData['source'] ?? 'WFS-AdE';
-        return [
+        $source = (string) ($resolvedData['source'] ?? 'WFS-AdE');
+        $result = [
             'lat' => (float) $resolvedData['lat'],
             'lng' => (float) $resolvedData['lng'],
-            'verified' => 1,
             'coord_source' => $source === 'Zornade' ? 'zornade' : 'wfs',
+            'belfiore' => $belfiore,
+            'belfiore_source' => $belfioreSource,
             'failure_code' => null,
-            'failure_note' => '',
-            'cod_catastale' => $codCat,
-            'resolution_source' => $resolution['source'],
+            'failure_note' => null,
         ];
+        $memo['parcel_map'][$parcelKey] = $result;
+        return $result;
     }
 
     if ($db !== null) {
@@ -494,21 +596,46 @@ function analyticspro_enrich_resolve_single_parcel(array $parcel, float &$lastWf
     }
 
     $failureCode = $gmlDiag['code'] ?? null;
-    $failureNote = $gmlDiag['note'] ?? '';
+    $failureNote = (string) ($gmlDiag['note'] ?? '');
     if ($failureCode === 'gml_mancante') {
         $failureCode = 'provider_remoto_fallito';
         $failureNote = $failureNote . '. Anche cache/Zornade/WFS non hanno restituito coordinate';
     }
-
-    return [
+    $result = [
         'lat' => null,
         'lng' => null,
-        'verified' => 0,
         'coord_source' => null,
+        'belfiore' => $belfiore,
+        'belfiore_source' => $belfioreSource,
         'failure_code' => $failureCode ?? 'provider_remoto_fallito',
         'failure_note' => $failureNote !== '' ? $failureNote : 'Lookup remoto non riuscito',
-        'cod_catastale' => $codCat,
-        'resolution_source' => $resolution['source'],
+    ];
+    $memo['parcel_map'][$parcelKey] = $result;
+    return $result;
+}
+
+/**
+ * @return array{lat:?float,lng:?float,verified:int,coord_source:?string,failure_code:?string,failure_note:string,cod_catastale:?string,resolution_source:string}
+ */
+function analyticspro_enrich_resolve_single_parcel(array $parcel, float &$lastWfsCallAt, float &$lastZornadeCallAt): array
+{
+    $memo = [
+        'last_wfs_call_at' => $lastWfsCallAt,
+        'last_zornade_call_at' => $lastZornadeCallAt,
+    ];
+    $resolved = analyticspro_resolve_parcel_coordinates($parcel, $memo);
+    $lastWfsCallAt = (float) ($memo['last_wfs_call_at'] ?? 0.0);
+    $lastZornadeCallAt = (float) ($memo['last_zornade_call_at'] ?? 0.0);
+
+    return [
+        'lat' => $resolved['lat'],
+        'lng' => $resolved['lng'],
+        'verified' => ($resolved['lat'] !== null && $resolved['lng'] !== null) ? 1 : 0,
+        'coord_source' => $resolved['coord_source'],
+        'failure_code' => $resolved['failure_code'],
+        'failure_note' => (string) ($resolved['failure_note'] ?? ''),
+        'cod_catastale' => $resolved['belfiore'],
+        'resolution_source' => (string) ($resolved['belfiore_source'] ?? 'non_risolto'),
     ];
 }
 
@@ -518,14 +645,13 @@ function analyticspro_lookup_cadastral_coordinates(array $property): array
     // to the public AdE INSPIRE WFS service.  Results are cached in a local SQLite
     // database.  When both providers fail the function returns nulls so the import
     // can continue without aborting.
-    static $lastWfsCallAt    = 0.0;
-    static $lastZornadeCallAt = 0.0;
+    static $memo = [];
 
     require_once __DIR__ . '/wfs_lookup.php';
     require_once __DIR__ . '/zornade_lookup.php';
 
     try {
-        $resolved = analyticspro_enrich_resolve_single_parcel($property, $lastWfsCallAt, $lastZornadeCallAt);
+        $resolved = analyticspro_resolve_parcel_coordinates($property, $memo);
         if ($resolved['lat'] === null || $resolved['lng'] === null) {
             return ['lat' => null, 'lng' => null, 'verified' => 0];
         }
@@ -642,6 +768,7 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
                         ]);
                     }
                 }
+
             } else {
                 $insertProperty->execute([
                     'user_id' => $tenantId,
@@ -695,6 +822,186 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
             ->execute(['message' => $exception->getMessage(), 'id' => $batchId]);
         throw $exception;
     }
+}
+
+/**
+ * Esegue la geolocalizzazione sincrona post-import per un batch, con soglia di sicurezza
+ * sul numero di particelle uniche da processare nella stessa richiesta HTTP.
+ *
+ * @return array{saved_rows:int,geolocated:int,total_unique:int,processed_unique:int,remaining_unique:int,done:bool,enrichment_sync:bool,coord_source:array<string,int>,failure_codes:array<string,int>,unresolved_rows:array<int,string>,truncated:bool}
+ */
+function analyticspro_enrich_batch_coordinates_sync(int $batchId, int $maxUnique = 2000): array
+{
+    $pdo = analyticspro_db();
+    $report = analyticspro_enrichment_report_default();
+    $maxUnique = max(1, $maxUnique);
+
+    $countStmt = $pdo->prepare(
+        'SELECT COUNT(*) FROM (
+            SELECT 1 FROM properties
+            WHERE import_batch_id = :batch_id AND lat IS NULL
+            GROUP BY provincia, comune, cod_catastale, sezione, foglio, particella
+        ) u'
+    );
+    $countStmt->execute(['batch_id' => $batchId]);
+    $totalUnique = (int) $countStmt->fetchColumn();
+
+    $pdo->prepare(
+        'UPDATE import_batches
+         SET enrichment_status = :status,
+             enrichment_processed = 0,
+             enrichment_total = :total,
+             enrichment_sync = :sync,
+             enrichment_report = :report
+         WHERE id = :id'
+    )->execute([
+        'status' => $totalUnique === 0 ? 'completed' : 'processing',
+        'total' => $totalUnique,
+        'sync' => $totalUnique > $maxUnique ? 1 : 0,
+        'report' => json_encode($report, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        'id' => $batchId,
+    ]);
+
+    if ($totalUnique === 0) {
+        $savedStmt = $pdo->prepare('SELECT processed_rows FROM import_batches WHERE id = :id');
+        $savedStmt->execute(['id' => $batchId]);
+        $savedRows = (int) $savedStmt->fetchColumn();
+        return [
+            'saved_rows' => $savedRows,
+            'geolocated' => 0,
+            'total_unique' => 0,
+            'processed_unique' => 0,
+            'remaining_unique' => 0,
+            'done' => true,
+            'enrichment_sync' => false,
+            'coord_source' => [],
+            'failure_codes' => [],
+            'unresolved_rows' => [],
+            'truncated' => false,
+        ];
+    }
+
+    $limit = min($totalUnique, $maxUnique);
+    $selectStmt = $pdo->prepare(
+        'SELECT provincia, comune, cod_catastale, sezione, foglio, particella
+         FROM properties
+         WHERE import_batch_id = :batch_id AND lat IS NULL
+         GROUP BY provincia, comune, cod_catastale, sezione, foglio, particella
+         LIMIT :lim'
+    );
+    $selectStmt->bindValue(':batch_id', $batchId, PDO::PARAM_INT);
+    $selectStmt->bindValue(':lim', $limit, PDO::PARAM_INT);
+    $selectStmt->execute();
+    $uniqueParcels = $selectStmt->fetchAll() ?: [];
+
+    $updateStmt = $pdo->prepare(
+        'UPDATE properties
+         SET lat = :lat, lng = :lng, posizione_verificata = :verified, coord_source = :coord_source
+         WHERE import_batch_id = :batch_id
+           AND provincia = :provincia AND comune = :comune
+           AND (sezione <=> :sezione)
+           AND foglio = :foglio AND particella = :particella
+           AND lat IS NULL'
+    );
+
+    $memo = [];
+    $processed = 0;
+    $geolocated = 0;
+
+    foreach ($uniqueParcels as $parcel) {
+        $resolved = analyticspro_resolve_parcel_coordinates($parcel, $memo);
+        if ($resolved['lat'] !== null && $resolved['lng'] !== null) {
+            $params = [
+                'lat' => $resolved['lat'],
+                'lng' => $resolved['lng'],
+                'verified' => 1,
+                'coord_source' => $resolved['coord_source'],
+                'batch_id' => $batchId,
+                'provincia' => (string) ($parcel['provincia'] ?? ''),
+                'comune' => (string) ($parcel['comune'] ?? ''),
+                'sezione' => $parcel['sezione'] !== null ? (string) $parcel['sezione'] : null,
+                'foglio' => (string) ($parcel['foglio'] ?? ''),
+                'particella' => (string) ($parcel['particella'] ?? ''),
+            ];
+            try {
+                $updateStmt->execute($params);
+            } catch (Throwable $dbEx) {
+                $sqlState = $dbEx instanceof \PDOException ? $dbEx->getCode() : '';
+                if ($sqlState === '42S22' || str_contains($dbEx->getMessage(), 'coord_source')) {
+                    $fallback = array_diff_key($params, ['coord_source' => true]);
+                    $pdo->prepare(
+                        'UPDATE properties
+                         SET lat = :lat, lng = :lng, posizione_verificata = :verified
+                         WHERE import_batch_id = :batch_id
+                           AND provincia = :provincia AND comune = :comune
+                           AND (sezione <=> :sezione)
+                           AND foglio = :foglio AND particella = :particella
+                           AND lat IS NULL'
+                    )->execute($fallback);
+                } else {
+                    throw $dbEx;
+                }
+            }
+            $geolocated++;
+            analyticspro_enrichment_report_add_success($report, (string) ($resolved['coord_source'] ?? ''));
+        } else {
+            analyticspro_enrichment_report_add_failure(
+                $report,
+                $parcel,
+                (string) ($resolved['failure_code'] ?? 'provider_remoto_fallito'),
+                (string) ($resolved['failure_note'] ?? '')
+            );
+        }
+
+        $processed++;
+        if (function_exists('set_time_limit') && ($processed % 50) === 0) {
+            @set_time_limit(20);
+        }
+    }
+
+    $remainingStmt = $pdo->prepare(
+        'SELECT COUNT(*) FROM (
+            SELECT 1 FROM properties
+            WHERE import_batch_id = :batch_id AND lat IS NULL
+            GROUP BY provincia, comune, cod_catastale, sezione, foglio, particella
+        ) r'
+    );
+    $remainingStmt->execute(['batch_id' => $batchId]);
+    $remaining = (int) $remainingStmt->fetchColumn();
+    $done = ($remaining === 0);
+
+    $pdo->prepare(
+        'UPDATE import_batches
+         SET enrichment_status = :status,
+             enrichment_processed = :processed,
+             enrichment_sync = :sync,
+             enrichment_report = :report
+         WHERE id = :id'
+    )->execute([
+        'status' => $done ? 'completed' : 'processing',
+        'processed' => $processed,
+        'sync' => $done ? 0 : 1,
+        'report' => json_encode($report, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        'id' => $batchId,
+    ]);
+
+    $savedStmt = $pdo->prepare('SELECT processed_rows FROM import_batches WHERE id = :id');
+    $savedStmt->execute(['id' => $batchId]);
+    $savedRows = (int) $savedStmt->fetchColumn();
+
+    return [
+        'saved_rows' => $savedRows,
+        'geolocated' => $geolocated,
+        'total_unique' => $totalUnique,
+        'processed_unique' => $processed,
+        'remaining_unique' => $remaining,
+        'done' => $done,
+        'enrichment_sync' => !$done,
+        'coord_source' => $report['coord_source'],
+        'failure_codes' => $report['failure_codes'],
+        'unresolved_rows' => $report['unresolved_rows'],
+        'truncated' => (bool) $report['truncated'],
+    ];
 }
 
 /**
@@ -783,8 +1090,7 @@ function analyticspro_enrich_batch_coordinates(int $batchId): void
             ? $pdo->prepare('UPDATE import_batches SET enrichment_processed = :processed WHERE id = :id')
             : null;
 
-        $lastWfsCallAt     = 0.0;
-        $lastZornadeCallAt = 0.0;
+        $memo              = [];
         $processed         = 0;
         $errors            = 0;
 
@@ -794,7 +1100,15 @@ function analyticspro_enrich_batch_coordinates(int $batchId): void
             $sezione   = $parcel['sezione'] !== null ? (string) $parcel['sezione'] : null;
 
             try {
-                $resolved = analyticspro_enrich_resolve_single_parcel($parcel, $lastWfsCallAt, $lastZornadeCallAt);
+                $resolvedCore = analyticspro_resolve_parcel_coordinates($parcel, $memo);
+                $resolved = [
+                    'lat' => $resolvedCore['lat'],
+                    'lng' => $resolvedCore['lng'],
+                    'verified' => ($resolvedCore['lat'] !== null && $resolvedCore['lng'] !== null) ? 1 : 0,
+                    'coord_source' => $resolvedCore['coord_source'],
+                    'failure_code' => $resolvedCore['failure_code'],
+                    'failure_note' => (string) ($resolvedCore['failure_note'] ?? ''),
+                ];
                 if ($resolved['lat'] === null || $resolved['lng'] === null) {
                     $errors++;
                     if ($batchId > 0) {
@@ -853,6 +1167,9 @@ function analyticspro_enrich_batch_coordinates(int $batchId): void
             }
 
             $processed++;
+            if (function_exists('set_time_limit') && ($processed % 50) === 0) {
+                @set_time_limit(20);
+            }
             $updateBatchProgress?->execute(['processed' => $processed, 'id' => $batchId]);
         }
 
@@ -989,8 +1306,7 @@ function analyticspro_enrich_batch_coordinates_chunk(int $batchId, int $limit = 
     );
     }
 
-    $lastWfsCallAt     = 0.0;
-    $lastZornadeCallAt = 0.0;
+    $memo              = [];
     $chunkProcessed    = 0;
     $report            = !$globalMode ? analyticspro_enrichment_report_load($pdo, $batchId) : analyticspro_enrichment_report_default();
 
@@ -1000,7 +1316,15 @@ function analyticspro_enrich_batch_coordinates_chunk(int $batchId, int $limit = 
         $sezione   = $parcel['sezione'] !== null ? (string) $parcel['sezione'] : null;
 
         try {
-            $resolved = analyticspro_enrich_resolve_single_parcel($parcel, $lastWfsCallAt, $lastZornadeCallAt);
+            $resolvedCore = analyticspro_resolve_parcel_coordinates($parcel, $memo);
+            $resolved = [
+                'lat' => $resolvedCore['lat'],
+                'lng' => $resolvedCore['lng'],
+                'verified' => ($resolvedCore['lat'] !== null && $resolvedCore['lng'] !== null) ? 1 : 0,
+                'coord_source' => $resolvedCore['coord_source'],
+                'failure_code' => $resolvedCore['failure_code'],
+                'failure_note' => (string) ($resolvedCore['failure_note'] ?? ''),
+            ];
             if ($resolved['lat'] !== null && $resolved['lng'] !== null) {
                 $params = [
                     'lat' => $resolved['lat'],
@@ -1060,6 +1384,9 @@ function analyticspro_enrich_batch_coordinates_chunk(int $batchId, int $limit = 
         }
 
         $chunkProcessed++;
+        if (function_exists('set_time_limit') && ($chunkProcessed % 25) === 0) {
+            @set_time_limit(20);
+        }
     }
 
     if ($globalMode) {

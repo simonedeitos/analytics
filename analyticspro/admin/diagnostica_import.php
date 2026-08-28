@@ -57,12 +57,45 @@ function analyticspro_diag_table_exists(PDO $pdo, string $table): array
     }
 }
 
+function analyticspro_diag_sqlite_cache_column_exists(string $table, string $column): array
+{
+    try {
+        require_once ANALYTICSPRO_ROOT . '/includes/wfs_lookup.php';
+        $db = analyticspro_wfs_open_cache_db();
+        $res = $db->query('PRAGMA table_info(' . $table . ')');
+        $ok = false;
+        if ($res !== false) {
+            while (($row = $res->fetchArray(SQLITE3_ASSOC)) !== false) {
+                if (strcasecmp((string) ($row['name'] ?? ''), $column) === 0) {
+                    $ok = true;
+                    break;
+                }
+            }
+        }
+        $db->close();
+        return ['check' => "$table.$column", 'ok' => $ok, 'error' => null];
+    } catch (Throwable $exception) {
+        return ['check' => "$table.$column", 'ok' => false, 'error' => $exception->getMessage()];
+    }
+}
+
 $belfioreInput = trim((string) analyticspro_get('comune_test', ''));
+$foglioInput = trim((string) analyticspro_get('foglio_test', '34'));
+$particellaInput = trim((string) analyticspro_get('particella_test', '351'));
 $belfioreResult = null;
 $belfioreError = null;
 if ($belfioreInput !== '') {
     try {
-        $belfioreResult = analyticspro_resolve_cod_catastale('', $belfioreInput, '');
+        $memo = [];
+        $belfioreResult = analyticspro_resolve_parcel_coordinates([
+            'comune' => $belfioreInput,
+            'provincia' => '',
+            'cod_catastale' => '',
+            'foglio' => $foglioInput,
+            'particella' => $particellaInput,
+            'sezione' => null,
+        ], $memo);
+        $belfioreResult['memo_stats'] = $memo['stats'] ?? [];
     } catch (Throwable $exception) {
         $belfioreError = $exception->getMessage();
     }
@@ -100,10 +133,10 @@ foreach ([
     ['import_batches', 'enrichment_report'],
     ['import_batches', 'enrichment_sync'],
     ['properties', 'coord_source'],
-    ['particelle_cache', 'source'],
 ] as [$table, $column]) {
     $migrationChecks[] = analyticspro_diag_column_exists($pdo, $table, $column);
 }
+$migrationChecks[] = analyticspro_diag_sqlite_cache_column_exists('particelle_cache', 'source');
 
 foreach (['import_batches', 'properties', 'property_owners', 'property_assignments', 'gml_index_jobs', 'import_duplicate_conflicts'] as $table) {
     $migrationChecks[] = analyticspro_diag_table_exists($pdo, $table);
@@ -148,10 +181,20 @@ analyticspro_render_header('Diagnostica Import', ['app_assets' => false]);
     <div class="card mb-4">
         <div class="card-header fw-semibold">Test risoluzione Comune → Belfiore</div>
         <div class="card-body">
-            <form method="get" class="d-flex gap-2 mb-3">
+            <form method="get" class="row g-2 mb-3">
+                <div class="col-md-5">
                 <input type="text" name="comune_test" class="form-control form-control-sm"
                        placeholder="Nome comune (es. Milano)" value="<?= analyticspro_h($belfioreInput) ?>">
+                </div>
+                <div class="col-md-2">
+                    <input type="text" name="foglio_test" class="form-control form-control-sm" placeholder="Foglio" value="<?= analyticspro_h($foglioInput) ?>">
+                </div>
+                <div class="col-md-2">
+                    <input type="text" name="particella_test" class="form-control form-control-sm" placeholder="Particella" value="<?= analyticspro_h($particellaInput) ?>">
+                </div>
+                <div class="col-md-3">
                 <button class="btn btn-sm btn-secondary">Risolvi</button>
+                </div>
             </form>
             <?php if ($belfioreError !== null): ?>
                 <div class="alert alert-danger small mb-0"><?= analyticspro_h($belfioreError) ?></div>

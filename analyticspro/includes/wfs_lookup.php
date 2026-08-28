@@ -59,10 +59,10 @@ function analyticspro_wfs_open_cache_db(): SQLite3
         throw new RuntimeException('Impossibile creare directory cache catasto');
     }
 
-    $db = new SQLite3($dbPath);
-    $db->busyTimeout(5000);
-
-    $db->exec('CREATE TABLE IF NOT EXISTS particelle_cache (
+    $openAndBootstrap = static function (string $path): SQLite3 {
+        $db = new SQLite3($path);
+        $db->busyTimeout(5000);
+        $db->exec('CREATE TABLE IF NOT EXISTS particelle_cache (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         cod_catastale TEXT NOT NULL,
         foglio TEXT NOT NULL,
@@ -74,17 +74,32 @@ function analyticspro_wfs_open_cache_db(): SQLite3
         cached_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(cod_catastale, foglio, particella)
     )');
-    $db->exec('CREATE INDEX IF NOT EXISTS idx_particelle_cache_lookup ON particelle_cache(cod_catastale, foglio, particella)');
+        $db->exec('CREATE INDEX IF NOT EXISTS idx_particelle_cache_lookup ON particelle_cache(cod_catastale, foglio, particella)');
+        return $db;
+    };
 
-    // Migration 003: add `source` column to existing databases that were created before
-    // this column was introduced.  SQLite returns error code 1 with "duplicate column name"
-    // when the column already exists, which is safe to ignore.  Any other error is logged.
-    $migrated = @$db->exec("ALTER TABLE particelle_cache ADD COLUMN source VARCHAR(20) DEFAULT 'WFS-AdE'");
-    if (!$migrated) {
-        $errMsg = $db->lastErrorMsg();
-        // "duplicate column name" means the migration was already applied — safe to ignore.
-        if (stripos($errMsg, 'duplicate column') === false) {
-            error_log('[WFS cache] Migration 003 unexpected error: ' . $errMsg);
+    $hasColumn = static function (SQLite3 $db, string $table, string $column): bool {
+        $res = $db->query('PRAGMA table_info(' . $table . ')');
+        if ($res === false) {
+            return false;
+        }
+        while (($row = $res->fetchArray(SQLITE3_ASSOC)) !== false) {
+            if (strcasecmp((string) ($row['name'] ?? ''), $column) === 0) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    $db = $openAndBootstrap($dbPath);
+    if (!$hasColumn($db, 'particelle_cache', 'source')) {
+        $migrated = @$db->exec("ALTER TABLE particelle_cache ADD COLUMN source VARCHAR(20) DEFAULT 'WFS-AdE'");
+        if (!$migrated && !$hasColumn($db, 'particelle_cache', 'source')) {
+            $error = $db->lastErrorMsg();
+            $db->close();
+            @unlink($dbPath);
+            error_log('[WFS cache] Ricreo catasto_cache.db dopo errore migrazione source: ' . $error);
+            $db = $openAndBootstrap($dbPath);
         }
     }
 

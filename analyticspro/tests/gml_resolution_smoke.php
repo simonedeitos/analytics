@@ -113,6 +113,27 @@ resolution_assert($byCode !== null && $byName !== null, 'Il lookup GML deve funz
 resolution_assert(abs((float) $byCode['lat'] - (float) $byName['lat']) < 0.000001, 'Lookup GML nome/codice deve produrre la stessa latitudine');
 resolution_assert(abs((float) $byCode['lon'] - (float) $byName['lon']) < 0.000001, 'Lookup GML nome/codice deve produrre la stessa longitudine');
 
+$memo = [];
+$first = null;
+for ($i = 1; $i <= 30; $i++) {
+    $resolved = analyticspro_resolve_parcel_coordinates([
+        'comune' => 'CALCINATO',
+        'provincia' => 'BS',
+        'cod_catastale' => '',
+        'foglio' => '34',
+        'particella' => '351',
+        'subalterno' => (string) $i,
+    ], $memo);
+    resolution_assert(($resolved['coord_source'] ?? null) === 'gml_locale', 'Le coordinate devono provenire dal GML locale');
+    if ($first === null) {
+        $first = $resolved;
+        continue;
+    }
+    resolution_assert(abs((float) $first['lat'] - (float) $resolved['lat']) < 0.000001, 'Stessa particella con sub diversi deve avere stessa latitudine');
+    resolution_assert(abs((float) $first['lng'] - (float) $resolved['lng']) < 0.000001, 'Stessa particella con sub diversi deve avere stessa longitudine');
+}
+resolution_assert((int) ($memo['stats']['gml_lookup_calls'] ?? 0) === 1, 'Memoizzazione: 30 righe stessa particella devono fare 1 solo lookup GML');
+
 $dbPath = $storageIndex . '/collision.sqlite';
 $db = new SQLite3($dbPath, SQLITE3_OPEN_READWRITE | SQLITE3_OPEN_CREATE);
 $db->exec('CREATE TABLE parcels (cod_foglio TEXT NOT NULL, particella TEXT NOT NULL, particella_norm TEXT NOT NULL, lat REAL NOT NULL, lon REAL NOT NULL, area_mq REAL NOT NULL DEFAULT 0, PRIMARY KEY (cod_foglio, particella))');

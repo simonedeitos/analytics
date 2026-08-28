@@ -73,26 +73,18 @@ analyticspro_render_header('Importa dati', ['app_assets' => true]);
     </div>
 </div>
 
-<div class="modal fade" id="import-overlay" tabindex="-1" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content">
-            <div class="modal-body p-4 text-center">
-                <div class="spinner-border text-primary mb-3"></div>
-                <h2 class="h5">Non chiudere la pagina finché l'importazione non è completata</h2>
-                <div class="progress my-3" style="height: 10px;"><div id="import-progress-bar" class="progress-bar" style="width:0%"></div></div>
-                <p class="small text-muted mb-0" id="import-progress-text">Preparazione import...</p>
-            </div>
+<div id="enrichment-status-container" class="card border-0 shadow-sm mb-4" style="display:none">
+    <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+            <h2 class="h5 mb-0">Stato import</h2>
+            <span id="import-phase" class="badge bg-primary">In attesa</span>
         </div>
+        <div class="progress mb-2" style="height:8px">
+            <div id="import-progress-bar" class="progress-bar bg-primary progress-bar-striped progress-bar-animated" style="width:0%"></div>
+        </div>
+        <p id="import-progress-text" class="small mb-2 text-muted">Preparazione import...</p>
+        <pre id="import-log-console" class="bg-dark text-light small p-2 rounded mb-2" style="max-height:220px;overflow:auto;white-space:pre-wrap;"></pre>
+        <div id="enrichment-report" class="small d-none"></div>
     </div>
 </div>
 <?php analyticspro_render_footer(true); ?>
-<!-- Enrichment status bar: shown by pollEnrichment() after import completes -->
-<div id="enrichment-status-container" class="container mt-3" style="display:none">
-    <div class="alert alert-info py-2 mb-0">
-        <div class="progress mb-2" style="height:8px">
-            <div id="enrichment-progress-bar" class="progress-bar bg-primary progress-bar-striped progress-bar-animated" style="width:0%"></div>
-        </div>
-        <p id="enrichment-progress-text" class="small mb-0">Geolocalizzazione marker in corso...</p>
-        <div id="enrichment-report" class="small mt-2 d-none"></div>
-    </div>
-</div>
