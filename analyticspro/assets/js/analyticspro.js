@@ -1269,11 +1269,13 @@
         meta.textContent = (property.comune || '') + ' \u00B7 ' + unitLabel(property) + ' \u00B7 ' + ((property.indirizzo || '') + ' ' + (property.civico || '')).trim();
         stateEl.innerHTML = buildSelectOptions(property.stato !== null && property.stato !== undefined ? property.stato : '');
         var allowedColors = MARKER_COLOR_PALETTE.map(function (item) { return item.value; });
+        var defaultColor = defaultColorForState(property.stato || '');
         var selectedColor = allowedColors.indexOf(property.colore_marker || '') !== -1
             ? property.colore_marker
-            : defaultColorForState(property.stato || '');
+            : defaultColor;
         colorEl.innerHTML = colorPaletteOptions(selectedColor);
         colorEl.value = selectedColor;
+        colorEl.dataset.autoColor = selectedColor === defaultColor ? '1' : '0';
         customStateEl.value = property.stato_personalizzato || '';
         noteEl.value = '';
         saveBtn.dataset.propertyId = String(property.id);
@@ -1449,7 +1451,16 @@
     document.addEventListener('change', function (event) {
         if (event.target.id === 'import-files' && event.target.files && event.target.files.length) { runImport(event.target.files).catch(function (e) { if (state.overlay) state.overlay.hide(); alert(e.message); }); }
         if (event.target.classList.contains('state-select')) { var wr = event.target.closest('[data-property-id]') || event.target.closest('tr'); var ci = wr && wr.querySelector('.color-input'); if (ci) ci.value = defaultColorForState(event.target.value); }
-        if (event.target.id === 'editor-state') { var ce2 = document.getElementById('editor-color'); if (ce2) ce2.value = defaultColorForState(event.target.value); }
+        if (event.target.id === 'editor-state') {
+            var ce2 = document.getElementById('editor-color');
+            if (ce2 && ce2.dataset.autoColor !== '0') {
+                ce2.value = defaultColorForState(event.target.value);
+                ce2.dataset.autoColor = '1';
+            }
+        }
+        if (event.target.id === 'editor-color') {
+            event.target.dataset.autoColor = '0';
+        }
         if (event.target.id === 'assigned-subuser-filter') { var sid = event.target.value; api(withTenant(state.propertiesEndpoint + '?mode=assigned' + (sid ? '&subuser_id=' + sid : ''))).then(function (p) { state.assignedProperties = p.properties || []; renderAssignedTable(); }).catch(function (e) { alert(e.message); }); }
         if (event.target.id === 'assigned-assignment-filter') renderAssignedTable();
         if (event.target.id === 'report-filter-color' || event.target.id === 'report-filter-stato') applyReportFilters();

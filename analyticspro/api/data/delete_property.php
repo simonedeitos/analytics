@@ -10,8 +10,8 @@ analyticspro_api_guard();
 analyticspro_api_require_auth();
 
 try {
-    if (analyticspro_is_subuser()) {
-        throw new RuntimeException('I subutenti non possono eliminare immobili.');
+    if (!analyticspro_is_main_user()) {
+        throw new RuntimeException('Solo l\'utente principale può eliminare immobili singoli.');
     }
 
     $input = json_decode((string) file_get_contents('php://input'), true, 512, JSON_THROW_ON_ERROR);
@@ -22,16 +22,17 @@ try {
         throw new RuntimeException('Immobile non valido.');
     }
 
-    $user = analyticspro_current_user();
-    $payload = analyticspro_fetch_properties_payload($user, 'all');
-    $property = null;
-    foreach ($payload['properties'] as $candidate) {
-        if ((int) $candidate['id'] === $propertyId) {
-            $property = $candidate;
-            break;
-        }
+    $tenantId = analyticspro_current_tenant_id();
+    if ($tenantId === null) {
+        throw new RuntimeException('Tenant non disponibile.');
     }
-    if (!$property) {
+
+    $checkStmt = analyticspro_db()->prepare('SELECT id FROM properties WHERE id = :id AND user_id = :user_id LIMIT 1');
+    $checkStmt->execute([
+        'id' => $propertyId,
+        'user_id' => $tenantId,
+    ]);
+    if (!$checkStmt->fetch()) {
         throw new RuntimeException('Immobile non accessibile.');
     }
 

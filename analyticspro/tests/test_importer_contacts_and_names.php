@@ -32,6 +32,16 @@ if ($name !== 'Maria Anna Luisa') {
     $errors[] = 'Merge nomi multipli non corretto: ' . $name;
 }
 
+$duplicateHeaders = analyticspro_extract_row_values([
+    'Contatti' => '3331112222',
+    'Contatti DUP 2' => '0333555777',
+    'ColonnaVuota 8' => 'IGNORA',
+], ['Contatti']);
+if ($duplicateHeaders !== ['3331112222', '0333555777']) {
+    $pass = false;
+    $errors[] = 'Gestione header duplicati non corretta: ' . json_encode($duplicateHeaders);
+}
+
 if ($pass) {
     echo "PASS: contatti multipli e nomi multipli OK\n";
     exit(0);
