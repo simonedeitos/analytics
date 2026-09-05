@@ -67,11 +67,12 @@ try {
 
         $pdo->beginTransaction();
         try {
-            $pdo->prepare('UPDATE property_owners SET telefono_enc = :telefono_enc, telefono_hash = :telefono_hash WHERE id = :id')
+            $pdo->prepare('UPDATE property_owners SET telefono_enc = :telefono_enc, telefono_hash = :telefono_hash WHERE id = :id AND property_id = :property_id AND is_current = 1')
                 ->execute([
                     'telefono_enc' => analyticspro_encrypt($updatedPhone),
                     'telefono_hash' => analyticspro_hash($updatedPhone),
                     'id' => $ownerId,
+                    'property_id' => $propertyId,
                 ]);
             $pdo->commit();
         } catch (Throwable $exception) {

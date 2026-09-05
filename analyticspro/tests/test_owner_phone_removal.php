@@ -37,6 +37,12 @@ if ($missingDup !== '111;111;222') {
     $errors[] = 'Numero non presente non deve deduplicare i dati esistenti: ' . json_encode($missingDup);
 }
 
+$removeDup = analyticspro_remove_phone_value('111;111;222', '111');
+if ($removeDup !== '222') {
+    $pass = false;
+    $errors[] = 'Rimozione duplicati presenti non corretta: ' . json_encode($removeDup);
+}
+
 $empty = analyticspro_remove_phone_value('', '222');
 if ($empty !== null) {
     $pass = false;

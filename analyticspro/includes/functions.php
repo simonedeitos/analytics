@@ -146,16 +146,20 @@ function analyticspro_split_phone_values(?string $raw): array
 function analyticspro_remove_phone_value(?string $raw, ?string $phoneToRemove): ?string
 {
     $original = $raw;
-    $phones = analyticspro_split_phone_values($raw);
     $phoneToRemove = trim((string) $phoneToRemove);
     if ($phoneToRemove === '') {
         return trim((string) $original) === '' ? null : $original;
     }
 
+    $parts = preg_split('/[;,]/', (string) $raw) ?: [];
     $updated = [];
     $removed = false;
-    foreach ($phones as $phone) {
-        if (!$removed && $phone === $phoneToRemove) {
+    foreach ($parts as $part) {
+        $phone = trim((string) $part);
+        if ($phone === '') {
+            continue;
+        }
+        if ($phone === $phoneToRemove) {
             $removed = true;
             continue;
         }
