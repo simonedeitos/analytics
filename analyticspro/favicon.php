@@ -41,10 +41,32 @@ function analyticspro_favicon_fetch(string $url): ?array
         }
     }
 
+    $contentType = analyticspro_favicon_safe_content_type($contentType);
+    if ($contentType === null) {
+        return null;
+    }
+
     return [
         'body' => $body,
         'content_type' => $contentType,
     ];
+}
+
+function analyticspro_favicon_safe_content_type(string $contentType): ?string
+{
+    $mime = strtolower(trim(strtok($contentType, ';') ?: ''));
+    $allowed = [
+        'image/x-icon',
+        'image/vnd.microsoft.icon',
+        'image/ico',
+        'image/icon',
+        'image/png',
+        'image/svg+xml',
+        'image/jpeg',
+        'image/gif',
+        'image/webp',
+    ];
+    return in_array($mime, $allowed, true) ? $mime : null;
 }
 
 function analyticspro_favicon_cache_dir(): string
@@ -85,9 +107,14 @@ function analyticspro_favicon_read_cache(?int $maxAge = null): ?array
         return null;
     }
 
+    $contentType = analyticspro_favicon_safe_content_type((string) $meta['content_type']);
+    if ($contentType === null) {
+        return null;
+    }
+
     return [
         'body' => $body,
-        'content_type' => (string) $meta['content_type'],
+        'content_type' => $contentType,
         'cached_at' => (int) $meta['cached_at'],
     ];
 }
@@ -108,7 +135,8 @@ function analyticspro_favicon_write_cache(array $icon): void
 
 function analyticspro_favicon_output(array $icon, int $maxAge): never
 {
-    header('Content-Type: ' . (string) $icon['content_type']);
+    $contentType = analyticspro_favicon_safe_content_type((string) ($icon['content_type'] ?? '')) ?: 'image/x-icon';
+    header('Content-Type: ' . $contentType);
     header('Cache-Control: public, max-age=' . $maxAge);
     echo $icon['body'];
     exit;

@@ -204,7 +204,7 @@
 
     function colorPaletteOptions(selected, legacyColor) {
         var options = [];
-        if (legacyColor) {
+        if (legacyColor && !paletteEntryByColor(legacyColor)) {
             options.push(colorOptionHtml(legacyColor, colorOptionLabel(legacyColor, 'Colore attuale'), legacyColor === selected));
         }
         return options.join('') + MARKER_COLOR_PALETTE.map(function (item) {
