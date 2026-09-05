@@ -140,6 +140,10 @@
         return entry ? entry.label : (fallbackLabel || 'Colore personalizzato');
     }
 
+    function colorIdentifier(color) {
+        return String(color || '').replace('#', '').toUpperCase();
+    }
+
     function colorOptionHtml(color, label, selected) {
         return '<option value="' + escapeHtml(color) + '" style="background-color:' + escapeHtml(color) + ';color:' + escapeHtml(colorOptionTextColor(color)) + ';"' + (selected ? ' selected' : '') + '>' + escapeHtml(label) + '</option>';
     }
@@ -519,8 +523,8 @@
             var selectedColor = colorSelect.value;
             var colors = [], seen = {};
             state.properties.forEach(function (p) { if (p.colore_marker && !seen[p.colore_marker]) { seen[p.colore_marker] = true; colors.push(p.colore_marker); } });
-            colorSelect.innerHTML = '<option value="">Tutti</option>' + colors.map(function (c, index) {
-                return colorOptionHtml(c, colorOptionLabel(c, 'Colore personalizzato ' + (index + 1)), false);
+            colorSelect.innerHTML = '<option value="">Tutti</option>' + colors.map(function (c) {
+                return colorOptionHtml(c, colorOptionLabel(c, 'Colore personalizzato ' + colorIdentifier(c)), false);
             }).join('');
             colorSelect.value = (selectedColor && seen[selectedColor]) ? selectedColor : '';
             updateColorSelectAppearance(colorSelect);

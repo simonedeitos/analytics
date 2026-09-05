@@ -82,27 +82,26 @@ function analyticspro_favicon_cache_paths(): array
 {
     $dir = analyticspro_favicon_cache_dir();
     return [
-        'body' => $dir . DIRECTORY_SEPARATOR . 'easycatasto-favicon.bin',
-        'meta' => $dir . DIRECTORY_SEPARATOR . 'easycatasto-favicon.json',
+        'cache' => $dir . DIRECTORY_SEPARATOR . 'easycatasto-favicon.json',
     ];
 }
 
 function analyticspro_favicon_read_cache(?int $maxAge = null): ?array
 {
     $paths = analyticspro_favicon_cache_paths();
-    if (!is_file($paths['body']) || !is_file($paths['meta'])) {
+    if (!is_file($paths['cache'])) {
         return null;
     }
 
-    $meta = json_decode((string) @file_get_contents($paths['meta']), true);
-    if (!is_array($meta) || empty($meta['cached_at']) || empty($meta['content_type'])) {
+    $meta = json_decode((string) @file_get_contents($paths['cache']), true);
+    if (!is_array($meta) || empty($meta['cached_at']) || empty($meta['content_type']) || empty($meta['body_base64'])) {
         return null;
     }
     if ($maxAge !== null && ((int) $meta['cached_at'] + $maxAge) < time()) {
         return null;
     }
 
-    $body = @file_get_contents($paths['body']);
+    $body = base64_decode((string) $meta['body_base64'], true);
     if ($body === false || $body === '') {
         return null;
     }
@@ -126,11 +125,25 @@ function analyticspro_favicon_write_cache(array $icon): void
     }
 
     $paths = analyticspro_favicon_cache_paths();
-    @file_put_contents($paths['body'], (string) $icon['body'], LOCK_EX);
-    @file_put_contents($paths['meta'], json_encode([
+    $payload = json_encode([
         'content_type' => (string) $icon['content_type'],
         'cached_at' => time(),
-    ], JSON_UNESCAPED_SLASHES), LOCK_EX);
+        'body_base64' => base64_encode((string) $icon['body']),
+    ], JSON_UNESCAPED_SLASHES);
+    if (!is_string($payload) || $payload === '') {
+        return;
+    }
+
+    $tmpFile = tempnam(analyticspro_favicon_cache_dir(), 'fav');
+    if ($tmpFile === false) {
+        return;
+    }
+    if (@file_put_contents($tmpFile, $payload, LOCK_EX) === false) {
+        @unlink($tmpFile);
+        return;
+    }
+    @chmod($tmpFile, 0664);
+    @rename($tmpFile, $paths['cache']);
 }
 
 function analyticspro_favicon_output(array $icon, int $maxAge): never
