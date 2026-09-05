@@ -151,6 +151,7 @@ function analyticspro_favicon_output(array $icon, int $maxAge): never
     $contentType = analyticspro_favicon_safe_content_type((string) ($icon['content_type'] ?? '')) ?: 'image/x-icon';
     header('Content-Type: ' . $contentType);
     header('Cache-Control: public, max-age=' . $maxAge);
+    header('Vary: Accept');
     echo $icon['body'];
     exit;
 }
@@ -238,6 +239,7 @@ if ($staleIcon = analyticspro_favicon_read_cache()) {
 
 header('Content-Type: image/svg+xml; charset=utf-8');
 header('Cache-Control: public, max-age=3600');
+header('Vary: Accept');
 echo <<<SVG
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="EasyCatasto">
   <rect width="64" height="64" rx="12" fill="#2A519F"/>

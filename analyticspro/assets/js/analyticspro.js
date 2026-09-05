@@ -17,14 +17,14 @@
     };
 
     const MARKER_COLOR_PALETTE = [
-        { label: 'Rosso', value: '#dc3545' },
-        { label: 'Arancio', value: '#fd7e14' },
-        { label: 'Giallo', value: '#ffc107' },
-        { label: 'Verde', value: '#198754' },
-        { label: 'Azzurro', value: '#0dcaf0' },
-        { label: 'Blu', value: '#0d6efd' },
-        { label: 'Fucsia', value: '#d63384' },
-        { label: 'Viola', value: '#6f42c1' }
+        { label: 'Rosso · primario', value: '#dc3545' },
+        { label: 'Arancio · corallo', value: '#fd7e14' },
+        { label: 'Giallo · sole', value: '#ffc107' },
+        { label: 'Verde · prato', value: '#198754' },
+        { label: 'Azzurro · cielo', value: '#0dcaf0' },
+        { label: 'Blu · cobalto', value: '#0d6efd' },
+        { label: 'Fucsia · acceso', value: '#d63384' },
+        { label: 'Viola · ametista', value: '#6f42c1' }
     ];
 
     var state = {
