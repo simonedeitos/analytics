@@ -173,6 +173,13 @@
         }).join('');
     }
 
+    function updateEditorColorPreview(color) {
+        var preview = document.getElementById('editor-color-preview');
+        if (!preview) return;
+        preview.style.backgroundColor = color || '#0d6efd';
+        preview.setAttribute('aria-label', 'Colore selezionato ' + (color || '#0d6efd'));
+    }
+
     function propertyHeaderFacts(property) {
         return [
             { label: 'Classe', value: property.classe || '—' },
@@ -1219,7 +1226,7 @@
     function ensureSharedModals() {
         if (!document.getElementById('property-editor-modal')) {
             var editorModal = document.createElement('div');
-            editorModal.innerHTML = '<div class="modal fade" id="property-editor-modal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Modifica marker</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button></div><div class="modal-body"><div id="property-editor-meta" class="small text-muted mb-3"></div><div id="property-editor-error" class="alert alert-danger py-2 px-3 small d-none mb-3"></div><div class="row g-2"><div class="col-md-6"><label class="form-label small mb-1">Stato</label><select id="editor-state" class="form-select form-select-sm"></select></div><div class="col-md-6"><label class="form-label small mb-1">Colore marker</label><select id="editor-color" class="form-select form-select-sm"></select></div><div class="col-12"><label class="form-label small mb-1">Stato personalizzato</label><input id="editor-custom-state" class="form-control form-control-sm" placeholder="Stato personalizzato"></div><div class="col-12"><label class="form-label small mb-1">Assegnazioni</label><div id="editor-assignments-summary" class="small"></div></div><div class="col-12"><button type="button" class="btn btn-outline-secondary btn-sm d-none" id="editor-assignments-open"><i class="bi bi-person-plus me-1"></i>Gestisci assegnazioni</button></div><div class="col-12"><label class="form-label small mb-1">Nota</label><textarea id="editor-note" class="form-control form-control-sm" rows="3" placeholder="Aggiungi nota"></textarea></div></div></div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Annulla</button><button type="button" class="btn btn-primary btn-sm" id="editor-save-btn">Salva</button></div></div></div></div>';
+            editorModal.innerHTML = '<div class="modal fade" id="property-editor-modal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Modifica marker</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button></div><div class="modal-body"><div id="property-editor-meta" class="small text-muted mb-3"></div><div id="property-editor-error" class="alert alert-danger py-2 px-3 small d-none mb-3"></div><div class="row g-2"><div class="col-md-6"><label class="form-label small mb-1">Stato</label><select id="editor-state" class="form-select form-select-sm"></select></div><div class="col-md-6"><label class="form-label small mb-1">Colore marker</label><div class="d-flex align-items-center gap-2"><span id="editor-color-preview" class="color-dot" style="width:18px;height:18px;"></span><select id="editor-color" class="form-select form-select-sm"></select></div></div><div class="col-12"><label class="form-label small mb-1">Stato personalizzato</label><input id="editor-custom-state" class="form-control form-control-sm" placeholder="Stato personalizzato"></div><div class="col-12"><label class="form-label small mb-1">Assegnazioni</label><div id="editor-assignments-summary" class="small"></div></div><div class="col-12"><button type="button" class="btn btn-outline-secondary btn-sm d-none" id="editor-assignments-open"><i class="bi bi-person-plus me-1"></i>Gestisci assegnazioni</button></div><div class="col-12"><label class="form-label small mb-1">Nota</label><textarea id="editor-note" class="form-control form-control-sm" rows="3" placeholder="Aggiungi nota"></textarea></div></div></div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Annulla</button><button type="button" class="btn btn-primary btn-sm" id="editor-save-btn">Salva</button></div></div></div></div>';
             document.body.appendChild(editorModal.firstElementChild);
         }
         if (!document.getElementById('assignment-picker-modal')) {
@@ -1273,6 +1280,7 @@
         colorEl.innerHTML = colorPaletteOptions(selectedColor);
         colorEl.value = selectedColor;
         colorEl.dataset.autoColor = selectedColor === defaultColor ? '1' : '0';
+        updateEditorColorPreview(selectedColor);
         customStateEl.value = property.stato_personalizzato || '';
         noteEl.value = '';
         saveBtn.dataset.propertyId = String(property.id);
@@ -1453,10 +1461,12 @@
             if (ce2 && ce2.dataset.autoColor !== '0') {
                 ce2.value = defaultColorForState(event.target.value);
                 ce2.dataset.autoColor = '1';
+                updateEditorColorPreview(ce2.value);
             }
         }
         if (event.target.id === 'editor-color') {
             event.target.dataset.autoColor = '0';
+            updateEditorColorPreview(event.target.value);
         }
         if (event.target.id === 'assigned-subuser-filter') { var sid = event.target.value; api(withTenant(state.propertiesEndpoint + '?mode=assigned' + (sid ? '&subuser_id=' + sid : ''))).then(function (p) { state.assignedProperties = p.properties || []; renderAssignedTable(); }).catch(function (e) { alert(e.message); }); }
         if (event.target.id === 'assigned-assignment-filter') renderAssignedTable();
@@ -1534,7 +1544,13 @@
             renderMap();
         }
         if (t.id === 'btn-select-all-stati') { var cbs2 = document.querySelectorAll('.map-stato-filter'); var allC = Array.from(cbs2).every(function(cb){return cb.checked;}); cbs2.forEach(function(cb){cb.checked=!allC;}); }
-        if (t.id === 'btn-select-all-categorie') { var cbs3 = document.querySelectorAll('.map-categoria-filter'); var allC3 = Array.from(cbs3).every(function(cb){return cb.checked;}); cbs3.forEach(function(cb){cb.checked=!allC3;}); }
+        if (t.id === 'btn-select-all-categorie') {
+            var cbs3 = document.querySelectorAll('.map-categoria-filter');
+            var allC3 = Array.from(cbs3).every(function(cb){return cb.checked;});
+            cbs3.forEach(function(cb){cb.checked=!allC3;});
+            state.mapCategoriaFilter = Array.from(document.querySelectorAll('.map-categoria-filter:checked')).map(function (cb) { return cb.value; });
+            renderMap();
+        }
         if (t.id === 'ade-zips-submit')      submitAdeUpload('ade-zips',      'ade-zips-submit',  'zip', '<i class="bi bi-cloud-upload me-1"></i>Importa',     '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Importazione\u2026').catch(function(e){alert(e.message);});
         if (t.id === 'ade-sql-submit')       submitAdeUpload('ade-sql-files', 'ade-sql-submit',   'sql', '<i class="bi bi-cloud-upload me-1"></i>Importa SQL', '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Importazione\u2026').catch(function(e){alert(e.message);});
         if (t.id === 'ade-server-submit')     submitAdeServerFiles({ type:'zip', listId:'ade-server-files-list',     submitId:'ade-server-submit',     idleHtml:'<i class="bi bi-play-fill me-1"></i>Importa selezionati',     loadingHtml:'<span class="spinner-border spinner-border-sm me-1"></span>Elaborazione\u2026', reloadOptions:{type:'zip', listId:'ade-server-files-list',     selectAllId:'ade-server-select-all',     submitId:'ade-server-submit',     emptyLabel:'Nessun file ZIP presente in <code>storage/manual_upload/</code>.'} }).catch(function(e){alert(e.message);});

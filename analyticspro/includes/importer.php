@@ -217,13 +217,13 @@ function analyticspro_extract_row_payload(array $row): array
         $phones = array_merge($phones, $parsedContacts['phones']);
     }
     $phones = array_values(array_unique(array_filter(array_map('trim', $phones), static fn ($value) => $value !== '')));
-    $emails = array_values(array_unique(array_filter(array_map('trim', $emails), static fn ($value) => $value !== '')));
+    $emails = array_values(array_unique(array_filter(array_map(static fn ($value) => strtolower(trim((string) $value)), $emails), static fn ($value) => $value !== '')));
     $surname = analyticspro_extract_row_value($row, ['Cognome', 'Cognome Proprietario', 'CognomeProprietario']);
     $givenName = analyticspro_merge_name_columns($row);
     if ($surname === '' && $givenName === '') {
         $surname = analyticspro_extract_row_value($row, ['Nome']);
     }
-    $email = analyticspro_extract_row_value($row, ['Email', 'E-mail', 'Mail']);
+    $email = strtolower(analyticspro_extract_row_value($row, ['Email', 'E-mail', 'Mail']));
     if ($email === '') {
         $email = $emails[0] ?? '';
     }

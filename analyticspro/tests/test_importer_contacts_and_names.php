@@ -65,6 +65,26 @@ if (($payload['note'] ?? '') !== 'Nota importata') {
     $errors[] = 'Mapping note non corretto: ' . json_encode($payload['note'] ?? null);
 }
 
+$aliasPayload = analyticspro_extract_row_payload([
+    'Provincia' => 'BS',
+    'Comune' => 'Brescia',
+    'Codice Catastale' => 'B157',
+    'Foglio' => '11',
+    'Particella' => '26',
+    'Telefono' => '3330001111',
+    'Cellulare' => '3399998888',
+    'Email' => 'Mario@Example.it',
+    'Mail' => 'mario@example.it',
+]);
+if (($aliasPayload['owner']['telefono'] ?? '') !== '3330001111;3399998888') {
+    $pass = false;
+    $errors[] = 'Merge alias telefono non corretto: ' . json_encode($aliasPayload['owner']['telefono'] ?? null);
+}
+if (($aliasPayload['owner']['email'] ?? '') !== 'mario@example.it') {
+    $pass = false;
+    $errors[] = 'Normalizzazione alias email non corretta: ' . json_encode($aliasPayload['owner']['email'] ?? null);
+}
+
 if ($pass) {
     echo "PASS: contatti multipli e nomi multipli OK\n";
     exit(0);

@@ -38,6 +38,15 @@ try {
 
     $pdo = analyticspro_db();
     $pdo->beginTransaction();
+    foreach ([
+        'DELETE FROM property_notes WHERE property_id = :id',
+        'DELETE FROM property_assignments WHERE property_id = :id',
+        'DELETE FROM property_status_history WHERE property_id = :id',
+        'DELETE FROM property_owners WHERE property_id = :id',
+    ] as $sql) {
+        $pdo->prepare($sql)->execute(['id' => $propertyId]);
+    }
+
     $stmt = $pdo->prepare('DELETE FROM properties WHERE id = :id AND user_id = :user_id LIMIT 1');
     $stmt->execute([
         'id' => $propertyId,
