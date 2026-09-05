@@ -34,6 +34,7 @@ analyticspro_render_header('Importa dati', ['app_assets' => true]);
      data-can-edit-all-markers="<?= !analyticspro_is_subuser() || !empty($subuserPermissions['can_edit_all_markers']) ? '1' : '0' ?>"
      data-properties-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/properties.php')) ?>"
      data-property-update-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/update_property.php')) ?>"
+     data-property-delete-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/delete_property.php')) ?>"
      data-import-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/import.php')) ?>"
      data-import-progress-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/import_progress.php')) ?>"
      data-enrich-chunk-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/enrich_chunk.php')) ?>">
@@ -44,6 +45,11 @@ analyticspro_render_header('Importa dati', ['app_assets' => true]);
         <div class="card-body">
             <h2 class="h5">Importa dati da CSV / Excel</h2>
             <p class="text-muted small">Formati supportati: .csv, .xlsx, .xls. Il parsing lato client riusa SheetJS e invia al backend solo i record elaborati per il tenant corrente.</p>
+            <div class="d-flex justify-content-end mb-3">
+                <button type="button" class="btn btn-outline-primary btn-sm" id="open-manual-record-modal">
+                    <i class="bi bi-plus-circle me-1"></i>Inserisci record manualmente
+                </button>
+            </div>
             <div id="import-drop-zone" class="drop-zone mb-2" tabindex="0" role="button" aria-label="Area upload file">
                 <div class="drop-zone-content">
                     <i class="bi bi-cloud-upload drop-zone-icon"></i>
@@ -85,6 +91,55 @@ analyticspro_render_header('Importa dati', ['app_assets' => true]);
         <p id="import-progress-text" class="small mb-2 text-muted">Preparazione import...</p>
         <pre id="import-log-console" class="bg-dark text-light small p-2 rounded mb-2" style="max-height:220px;overflow:auto;white-space:pre-wrap;"></pre>
         <div id="enrichment-report" class="small d-none"></div>
+    </div>
+</div>
+<div class="modal fade" id="manual-record-modal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title h5 mb-0">Inserimento manuale record</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button>
+            </div>
+            <div class="modal-body">
+                <div id="manual-record-feedback" class="alert d-none py-2"></div>
+                <form id="manual-record-form" class="row g-3">
+                    <div class="col-12"><h3 class="h6 mb-0">Dati catastali</h3></div>
+                    <div class="col-md-2"><label class="form-label small">Provincia</label><input class="form-control form-control-sm" name="Provincia"></div>
+                    <div class="col-md-4"><label class="form-label small">Comune</label><input class="form-control form-control-sm" name="Comune"></div>
+                    <div class="col-md-3"><label class="form-label small">Codice catastale</label><input class="form-control form-control-sm" name="Codice Catastale"></div>
+                    <div class="col-md-3"><label class="form-label small">Sezione</label><input class="form-control form-control-sm" name="Sezione"></div>
+                    <div class="col-md-3"><label class="form-label small">Foglio</label><input class="form-control form-control-sm" name="Foglio"></div>
+                    <div class="col-md-3"><label class="form-label small">Particella</label><input class="form-control form-control-sm" name="Particella"></div>
+                    <div class="col-md-3"><label class="form-label small">Subalterno</label><input class="form-control form-control-sm" name="Subalterno"></div>
+                    <div class="col-md-3"><label class="form-label small">Civico</label><input class="form-control form-control-sm" name="Civico"></div>
+                    <div class="col-md-6"><label class="form-label small">Indirizzo</label><input class="form-control form-control-sm" name="Indirizzo"></div>
+                    <div class="col-md-2"><label class="form-label small">Categoria</label><input class="form-control form-control-sm" name="Categoria"></div>
+                    <div class="col-md-2"><label class="form-label small">Classe</label><input class="form-control form-control-sm" name="Classe"></div>
+                    <div class="col-md-2"><label class="form-label small">Piano</label><input class="form-control form-control-sm" name="Piano"></div>
+                    <div class="col-md-2"><label class="form-label small">Consistenza</label><input class="form-control form-control-sm" name="Consistenza"></div>
+                    <div class="col-md-2"><label class="form-label small">Superficie</label><input class="form-control form-control-sm" name="Superficie"></div>
+                    <div class="col-md-2"><label class="form-label small">Rendita</label><input class="form-control form-control-sm" name="Rendita"></div>
+                    <div class="col-md-3"><label class="form-label small">Titolarità</label><input class="form-control form-control-sm" name="Titolarita"></div>
+                    <div class="col-md-3"><label class="form-label small">Quota</label><input class="form-control form-control-sm" name="Quota"></div>
+                    <div class="col-12"><hr class="my-1"></div>
+                    <div class="col-12"><h3 class="h6 mb-0">Intestatario e contatti</h3></div>
+                    <div class="col-md-4"><label class="form-label small">Cognome</label><input class="form-control form-control-sm" name="Cognome"></div>
+                    <div class="col-md-4"><label class="form-label small">Nome</label><input class="form-control form-control-sm" name="Nome"></div>
+                    <div class="col-md-4"><label class="form-label small">Nome1</label><input class="form-control form-control-sm" name="Nome1"></div>
+                    <div class="col-md-4"><label class="form-label small">Nome2</label><input class="form-control form-control-sm" name="Nome2"></div>
+                    <div class="col-md-4"><label class="form-label small">Nome3</label><input class="form-control form-control-sm" name="Nome3"></div>
+                    <div class="col-md-4"><label class="form-label small">Codice fiscale / P.IVA</label><input class="form-control form-control-sm" name="Codice Fiscale"></div>
+                    <div class="col-md-6"><label class="form-label small">Contatti</label><textarea class="form-control form-control-sm" name="Contatti" rows="2" placeholder="Es. 3380000000,0300000000 - nome@email.it"></textarea></div>
+                    <div class="col-md-6"><label class="form-label small">Indirizzo proprietario</label><input class="form-control form-control-sm" name="Indirizzo Proprietario"></div>
+                    <div class="col-md-4"><label class="form-label small">Data nascita</label><input class="form-control form-control-sm" name="Data Nascita" placeholder="GG/MM/AAAA oppure AAAA-MM-GG"></div>
+                    <div class="col-12"><label class="form-label small">Note</label><textarea class="form-control form-control-sm" name="Note" rows="3"></textarea></div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annulla</button>
+                <button type="button" class="btn btn-primary" id="save-manual-record-btn">Salva record</button>
+            </div>
+        </div>
     </div>
 </div>
 <?php analyticspro_render_footer(true); ?>

@@ -31,7 +31,7 @@ try {
         throw new RuntimeException('Batch non trovato.');
     }
 
-    $batch['progress_percent'] = (int) round(((int) $batch['processed_rows'] / max((int) $batch['total_rows'], 1)) * 100);
+    $batch['progress_percent'] = max(0, min(100, (int) round(((int) $batch['processed_rows'] / max((int) $batch['total_rows'], 1)) * 100)));
 
     // Expose enrichment progress fields so the frontend can poll and display
     // background geocoding status.

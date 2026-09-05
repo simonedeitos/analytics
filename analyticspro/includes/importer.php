@@ -14,6 +14,8 @@ function analyticspro_parse_contacts(string $raw): array
     preg_match_all('/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/', $raw, $emailMatches);
     $emails = array_values(array_unique(array_map('strtolower', $emailMatches[0] ?? [])));
     $noEmail = preg_replace('/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/', ' ', $raw) ?? $raw;
+    $noEmail = preg_replace('/\s+-\s*/u', ',', $noEmail) ?? $noEmail;
+    $noEmail = str_replace([';', "\r", "\n", "\t"], [',', ' ', ' ', ' '], $noEmail);
 
     preg_match_all('/(\+39[\s\-]?)?(\b(3\d{8,9}|0\d{8,11})\b)/', $noEmail, $phoneMatches);
     foreach ($phoneMatches[0] ?? [] as $phone) {
@@ -92,47 +94,139 @@ function analyticspro_normalize_import_header(string $header): string
     return trim(preg_replace('/\s+/u', ' ', $header) ?? $header);
 }
 
-function analyticspro_extract_row_value(array $row, array $aliases): string
+function analyticspro_import_phone_separator(): string
 {
-    $firstMatch = null;
+    // I telefoni multipli restano nello stesso campo DB, separati da ';'.
+    return ';';
+}
+
+function analyticspro_extract_row_header_variants(string $header): array
+{
+    $normalized = analyticspro_normalize_import_header($header);
+    if ($normalized === '') {
+        return [];
+    }
+
+    $variants = [$normalized];
+    $deduped = preg_replace('/\s+DUP\s+\d+$/u', '', $normalized) ?? $normalized;
+    if ($deduped !== '' && $deduped !== $normalized) {
+        $variants[] = $deduped;
+    }
+
+    return array_values(array_unique($variants));
+}
+
+function analyticspro_extract_row_values(array $row, array $aliases): array
+{
+    $values = [];
+    $seen = [];
     foreach ($aliases as $alias) {
         if (array_key_exists($alias, $row)) {
             $value = trim((string) $row[$alias]);
             if ($value !== '') {
-                return $value;
+                $key = mb_strtoupper($value, 'UTF-8');
+                if (!isset($seen[$key])) {
+                    $seen[$key] = true;
+                    $values[] = $value;
+                }
             }
-            $firstMatch ??= $value;
         }
     }
 
     $normalizedRow = [];
     foreach ($row as $key => $value) {
-        $norm = analyticspro_normalize_import_header((string) $key);
-        if ($norm === '' || array_key_exists($norm, $normalizedRow)) {
-            continue;
+        foreach (analyticspro_extract_row_header_variants((string) $key) as $norm) {
+            $normalizedRow[$norm] ??= [];
+            $normalizedRow[$norm][] = $value;
         }
-        $normalizedRow[$norm] = $value;
     }
 
     foreach ($aliases as $alias) {
-        $normAlias = analyticspro_normalize_import_header((string) $alias);
-        if ($normAlias !== '' && array_key_exists($normAlias, $normalizedRow)) {
-            $value = trim((string) $normalizedRow[$normAlias]);
-            if ($value !== '') {
-                return $value;
+        foreach (analyticspro_extract_row_header_variants((string) $alias) as $normAlias) {
+            foreach ($normalizedRow[$normAlias] ?? [] as $value) {
+                $value = trim((string) $value);
+                if ($value === '') {
+                    continue;
+                }
+                $key = mb_strtoupper($value, 'UTF-8');
+                if (!isset($seen[$key])) {
+                    $seen[$key] = true;
+                    $values[] = $value;
+                }
             }
-            $firstMatch ??= $value;
         }
     }
 
-    return $firstMatch ?? '';
+    return $values;
+}
+
+function analyticspro_extract_row_value(array $row, array $aliases): string
+{
+    $values = analyticspro_extract_row_values($row, $aliases);
+    return $values[0] ?? '';
+}
+
+function analyticspro_merge_name_columns(array $row): string
+{
+    $pieces = [];
+    $seen = [];
+    foreach (analyticspro_extract_row_values($row, ['Nome', 'Nome1', 'Nome2', 'Nome3', 'Nome Proprietario', 'NomeProprietario']) as $value) {
+        $tokens = preg_split('/\s+/u', trim($value)) ?: [];
+        foreach ($tokens as $token) {
+            $token = trim((string) $token);
+            if ($token === '') {
+                continue;
+            }
+            $key = mb_strtoupper($token, 'UTF-8');
+            if (isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+            $pieces[] = $token;
+        }
+    }
+
+    return implode(' ', $pieces);
+}
+
+function analyticspro_properties_has_piano_column(): bool
+{
+    static $hasColumn = null;
+    if ($hasColumn !== null) {
+        return $hasColumn;
+    }
+
+    try {
+        $stmt = analyticspro_db()->query("SHOW COLUMNS FROM properties LIKE 'piano'");
+        $hasColumn = $stmt !== false && (bool) $stmt->fetch();
+    } catch (Throwable) {
+        $hasColumn = false;
+    }
+
+    return $hasColumn;
 }
 
 function analyticspro_extract_row_payload(array $row): array
 {
-    $contacts = analyticspro_parse_contacts(analyticspro_extract_row_value($row, ['Contatti']));
-    $surname = analyticspro_extract_row_value($row, ['Cognome', 'Nome']);
-    $givenName = analyticspro_extract_row_value($row, ['Nome1', 'Nome Proprietario', 'NomeProprietario', 'Nome']);
+    $contactValues = analyticspro_extract_row_values($row, ['Contatti', 'Telefono', 'Telefoni', 'Cellulare']);
+    $emails = [];
+    $phones = [];
+    foreach ($contactValues as $contactValue) {
+        $parsedContacts = analyticspro_parse_contacts($contactValue);
+        $emails = array_merge($emails, $parsedContacts['emails']);
+        $phones = array_merge($phones, $parsedContacts['phones']);
+    }
+    $phones = array_values(array_unique(array_filter(array_map('trim', $phones), static fn ($value) => $value !== '')));
+    $emails = array_values(array_unique(array_filter(array_map('trim', $emails), static fn ($value) => $value !== '')));
+    $surname = analyticspro_extract_row_value($row, ['Cognome', 'Cognome Proprietario', 'CognomeProprietario']);
+    $givenName = analyticspro_merge_name_columns($row);
+    if ($surname === '' && $givenName === '') {
+        $surname = analyticspro_extract_row_value($row, ['Nome']);
+    }
+    $email = analyticspro_extract_row_value($row, ['Email', 'E-mail', 'Mail']);
+    if ($email === '') {
+        $email = $emails[0] ?? '';
+    }
     $cf = analyticspro_extract_row_value($row, ['Codice Fiscale']);
     $provincia = strtoupper(analyticspro_extract_row_value($row, ['Provincia', 'Prov']));
     $comune = analyticspro_extract_row_value($row, ['Comune', 'Comune Catastale', 'Comune Immobile']);
@@ -156,6 +250,7 @@ function analyticspro_extract_row_payload(array $row): array
             'civico' => analyticspro_extract_row_value($row, ['Civico']),
             'categoria' => analyticspro_extract_row_value($row, ['Categoria']),
             'classe' => analyticspro_extract_row_value($row, ['Classe']),
+            'piano' => analyticspro_extract_row_value($row, ['Piano']),
             'consistenza' => analyticspro_extract_row_value($row, ['Consistenza']),
             'superficie' => analyticspro_extract_row_value($row, ['Superficie']),
             'rendita' => analyticspro_extract_row_value($row, ['Rendita']),
@@ -167,12 +262,13 @@ function analyticspro_extract_row_payload(array $row): array
             'nome' => $givenName,
             'cognome' => $surname,
             'codice_fiscale' => $cf,
-            'telefono' => $contacts['phones'][0] ?? '',
+            'telefono' => implode(analyticspro_import_phone_separator(), $phones),
             'indirizzo' => analyticspro_extract_row_value($row, ['Indirizzo Proprietario', 'Indirizzo']),
-            'email' => $contacts['emails'][0] ?? '',
+            'email' => $email,
             'data_nascita' => analyticspro_parse_birth_date(analyticspro_extract_row_value($row, ['Data Nascita'])),
             'genere' => analyticspro_guess_gender($cf),
         ],
+        'note' => analyticspro_extract_row_value($row, ['Note', 'note']),
     ];
 }
 
@@ -675,32 +771,49 @@ function analyticspro_lookup_postgis_coordinates(array $property): array
     return analyticspro_lookup_cadastral_coordinates($property);
 }
 
-function analyticspro_process_import_batch_payload(int $batchId, array $payload): void
+function analyticspro_process_import_batch_payload(int $batchId, array $payload): array
 {
     $pdo = analyticspro_db();
     $rows = $payload['rows'] ?? [];
     $tenantId = (int) ($payload['tenant_id'] ?? 0);
     $uploaderId = (int) ($payload['uploaded_by'] ?? 0);
+    $uploaderName = trim((string) ($payload['uploaded_by_name'] ?? 'Import automatico'));
     $decisions = $payload['decisions'] ?? [];
 
+    $hasPianoColumn = analyticspro_properties_has_piano_column();
     $findProperty = $pdo->prepare('SELECT * FROM properties WHERE user_id = :user_id AND provincia = :provincia AND comune = :comune AND sezione <=> :sezione AND foglio = :foglio AND particella = :particella AND subalterno <=> :subalterno LIMIT 1');
-    $insertProperty = $pdo->prepare('INSERT INTO properties (user_id, import_batch_id, provincia, comune, cod_catastale, sezione, foglio, particella, subalterno, indirizzo, civico, categoria, classe, consistenza, superficie, rendita, titolarita, quota, lat, lng, posizione_verificata, stato, stato_personalizzato, colore_marker) VALUES (:user_id, :import_batch_id, :provincia, :comune, :cod_catastale, :sezione, :foglio, :particella, :subalterno, :indirizzo, :civico, :categoria, :classe, :consistenza, :superficie, :rendita, :titolarita, :quota, NULL, NULL, 0, :stato, :stato_personalizzato, :colore_marker)');
+    $insertProperty = $pdo->prepare(
+        $hasPianoColumn
+            ? 'INSERT INTO properties (user_id, import_batch_id, provincia, comune, cod_catastale, sezione, foglio, particella, subalterno, indirizzo, civico, categoria, classe, piano, consistenza, superficie, rendita, titolarita, quota, lat, lng, posizione_verificata, stato, stato_personalizzato, colore_marker) VALUES (:user_id, :import_batch_id, :provincia, :comune, :cod_catastale, :sezione, :foglio, :particella, :subalterno, :indirizzo, :civico, :categoria, :classe, :piano, :consistenza, :superficie, :rendita, :titolarita, :quota, NULL, NULL, 0, :stato, :stato_personalizzato, :colore_marker)'
+            : 'INSERT INTO properties (user_id, import_batch_id, provincia, comune, cod_catastale, sezione, foglio, particella, subalterno, indirizzo, civico, categoria, classe, consistenza, superficie, rendita, titolarita, quota, lat, lng, posizione_verificata, stato, stato_personalizzato, colore_marker) VALUES (:user_id, :import_batch_id, :provincia, :comune, :cod_catastale, :sezione, :foglio, :particella, :subalterno, :indirizzo, :civico, :categoria, :classe, :consistenza, :superficie, :rendita, :titolarita, :quota, NULL, NULL, 0, :stato, :stato_personalizzato, :colore_marker)'
+    );
     // lat/lng/posizione_verificata are intentionally excluded: coordinate enrichment runs
     // asynchronously in enrich_property_coordinates.php after the batch is persisted.
-    $updateProperty = $pdo->prepare('UPDATE properties SET import_batch_id = :import_batch_id, cod_catastale = :cod_catastale, indirizzo = :indirizzo, civico = :civico, categoria = :categoria, classe = :classe, consistenza = :consistenza, superficie = :superficie, rendita = :rendita, titolarita = :titolarita, quota = :quota WHERE id = :id');
+    $updateProperty = $pdo->prepare(
+        $hasPianoColumn
+            ? 'UPDATE properties SET import_batch_id = :import_batch_id, cod_catastale = :cod_catastale, indirizzo = :indirizzo, civico = :civico, categoria = :categoria, classe = :classe, piano = :piano, consistenza = :consistenza, superficie = :superficie, rendita = :rendita, titolarita = :titolarita, quota = :quota WHERE id = :id'
+            : 'UPDATE properties SET import_batch_id = :import_batch_id, cod_catastale = :cod_catastale, indirizzo = :indirizzo, civico = :civico, categoria = :categoria, classe = :classe, consistenza = :consistenza, superficie = :superficie, rendita = :rendita, titolarita = :titolarita, quota = :quota WHERE id = :id'
+    );
     $selectCurrentOwner = $pdo->prepare('SELECT * FROM property_owners WHERE property_id = :property_id AND is_current = 1 LIMIT 1');
     $closeOwners = $pdo->prepare('UPDATE property_owners SET is_current = 0, valid_to = NOW() WHERE property_id = :property_id AND is_current = 1');
     $insertOwner = $pdo->prepare('INSERT INTO property_owners (property_id, tipo, nome_enc, cognome_enc, codice_fiscale_enc, telefono_enc, indirizzo_enc, email_enc, nome_hash, cognome_hash, codice_fiscale_hash, telefono_hash, data_nascita, genere, is_current, valid_from) VALUES (:property_id, :tipo, :nome_enc, :cognome_enc, :codice_fiscale_enc, :telefono_enc, :indirizzo_enc, :email_enc, :nome_hash, :cognome_hash, :codice_fiscale_hash, :telefono_hash, :data_nascita, :genere, 1, NOW())');
     $insertConflict = $pdo->prepare('INSERT INTO import_duplicate_conflicts (import_batch_id, property_id, action_taken, resolved_by, resolved_at) VALUES (:import_batch_id, :property_id, :action_taken, :resolved_by, NOW())');
+    $insertNote = $pdo->prepare('INSERT INTO property_notes (property_id, author_id, author_name_snapshot, testo) VALUES (:property_id, :author_id, :author_name_snapshot, :testo)');
     $updateBatch = $pdo->prepare('UPDATE import_batches SET processed_rows = :processed_rows WHERE id = :id');
 
     try {
         $processed = 0;
+        $savedRows = 0;
+        $skippedRows = 0;
+        $notesImported = 0;
+        $skippedReasons = ['missing_cadastral_fields' => 0];
         foreach ($rows as $index => $row) {
             $entry = analyticspro_extract_row_payload($row);
             $property = $entry['property'];
             if ($property['provincia'] === '' || $property['comune'] === '' || $property['foglio'] === '' || $property['particella'] === '') {
                 $processed++;
+                $skippedRows++;
+                $skippedReasons['missing_cadastral_fields']++;
                 $updateBatch->execute(['processed_rows' => $processed, 'id' => $batchId]);
                 continue;
             }
@@ -731,7 +844,7 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
                     'titolarita' => $property['titolarita'] !== '' ? $property['titolarita'] : null,
                     'quota' => $property['quota'] !== '' ? $property['quota'] : null,
                     'id' => $propertyId,
-                ]);
+                ] + ($hasPianoColumn ? ['piano' => $property['piano'] !== '' ? $property['piano'] : null] : []));
                 $selectCurrentOwner->execute(['property_id' => $propertyId]);
                 $currentOwner = $selectCurrentOwner->fetch();
                 $incomingSignature = analyticspro_owner_identity_signature($entry['owner']);
@@ -792,7 +905,7 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
                     'stato' => null,
                     'stato_personalizzato' => null,
                     'colore_marker' => '#0d6efd',
-                ]);
+                ] + ($hasPianoColumn ? ['piano' => $property['piano'] !== '' ? $property['piano'] : null] : []));
                 $propertyId = (int) $pdo->lastInsertId();
                 $insertOwner->execute([
                     'property_id' => $propertyId,
@@ -812,11 +925,30 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
                 ]);
             }
 
+            $note = trim((string) ($entry['note'] ?? ''));
+            if ($note !== '') {
+                $insertNote->execute([
+                    'property_id' => $propertyId,
+                    'author_id' => $uploaderId,
+                    'author_name_snapshot' => $uploaderName !== '' ? $uploaderName : 'Import automatico',
+                    'testo' => $note,
+                ]);
+                $notesImported++;
+            }
+
             $processed++;
+            $savedRows++;
             $updateBatch->execute(['processed_rows' => $processed, 'id' => $batchId]);
         }
 
-        $pdo->prepare("UPDATE import_batches SET status = 'completed', completed_at = NOW(), processed_rows = total_rows, enrichment_total = (SELECT COUNT(*) FROM properties WHERE import_batch_id = :batch_id AND lat IS NULL) WHERE id = :id")->execute(['batch_id' => $batchId, 'id' => $batchId]);
+        $pdo->prepare("UPDATE import_batches SET status = 'completed', completed_at = NOW(), processed_rows = total_rows, enrichment_total = (SELECT COUNT(*) FROM (SELECT 1 FROM properties WHERE import_batch_id = :batch_id AND lat IS NULL GROUP BY provincia, comune, cod_catastale, sezione, foglio, particella) AS unresolved) WHERE id = :id")->execute(['batch_id' => $batchId, 'id' => $batchId]);
+        return [
+            'processed_rows' => $processed,
+            'saved_rows' => $savedRows,
+            'skipped_rows' => $skippedRows,
+            'notes_imported' => $notesImported,
+            'skipped_reasons' => array_filter($skippedReasons),
+        ];
     } catch (Throwable $exception) {
         $pdo->prepare("UPDATE import_batches SET status = 'failed', error_message = :message, completed_at = NOW() WHERE id = :id")
             ->execute(['message' => $exception->getMessage(), 'id' => $batchId]);
@@ -1230,7 +1362,7 @@ function analyticspro_enrich_batch_coordinates_chunk(int $batchId, int $limit = 
                      SELECT COUNT(*) FROM (
                          SELECT 1 FROM properties
                          WHERE import_batch_id = :bid2 AND lat IS NULL
-                         GROUP BY cod_catastale, foglio, particella
+                         GROUP BY provincia, comune, cod_catastale, sezione, foglio, particella
                      ) _t
                  ),
                  enrichment_report = :report

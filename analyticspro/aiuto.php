@@ -108,7 +108,7 @@ analyticspro_render_header('Aiuto');
                         <div id="g2" class="accordion-collapse collapse" data-bs-parent="#guideAccordion">
                             <div class="accordion-body small">
                                 <h6>Formati supportati</h6>
-                                <p>Puoi importare file <strong>.csv</strong>, <strong>.xlsx</strong> e <strong>.xls</strong>. Il file deve contenere almeno le colonne catastali minime: <em>Provincia, Comune, Foglio, Particella, Subalterno, Indirizzo, Categoria, Codice Fiscale, Titolarità, Quota, Contatti, Data Nascita</em>. L'ordine delle colonne non è vincolante; l'intestazione deve corrispondere esattamente (non case-sensitive).</p>
+                                <p>Puoi importare file <strong>.csv</strong>, <strong>.xlsx</strong> e <strong>.xls</strong>. Il file deve contenere almeno le colonne catastali minime: <em>Provincia, Comune, Foglio, Particella, Subalterno, Indirizzo, Categoria, Codice Fiscale, Titolarità, Quota, Contatti, Data Nascita</em>. L'ordine delle colonne non è vincolante; l'intestazione viene riconosciuta in modo non case-sensitive e tutte le colonne previste dal template vengono lette anche se contengono testo o numeri in celle normalmente lasciate vuote.</p>
 
                                 <h6 class="mt-3">Come avviare l'import</h6>
                                 <ol>
@@ -125,8 +125,14 @@ analyticspro_render_header('Aiuto');
                                     <li><strong>Mantenere</strong>: il dato esistente resta invariato e il nuovo viene ignorato.</li>
                                 </ul>
 
+                                <h6 class="mt-3">Contatti, note e nomi multipli</h6>
+                                <p>La colonna <strong>Contatti</strong> può contenere più numeri separati da virgola: il sistema li importa tutti, rimuove separatori inutili come <code> -</code>, elimina i duplicati e li salva nello stesso campo separandoli con <code>;</code>. Se nel file è presente una colonna <strong>Note</strong> / <strong>note</strong>, il testo viene aggiunto alle note dell'immobile. Le colonne <strong>Nome</strong>, <strong>Nome1</strong>, <strong>Nome2</strong> e <strong>Nome3</strong> vengono unite automaticamente evitando ripetizioni.</p>
+
                                 <h6 class="mt-3">Storico intestatari</h6>
                                 <p>AnalyticsPRO conserva uno storico degli intestatari nel tempo. Ogni aggiornamento non sovrascrive il dato precedente ma lo archivia con la data di sostituzione, così puoi sempre sapere chi era il titolare in un determinato periodo.</p>
+
+                                <h6 class="mt-3">Inserimento manuale</h6>
+                                <p>Nella pagina <strong>Importa dati</strong> è disponibile anche un modulo per inserire manualmente un singolo record con dati catastali, intestatario, contatti e note. Se compili il modulo e provi a chiuderlo senza salvare, la piattaforma ti chiede conferma prima di scartare i dati.</p>
                             </div>
                         </div>
                     </div>
@@ -146,9 +152,9 @@ analyticspro_render_header('Aiuto');
                                 <h6 class="mt-3">Popup del marker</h6>
                                 <p>Cliccando su un marker si apre un popup che mostra:</p>
                                 <ul>
-                                    <li>Dati catastali dell'immobile (Comune, Foglio, Particella, Subalterno, Indirizzo, Categoria).</li>
+                                    <li>Dati catastali dell'immobile (Comune, Foglio, Particella, Subalterno, Indirizzo, Categoria) con intestazione rapida di <strong>Classe, Rendita, Piano, Consistenza</strong>.</li>
                                     <li>Elenco di tutti gli intestatari correnti con <strong><i class="bi bi-person"></i> icona persona</strong> per le persone fisiche o <strong><i class="bi bi-building"></i> icona azienda</strong> per le persone giuridiche.</li>
-                                    <li>Stato attuale, colore, note e assegnazioni.</li>
+                                    <li>Stato attuale, colore, note, assegnazioni e pulsanti rapidi per copiare i numeri di telefono.</li>
                                 </ul>
 
                                 <h6 class="mt-3">Stato del marker</h6>
@@ -165,7 +171,7 @@ analyticspro_render_header('Aiuto');
                                 <p>Lo stato è <strong>condiviso</strong> tra utente principale e tutti i subutenti del tenant.</p>
 
                                 <h6 class="mt-3">Colore del marker</h6>
-                                <p>Ogni stato ha un <strong>colore predefinito</strong> assegnato automaticamente. Puoi tuttavia sovrascriverlo in qualsiasi momento tramite il <em>color picker</em> nel popup: il colore scelto manualmente è indipendente dallo stato e resta memorizzato sul marker finché non lo cambi di nuovo. Il cambio colore è condiviso nel tenant.</p>
+                                <p>Ogni stato ha un <strong>colore predefinito</strong> assegnato automaticamente. Puoi sovrascriverlo scegliendo da una palette predefinita di colori principali (rosso, arancio, giallo, verde, azzurro, blu, fucsia, viola): il colore manuale resta memorizzato sul marker finché non lo cambi di nuovo. Il cambio colore è condiviso nel tenant.</p>
 
                                 <h6 class="mt-3">Note</h6>
                                 <p>Puoi aggiungere più note allo stesso marker. Ogni nota viene salvata con il <strong>nome e cognome</strong> dell'utente/subutente che l'ha inserita, più <strong>data e ora</strong>. Le note sono visibili a tutti gli utenti del tenant.</p>
@@ -189,7 +195,7 @@ analyticspro_render_header('Aiuto');
                                 <p>Vista a tabella focalizzata sugli immobili assegnati. Ogni riga mostra il <strong>pallino colorato</strong> con il colore corrente del marker, tutti i dati catastali, stato, note e assegnazioni. Tutte le colonne (incluso il colore) sono filtrabili. Se hai il permesso di export puoi scaricare la tabella in <strong>CSV o Excel</strong>. Puoi modificare direttamente i campi abilitati dalla tabella senza aprire il popup mappa.</p>
 
                                 <h6 class="mt-3">Sezione "Report in griglia"</h6>
-                                <p>Vista generale dell'intero patrimonio del tenant con <strong>filtri avanzati</strong> su tutte le colonne. A differenza di "Marker assegnati", mostra tutti gli immobili del tenant (non solo quelli assegnati al subutente corrente). Utile per analisi comparative, selezioni multi-criteri e panoramiche globali.</p>
+                                <p>Vista generale dell'intero patrimonio del tenant con <strong>filtri avanzati</strong> su tutte le colonne. A differenza di "Marker assegnati", mostra tutti gli immobili del tenant (non solo quelli assegnati al subutente corrente). Utile per analisi comparative, selezioni multi-criteri e panoramiche globali. L'utente principale può anche eliminare singole righe non più necessarie direttamente dalla tabella, con conferma esplicita.</p>
 
                                 <h6 class="mt-3">Sezione Analitiche</h6>
                                 <p>Dashboard con <strong>KPI numerici</strong> (totale immobili, distribuzioni, conteggi per stato) e <strong>grafici</strong> (distribuzione per comune, provincia, categoria catastale, genere intestatari, fasce d'età, titolarità). I dati si aggiornano in tempo reale in base agli import effettuati.</p>
@@ -225,7 +231,7 @@ analyticspro_render_header('Aiuto');
 
                                 <h6 class="mt-3">Limitazioni dei subutenti</h6>
                                 <ul>
-                                    <li>I subutenti <strong>non possono mai eliminare</strong> dati o marker, indipendentemente dai permessi configurati.</li>
+                                    <li>I subutenti <strong>non possono mai eliminare</strong> dati o marker, indipendentemente dai permessi configurati. L'eliminazione singola o massiva è riservata all'utente principale o all'amministratore.</li>
                                     <li>Non possono creare altri subutenti.</li>
                                     <li>Vedono solo i dati del tenant cui appartengono (mai i dati di altri tenant).</li>
                                 </ul>
@@ -290,7 +296,7 @@ analyticspro_render_header('Aiuto');
                         ],
                         [
                             'q' => 'Quali formati di file posso importare?',
-                            'a' => 'Puoi importare file .csv, .xlsx e .xls. Il file deve contenere le colonne catastali attese: Provincia, Comune, Foglio, Particella, Subalterno, Indirizzo, Categoria, Codice Fiscale, Titolarità, Quota, Contatti, Data Nascita.',
+                            'a' => 'Puoi importare file .csv, .xlsx e .xls. Il file deve contenere le colonne catastali attese: Provincia, Comune, Foglio, Particella, Subalterno, Indirizzo, Categoria, Codice Fiscale, Titolarità, Quota, Contatti, Data Nascita. Se sono presenti colonne come Note, Piano, Nome1, Nome2 o Nome3, vengono importate automaticamente nei campi corretti.',
                         ],
                         [
                             'q' => 'Posso chiudere la pagina durante l\'import?',
@@ -306,11 +312,11 @@ analyticspro_render_header('Aiuto');
                         ],
                         [
                             'q' => 'Come posso cambiare il colore di un marker?',
-                            'a' => 'Clicca sul marker sulla mappa per aprire il popup, poi usa il color picker per scegliere il colore che preferisci. Il colore è indipendente dallo stato: puoi cambiarlo liberamente in qualsiasi momento e resta memorizzato finché non lo modifichi di nuovo.',
+                            'a' => 'Clicca sul marker sulla mappa per aprire il popup, poi scegli il colore da una palette predefinita di colori principali. Il colore è indipendente dallo stato: puoi cambiarlo liberamente in qualsiasi momento e resta memorizzato finché non lo modifichi di nuovo.',
                         ],
                         [
                             'q' => 'Perché un marker cambia colore quando cambio stato?',
-                            'a' => 'Ogni stato (Non Interessato, Interessato, Contattato, ecc.) ha un colore predefinito applicato automaticamente. Puoi sempre sovrascrivere questo colore manualmente con il color picker: il colore manuale ha la precedenza e rimane anche se cambi lo stato in un secondo momento.',
+                            'a' => 'Ogni stato (Non Interessato, Interessato, Contattato, ecc.) ha un colore predefinito applicato automaticamente. Puoi sempre sovrascrivere questo colore manualmente scegliendolo dalla palette disponibile: il colore manuale ha la precedenza e rimane anche se cambi lo stato in un secondo momento.',
                         ],
                         [
                             'q' => 'Le note sui marker sono private?',

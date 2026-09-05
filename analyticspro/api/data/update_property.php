@@ -41,7 +41,10 @@ try {
     }
 
     $newColor = trim((string) ($input['colore_marker'] ?? ''));
-    if (!preg_match('/^#[0-9a-fA-F]{6}$/', $newColor)) {
+    if ($newColor !== '' && !in_array($newColor, analyticspro_allowed_marker_colors(), true)) {
+        throw new RuntimeException('Colore non consentito.');
+    }
+    if ($newColor === '') {
         $newColor = $property['stato'] !== $newState ? analyticspro_default_color_for_state($newState) : (string) $property['colore_marker'];
     }
 
