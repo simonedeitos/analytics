@@ -119,7 +119,7 @@ function analyticspro_normalize_hash_value(?string $value): ?string
     return mb_strtoupper($value, 'UTF-8');
 }
 
-function analyticspro_split_phone_values(?string $raw): array
+function analyticspro_phone_tokens(?string $raw): array
 {
     $raw = trim((string) $raw);
     if ($raw === '') {
@@ -127,13 +127,18 @@ function analyticspro_split_phone_values(?string $raw): array
     }
 
     $parts = preg_split('/[;,]/', $raw) ?: [];
+    foreach ($parts as $index => $part) {
+        $parts[$index] = trim((string) $part);
+    }
+
+    return array_values(array_filter($parts, static fn (string $value): bool => $value !== ''));
+}
+
+function analyticspro_split_phone_values(?string $raw): array
+{
     $phones = [];
     $seen = [];
-    foreach ($parts as $part) {
-        $value = trim((string) $part);
-        if ($value === '') {
-            continue;
-        }
+    foreach (analyticspro_phone_tokens($raw) as $value) {
         if (!isset($seen[$value])) {
             $seen[$value] = true;
             $phones[] = $value;
@@ -151,14 +156,9 @@ function analyticspro_remove_phone_value(?string $raw, ?string $phoneToRemove): 
         return trim((string) $original) === '' ? null : $original;
     }
 
-    $parts = preg_split('/[;,]/', (string) $raw) ?: [];
     $updated = [];
     $removed = false;
-    foreach ($parts as $part) {
-        $phone = trim((string) $part);
-        if ($phone === '') {
-            continue;
-        }
+    foreach (analyticspro_phone_tokens($raw) as $phone) {
         if ($phone === $phoneToRemove) {
             $removed = true;
             continue;

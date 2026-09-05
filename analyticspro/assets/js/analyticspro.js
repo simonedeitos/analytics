@@ -72,6 +72,13 @@
         return Array.isArray(state.mapCategoriaFilter) ? state.mapCategoriaFilter : null;
     }
 
+    function propertyCanViewPhone(property) {
+        if (property && Object.prototype.hasOwnProperty.call(property, 'can_view_phone')) {
+            return !!property.can_view_phone;
+        }
+        return state.canViewPhone;
+    }
+
     function paletteEntryByColor(color) {
         return MARKER_COLOR_PALETTE.find(function (item) { return item.value.toLowerCase() === String(color || '').toLowerCase(); }) || null;
     }
@@ -353,7 +360,7 @@
         if (!owners.length) return '<span class="text-muted small">Nessun intestatario</span>';
         return owners.map(function (owner) {
             var fullName = ((owner.cognome || '') + ' ' + (owner.nome || '')).trim() || 'Intestatario';
-            return '<div class="mb-1"><div>' + escapeHtml(fullName) + '</div>' + (state.canViewPhone ? buildPhoneChips(owner.telefono) : '') + '</div>';
+            return '<div class="mb-1"><div>' + escapeHtml(fullName) + '</div>' + (propertyCanViewPhone(property) ? buildPhoneChips(owner.telefono) : '') + '</div>';
         }).join('');
     }
 
@@ -814,7 +821,7 @@
                 + '<div class="fw-semibold">' + escapeHtml(fullName) + quota + titolarita + '</div>'
                 + (identityParts.length ? '<div class="owner-meta">' + escapeHtml(identityParts.join(' | ')) + '</div>' : '')
                 + (profileParts.length  ? '<div class="owner-meta">' + escapeHtml(profileParts.join(' | '))  + '</div>' : '')
-                + (state.canViewPhone && owner.telefono ? buildPhoneChips(owner.telefono) : '')
+                + (propertyCanViewPhone(property) && owner.telefono ? buildPhoneChips(owner.telefono) : '')
                 + '</div>';
         }).join('');
     }
@@ -1360,6 +1367,11 @@
             detailModal.innerHTML = '<div class="modal fade" id="property-detail-modal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Dettaglio marker</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button></div><div class="modal-body"><div id="property-detail-content" class="property-detail-wrapper"></div></div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Chiudi</button></div></div></div></div>';
             document.body.appendChild(detailModal.firstElementChild);
         }
+        if (!document.getElementById('owner-phone-confirm-modal')) {
+            var phoneConfirmModal = document.createElement('div');
+            phoneConfirmModal.innerHTML = '<div class="modal fade" id="owner-phone-confirm-modal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Conferma eliminazione</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button></div><div class="modal-body"><p id="owner-phone-confirm-message" class="mb-0 small"></p></div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Annulla</button><button type="button" class="btn btn-danger btn-sm" id="owner-phone-confirm-delete">Elimina</button></div></div></div></div>';
+            document.body.appendChild(phoneConfirmModal.firstElementChild);
+        }
     }
 
     function setModalError(containerId, message) {
@@ -1378,6 +1390,7 @@
 
     function buildEditorOwnersHtml(property) {
         var owners = property.owners || [];
+        var canViewPhone = propertyCanViewPhone(property);
         if (!owners.length) {
             return '<div class="text-muted small">Nessun intestatario disponibile.</div>';
         }
@@ -1390,9 +1403,9 @@
             return '<div class="border rounded p-2 mb-2">'
                 + '<div class="fw-semibold small">' + escapeHtml(fullName) + '</div>'
                 + (identityParts.length ? '<div class="owner-meta small">' + escapeHtml(identityParts.join(' | ')) + '</div>' : '')
-                + (state.canViewPhone
+                + (canViewPhone
                     ? '<div class="mt-1"><span class="small text-muted">Telefoni</span>'
-                        + buildEditablePhoneChips(owner.telefono, property.id, owner.id || 0, !!property.can_edit && Number(owner.id || 0) > 0)
+                        + buildEditablePhoneChips(owner.telefono, property.id, owner.id || 0, !!property.can_edit && canViewPhone && Number(owner.id || 0) > 0)
                         + '</div>'
                     : '')
                 + '</div>';
@@ -1405,8 +1418,44 @@
         if (!container) return;
         container.innerHTML = buildEditorOwnersHtml(property);
         if (label) {
-            label.textContent = state.canViewPhone ? 'Intestatari e telefoni' : 'Intestatari';
+            label.textContent = propertyCanViewPhone(property) ? 'Intestatari e telefoni' : 'Intestatari';
         }
+    }
+
+    function confirmOwnerPhoneRemoval(phone) {
+        ensureSharedModals();
+        var modalEl = document.getElementById('owner-phone-confirm-modal');
+        var messageEl = document.getElementById('owner-phone-confirm-message');
+        var confirmBtn = document.getElementById('owner-phone-confirm-delete');
+        if (!modalEl || !messageEl || !confirmBtn) {
+            return Promise.resolve(false);
+        }
+
+        messageEl.textContent = 'Eliminare il numero ' + phone + '? L\'operazione è irreversibile.';
+        return new Promise(function (resolve) {
+            var resolved = false;
+            var modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+            var cleanup = function () {
+                confirmBtn.removeEventListener('click', onConfirm);
+                modalEl.removeEventListener('hidden.bs.modal', onHidden);
+            };
+            var onConfirm = function () {
+                if (resolved) return;
+                resolved = true;
+                cleanup();
+                modal.hide();
+                resolve(true);
+            };
+            var onHidden = function () {
+                if (resolved) return;
+                resolved = true;
+                cleanup();
+                resolve(false);
+            };
+            confirmBtn.addEventListener('click', onConfirm);
+            modalEl.addEventListener('hidden.bs.modal', onHidden);
+            modal.show();
+        });
     }
 
     function openEditorModal(propertyId) {
@@ -1665,18 +1714,22 @@
             var propertyId = Number(removePhoneBtn.dataset.propertyId || 0);
             var ownerId = Number(removePhoneBtn.dataset.ownerId || 0);
             if (!phone || !propertyId || !ownerId) return;
-            if (!window.confirm('Eliminare il numero ' + phone + '? L\'operazione è irreversibile.')) return;
-            removePhoneBtn.disabled = true;
-            removeOwnerPhone(propertyId, ownerId, phone)
-                .then(function (payload) {
-                    applyOwnerPhoneUpdate(propertyId, ownerId, payload.telefono || '');
-                    var property = findPropertyById(propertyId);
-                    if (property) {
-                        renderEditorOwners(property);
-                    }
-                })
-                .catch(function (error) { window.alert(error.message); })
-                .finally(function () { removePhoneBtn.disabled = false; });
+            var propertyForRemoval = findPropertyById(propertyId);
+            if (!propertyForRemoval || !propertyCanViewPhone(propertyForRemoval)) return;
+            confirmOwnerPhoneRemoval(phone).then(function (confirmed) {
+                if (!confirmed) return;
+                removePhoneBtn.disabled = true;
+                removeOwnerPhone(propertyId, ownerId, phone)
+                    .then(function (payload) {
+                        applyOwnerPhoneUpdate(propertyId, ownerId, payload.telefono || '');
+                        var property = findPropertyById(propertyId);
+                        if (property) {
+                            renderEditorOwners(property);
+                        }
+                    })
+                    .catch(function (error) { window.alert(error.message); })
+                    .finally(function () { removePhoneBtn.disabled = false; });
+            });
             return;
         }
         if (t.closest('.close-map-popup'))    { event.preventDefault(); if (state.map) state.map.closePopup(); return; }
