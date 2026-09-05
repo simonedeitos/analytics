@@ -50,10 +50,11 @@ try {
         $pdo = analyticspro_db();
         $pdo->beginTransaction();
         try {
-            $ownerStmt = $pdo->prepare('SELECT id, telefono_enc FROM property_owners WHERE id = :id AND property_id = :property_id AND is_current = 1 LIMIT 1 FOR UPDATE');
+            $ownerStmt = $pdo->prepare('SELECT po.id, po.telefono_enc FROM property_owners po INNER JOIN properties p ON p.id = po.property_id WHERE po.id = :id AND po.property_id = :property_id AND po.is_current = 1 AND p.user_id = :tenant_owner_id LIMIT 1 FOR UPDATE');
             $ownerStmt->execute([
                 'id' => $ownerId,
                 'property_id' => $propertyId,
+                'tenant_owner_id' => (int) $property['user_id'],
             ]);
             $owner = $ownerStmt->fetch();
             if (!$owner) {
@@ -67,12 +68,13 @@ try {
             }
             $updatedPhone = analyticspro_remove_phone_value($currentPhone, $phoneToRemove);
 
-            $updateStmt = $pdo->prepare('UPDATE property_owners SET telefono_enc = :telefono_enc, telefono_hash = :telefono_hash WHERE id = :id AND property_id = :property_id AND is_current = 1');
+            $updateStmt = $pdo->prepare('UPDATE property_owners po INNER JOIN properties p ON p.id = po.property_id SET po.telefono_enc = :telefono_enc, po.telefono_hash = :telefono_hash WHERE po.id = :id AND po.property_id = :property_id AND po.is_current = 1 AND p.user_id = :tenant_owner_id');
             $updateStmt->execute([
                     'telefono_enc' => analyticspro_encrypt($updatedPhone),
                     'telefono_hash' => analyticspro_hash($updatedPhone),
                     'id' => $ownerId,
                     'property_id' => $propertyId,
+                    'tenant_owner_id' => (int) $property['user_id'],
                 ]);
             $pdo->commit();
         } catch (Throwable $exception) {

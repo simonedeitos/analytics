@@ -56,6 +56,7 @@
         mapStatiFilter: null,
         mapCategoriaFilter: null,
         currentImportStats: null,
+        phoneConfirmPending: false,
     };
 
     state.mapStatiFilter = Object.keys(STATE_OPTIONS).slice();
@@ -1010,8 +1011,11 @@
     }
 
     function applyOwnerPhoneUpdate(propertyId, ownerId, updatedPhoneRaw) {
+        var seenRefs = typeof WeakSet === 'function' ? new WeakSet() : null;
         [state.properties, state.assignedProperties || []].forEach(function (collection) {
             (collection || []).forEach(function (property) {
+                if (seenRefs && seenRefs.has(property)) return;
+                if (seenRefs) seenRefs.add(property);
                 if (Number(property.id) !== Number(propertyId)) return;
                 (property.owners || []).forEach(function (owner) {
                     if (Number(owner.id) === Number(ownerId)) {
@@ -1446,6 +1450,9 @@
 
     function confirmOwnerPhoneRemoval(phone) {
         ensureSharedModals();
+        if (state.phoneConfirmPending) {
+            return Promise.resolve(false);
+        }
         var modalEl = document.getElementById('owner-phone-confirm-modal');
         var messageEl = document.getElementById('owner-phone-confirm-message');
         var confirmBtn = document.getElementById('owner-phone-confirm-delete');
@@ -1453,6 +1460,7 @@
             return Promise.resolve(false);
         }
 
+        state.phoneConfirmPending = true;
         messageEl.textContent = 'Eliminare il numero ' + phone + '? L\'operazione è irreversibile.';
         return new Promise(function (resolve) {
             var resolved = false;
@@ -1460,6 +1468,7 @@
             var cleanup = function () {
                 confirmBtn.removeEventListener('click', onConfirm);
                 modalEl.removeEventListener('hidden.bs.modal', onHidden);
+                state.phoneConfirmPending = false;
             };
             var onConfirm = function () {
                 if (resolved) return;

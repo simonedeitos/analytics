@@ -43,6 +43,22 @@ if ($removeDup !== '222') {
     $errors[] = 'Rimozione duplicati presenti non corretta: ' . json_encode($removeDup);
 }
 
+$mixedRaw = ' 111 ; 222, 333 ';
+$mixedList = analyticspro_split_phone_values($mixedRaw);
+if ($mixedList !== ['111', '222', '333']) {
+    $pass = false;
+    $errors[] = 'Split telefoni con separatori misti non corretto: ' . json_encode($mixedList);
+}
+if (!in_array('222', $mixedList, true)) {
+    $pass = false;
+    $errors[] = 'Verifica presenza numero nel percorso endpoint non corretta';
+}
+$mixedRemoved = analyticspro_remove_phone_value($mixedRaw, '222');
+if ($mixedRemoved !== '111;333') {
+    $pass = false;
+    $errors[] = 'Rimozione su separatori misti non corretta: ' . json_encode($mixedRemoved);
+}
+
 $empty = analyticspro_remove_phone_value('', '222');
 if ($empty !== null) {
     $pass = false;
