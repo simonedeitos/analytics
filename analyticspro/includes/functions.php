@@ -119,6 +119,60 @@ function analyticspro_normalize_hash_value(?string $value): ?string
     return mb_strtoupper($value, 'UTF-8');
 }
 
+function analyticspro_phone_tokens(?string $raw): array
+{
+    $raw = trim((string) $raw);
+    if ($raw === '') {
+        return [];
+    }
+
+    $parts = preg_split('/[;,]/', $raw) ?: [];
+    foreach ($parts as $index => $part) {
+        $parts[$index] = trim((string) $part);
+    }
+
+    return array_values(array_filter($parts, static fn (string $value): bool => $value !== ''));
+}
+
+function analyticspro_split_phone_values(?string $raw): array
+{
+    $phones = [];
+    $seen = [];
+    foreach (analyticspro_phone_tokens($raw) as $value) {
+        if (!isset($seen[$value])) {
+            $seen[$value] = true;
+            $phones[] = $value;
+        }
+    }
+
+    return $phones;
+}
+
+function analyticspro_remove_phone_value(?string $raw, ?string $phoneToRemove): ?string
+{
+    $original = $raw;
+    $phoneToRemove = trim((string) $phoneToRemove);
+    if ($phoneToRemove === '') {
+        return trim((string) $original) === '' ? null : $original;
+    }
+
+    $updated = [];
+    $removed = false;
+    foreach (analyticspro_phone_tokens($raw) as $phone) {
+        if ($phone === $phoneToRemove) {
+            $removed = true;
+            continue;
+        }
+        $updated[] = $phone;
+    }
+
+    if (!$removed) {
+        return trim((string) $original) === '' ? null : $original;
+    }
+
+    return $updated ? implode(';', $updated) : null;
+}
+
 function analyticspro_random_password(int $length = 12): string
 {
     $alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%';

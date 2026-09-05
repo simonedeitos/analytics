@@ -114,6 +114,7 @@ function analyticspro_fetch_properties_payload(array $user, string $mode = 'all'
         $owners = [];
         foreach ($ownersByProperty[$propertyId] ?? [] as $owner) {
             $ownerPayload = [
+                'id' => (int) $owner['id'],
                 'tipo' => $owner['tipo'],
                 'nome' => analyticspro_decrypt($owner['nome_enc']),
                 'cognome' => analyticspro_decrypt($owner['cognome_enc']),
@@ -145,6 +146,7 @@ function analyticspro_fetch_properties_payload(array $user, string $mode = 'all'
         $record['notes'] = $notes;
         $record['assignments'] = $assignments;
         $record['tenant_name'] = trim(($property['tenant_nome'] ?? '') . ' ' . ($property['tenant_cognome'] ?? ''));
+        $record['can_view_phone'] = $showPhone;
         $record['can_edit'] = analyticspro_property_can_edit($user, $record);
         $record['can_delete'] = ($user['role'] ?? '') === 'user' && (int) ($property['user_id'] ?? 0) === (int) ($user['id'] ?? 0);
         $record['is_assigned'] = !empty($record['assignments']);

@@ -56,6 +56,7 @@
         mapStatiFilter: null,
         mapCategoriaFilter: null,
         currentImportStats: null,
+        phoneConfirmPending: false,
     };
 
     state.mapStatiFilter = Object.keys(STATE_OPTIONS).slice();
@@ -70,6 +71,13 @@
 
     function getCategorieFilter() {
         return Array.isArray(state.mapCategoriaFilter) ? state.mapCategoriaFilter : null;
+    }
+
+    function propertyCanViewPhone(property) {
+        if (property && Object.prototype.hasOwnProperty.call(property, 'can_view_phone')) {
+            return !!property.can_view_phone;
+        }
+        return state.canViewPhone;
     }
 
     function paletteEntryByColor(color) {
@@ -181,6 +189,26 @@
         if (!phones.length) return '';
         return '<div class="d-flex flex-wrap gap-1 mt-1">' + phones.map(function (phone) {
             return '<button type="button" class="btn btn-outline-primary btn-sm copy-phone-btn" data-phone="' + escapeHtml(phone) + '" data-default-label="' + escapeHtml(phone) + '">' + escapeHtml(phone) + '</button>';
+        }).join('') + '</div>';
+    }
+
+    function buildEditablePhoneChips(raw, propertyId, ownerId, canDelete) {
+        var phones = splitPhoneNumbers(raw);
+        if (!phones.length) {
+            return '<span class="text-muted small">Nessun telefono</span>';
+        }
+        return '<div class="d-flex flex-wrap gap-1 mt-1">' + phones.map(function (phone) {
+            var removeBtn = canDelete
+                ? '<button type="button" class="btn btn-outline-danger btn-sm remove-owner-phone-btn"'
+                    + ' data-property-id="' + escapeHtml(String(propertyId)) + '"'
+                    + ' data-owner-id="' + escapeHtml(String(ownerId)) + '"'
+                    + ' data-phone="' + escapeHtml(phone) + '"'
+                    + ' title="Elimina numero" aria-label="Elimina numero ' + escapeHtml(phone) + '">\u2715</button>'
+                : '';
+            return '<span class="d-inline-flex align-items-center gap-1">'
+                + '<button type="button" class="btn btn-outline-primary btn-sm copy-phone-btn" data-phone="' + escapeHtml(phone) + '" data-default-label="' + escapeHtml(phone) + '">' + escapeHtml(phone) + '</button>'
+                + removeBtn
+                + '</span>';
         }).join('') + '</div>';
     }
 
@@ -333,7 +361,7 @@
         if (!owners.length) return '<span class="text-muted small">Nessun intestatario</span>';
         return owners.map(function (owner) {
             var fullName = ((owner.cognome || '') + ' ' + (owner.nome || '')).trim() || 'Intestatario';
-            return '<div class="mb-1"><div>' + escapeHtml(fullName) + '</div>' + (state.canViewPhone ? buildPhoneChips(owner.telefono) : '') + '</div>';
+            return '<div class="mb-1"><div>' + escapeHtml(fullName) + '</div>' + (propertyCanViewPhone(property) ? buildPhoneChips(owner.telefono) : '') + '</div>';
         }).join('');
     }
 
@@ -763,6 +791,7 @@
                 fillOpacity: 0.92,
                 weight: 2,
             });
+            marker._analyticsPropertyId = Number(property.id);
             marker.bindPopup(buildPopupHtml(property), { maxWidth: 460 });
             state.markers.addLayer(marker);
             points.push(property);
@@ -794,7 +823,7 @@
                 + '<div class="fw-semibold">' + escapeHtml(fullName) + quota + titolarita + '</div>'
                 + (identityParts.length ? '<div class="owner-meta">' + escapeHtml(identityParts.join(' | ')) + '</div>' : '')
                 + (profileParts.length  ? '<div class="owner-meta">' + escapeHtml(profileParts.join(' | '))  + '</div>' : '')
-                + (state.canViewPhone && owner.telefono ? buildPhoneChips(owner.telefono) : '')
+                + (propertyCanViewPhone(property) && owner.telefono ? buildPhoneChips(owner.telefono) : '')
                 + '</div>';
         }).join('');
     }
@@ -965,6 +994,61 @@
             body: JSON.stringify(Object.assign({ csrf_token: state.csrfToken }, payload)),
         });
         await loadProperties();
+    }
+
+    async function removeOwnerPhone(propertyId, ownerId, phone) {
+        return api(state.propertyUpdateEndpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                csrf_token: state.csrfToken,
+                action: 'remove_owner_phone',
+                property_id: propertyId,
+                owner_id: ownerId,
+                phone: phone
+            }),
+        });
+    }
+
+    function applyOwnerPhoneUpdate(propertyId, ownerId, updatedPhoneRaw) {
+        var seenRefs = typeof WeakSet === 'function' ? new WeakSet() : null;
+        [state.properties, state.assignedProperties || []].forEach(function (collection) {
+            (collection || []).forEach(function (property) {
+                if (seenRefs && seenRefs.has(property)) return;
+                if (seenRefs) seenRefs.add(property);
+                if (Number(property.id) !== Number(propertyId)) return;
+                (property.owners || []).forEach(function (owner) {
+                    if (Number(owner.id) === Number(ownerId)) {
+                        owner.telefono = updatedPhoneRaw || '';
+                    }
+                });
+            });
+        });
+        updateKpis();
+        renderAssignedTable();
+        if (state.canViewReports || state.role !== 'subuser') renderReportTable();
+        if (state.canViewAnalytics || state.role !== 'subuser') renderCharts();
+        refreshOpenPropertyViews(propertyId);
+    }
+
+    function refreshOpenPropertyViews(propertyId) {
+        var property = findPropertyById(propertyId);
+        if (!property) return;
+
+        var detailModal = document.getElementById('property-detail-modal');
+        var detailContent = document.getElementById('property-detail-content');
+        if (detailModal && detailModal.classList.contains('show') && Number(detailModal.dataset.propertyId || 0) === Number(propertyId) && detailContent) {
+            detailContent.innerHTML = buildPropertyCardHtml(property, { mapMode: false });
+        }
+
+        if (state.markers && typeof state.markers.eachLayer === 'function') {
+            state.markers.eachLayer(function (layer) {
+                if (Number(layer._analyticsPropertyId || 0) !== Number(propertyId)) return;
+                if (typeof layer.setPopupContent === 'function') {
+                    layer.setPopupContent(buildPopupHtml(property));
+                }
+            });
+        }
     }
 
     async function deleteProperty(propertyId) {
@@ -1296,7 +1380,7 @@
     function ensureSharedModals() {
         if (!document.getElementById('property-editor-modal')) {
             var editorModal = document.createElement('div');
-            editorModal.innerHTML = '<div class="modal fade" id="property-editor-modal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Modifica marker</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button></div><div class="modal-body"><div id="property-editor-meta" class="small text-muted mb-3"></div><div id="property-editor-error" class="alert alert-danger py-2 px-3 small d-none mb-3"></div><div class="row g-2"><div class="col-md-6"><label class="form-label small mb-1">Stato</label><select id="editor-state" class="form-select form-select-sm"></select></div><div class="col-md-6"><label class="form-label small mb-1">Colore marker</label><div class="d-flex align-items-center gap-2"><span id="editor-color-preview" class="color-dot" style="width:18px;height:18px;"></span><select id="editor-color" class="form-select form-select-sm"></select></div></div><div class="col-12"><label class="form-label small mb-1">Stato personalizzato</label><input id="editor-custom-state" class="form-control form-control-sm" placeholder="Stato personalizzato"></div><div class="col-12"><label class="form-label small mb-1">Assegnazioni</label><div id="editor-assignments-summary" class="small"></div></div><div class="col-12"><button type="button" class="btn btn-outline-secondary btn-sm d-none" id="editor-assignments-open"><i class="bi bi-person-plus me-1"></i>Gestisci assegnazioni</button></div><div class="col-12"><label class="form-label small mb-1">Nota</label><textarea id="editor-note" class="form-control form-control-sm" rows="3" placeholder="Aggiungi nota"></textarea></div></div></div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Annulla</button><button type="button" class="btn btn-primary btn-sm" id="editor-save-btn">Salva</button></div></div></div></div>';
+            editorModal.innerHTML = '<div class="modal fade" id="property-editor-modal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Modifica marker</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button></div><div class="modal-body"><div id="property-editor-meta" class="small text-muted mb-3"></div><div id="property-editor-error" class="alert alert-danger py-2 px-3 small d-none mb-3"></div><div id="editor-owners-block" class="mb-3"><label id="editor-owners-label" class="form-label small mb-1">Intestatari e telefoni</label><div id="editor-owners-content"></div></div><div class="row g-2"><div class="col-md-6"><label class="form-label small mb-1">Stato</label><select id="editor-state" class="form-select form-select-sm"></select></div><div class="col-md-6"><label class="form-label small mb-1">Colore marker</label><div class="d-flex align-items-center gap-2"><span id="editor-color-preview" class="color-dot" style="width:18px;height:18px;"></span><select id="editor-color" class="form-select form-select-sm"></select></div></div><div class="col-12"><label class="form-label small mb-1">Stato personalizzato</label><input id="editor-custom-state" class="form-control form-control-sm" placeholder="Stato personalizzato"></div><div class="col-12"><label class="form-label small mb-1">Assegnazioni</label><div id="editor-assignments-summary" class="small"></div></div><div class="col-12"><button type="button" class="btn btn-outline-secondary btn-sm d-none" id="editor-assignments-open"><i class="bi bi-person-plus me-1"></i>Gestisci assegnazioni</button></div><div class="col-12"><label class="form-label small mb-1">Nota</label><textarea id="editor-note" class="form-control form-control-sm" rows="3" placeholder="Aggiungi nota"></textarea></div></div></div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Annulla</button><button type="button" class="btn btn-primary btn-sm" id="editor-save-btn">Salva</button></div></div></div></div>';
             document.body.appendChild(editorModal.firstElementChild);
         }
         if (!document.getElementById('assignment-picker-modal')) {
@@ -1308,6 +1392,11 @@
             var detailModal = document.createElement('div');
             detailModal.innerHTML = '<div class="modal fade" id="property-detail-modal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Dettaglio marker</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button></div><div class="modal-body"><div id="property-detail-content" class="property-detail-wrapper"></div></div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Chiudi</button></div></div></div></div>';
             document.body.appendChild(detailModal.firstElementChild);
+        }
+        if (!document.getElementById('owner-phone-confirm-modal')) {
+            var phoneConfirmModal = document.createElement('div');
+            phoneConfirmModal.innerHTML = '<div class="modal fade" id="owner-phone-confirm-modal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Conferma eliminazione</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button></div><div class="modal-body"><p id="owner-phone-confirm-message" class="mb-0 small"></p></div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Annulla</button><button type="button" class="btn btn-danger btn-sm" id="owner-phone-confirm-delete">Elimina</button></div></div></div></div>';
+            document.body.appendChild(phoneConfirmModal.firstElementChild);
         }
     }
 
@@ -1323,6 +1412,81 @@
         var summary = document.getElementById('editor-assignments-summary');
         if (!summary) return;
         summary.innerHTML = buildAssignmentSummary(property);
+    }
+
+    function buildEditorOwnersHtml(property) {
+        var owners = property.owners || [];
+        var canViewPhone = propertyCanViewPhone(property);
+        if (!owners.length) {
+            return '<div class="text-muted small">Nessun intestatario disponibile.</div>';
+        }
+        return owners.map(function (owner) {
+            var fullName = ((owner.cognome || '') + ' ' + (owner.nome || '')).trim() || 'Intestatario';
+            var identityParts = [];
+            if (owner.codice_fiscale) identityParts.push('CF/P.IVA: ' + owner.codice_fiscale);
+            if (owner.email) identityParts.push('\u2709 ' + owner.email);
+            if (owner.indirizzo) identityParts.push('\uD83D\uDCCD ' + owner.indirizzo);
+            return '<div class="border rounded p-2 mb-2">'
+                + '<div class="fw-semibold small">' + escapeHtml(fullName) + '</div>'
+                + (identityParts.length ? '<div class="owner-meta small">' + escapeHtml(identityParts.join(' | ')) + '</div>' : '')
+                + (canViewPhone
+                    ? '<div class="mt-1"><span class="small text-muted">Telefoni</span>'
+                        + buildEditablePhoneChips(owner.telefono, property.id, owner.id || 0, !!property.can_edit && canViewPhone && Number(owner.id || 0) > 0)
+                        + '</div>'
+                    : '')
+                + '</div>';
+        }).join('');
+    }
+
+    function renderEditorOwners(property) {
+        var container = document.getElementById('editor-owners-content');
+        var label = document.getElementById('editor-owners-label');
+        if (!container) return;
+        container.innerHTML = buildEditorOwnersHtml(property);
+        if (label) {
+            label.textContent = propertyCanViewPhone(property) ? 'Intestatari e telefoni' : 'Intestatari';
+        }
+    }
+
+    function confirmOwnerPhoneRemoval(phone) {
+        ensureSharedModals();
+        if (state.phoneConfirmPending) {
+            return Promise.resolve(false);
+        }
+        var modalEl = document.getElementById('owner-phone-confirm-modal');
+        var messageEl = document.getElementById('owner-phone-confirm-message');
+        var confirmBtn = document.getElementById('owner-phone-confirm-delete');
+        if (!modalEl || !messageEl || !confirmBtn) {
+            return Promise.resolve(false);
+        }
+
+        state.phoneConfirmPending = true;
+        messageEl.textContent = 'Eliminare il numero ' + phone + '? L\'operazione è irreversibile.';
+        return new Promise(function (resolve) {
+            var resolved = false;
+            var modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+            var cleanup = function () {
+                confirmBtn.removeEventListener('click', onConfirm);
+                modalEl.removeEventListener('hidden.bs.modal', onHidden);
+                state.phoneConfirmPending = false;
+            };
+            var onConfirm = function () {
+                if (resolved) return;
+                resolved = true;
+                cleanup();
+                modal.hide();
+                resolve(true);
+            };
+            var onHidden = function () {
+                if (resolved) return;
+                resolved = true;
+                cleanup();
+                resolve(false);
+            };
+            confirmBtn.addEventListener('click', onConfirm);
+            modalEl.addEventListener('hidden.bs.modal', onHidden);
+            modal.show();
+        });
     }
 
     function openEditorModal(propertyId) {
@@ -1355,6 +1519,7 @@
         customStateEl.value = property.stato_personalizzato || '';
         noteEl.value = '';
         saveBtn.dataset.propertyId = String(property.id);
+        renderEditorOwners(property);
         refreshEditorAssignmentSummary(property);
         if (assignmentBtn) { assignmentBtn.classList.toggle('d-none', state.role === 'subuser'); assignmentBtn.dataset.propertyId = String(property.id); }
         bootstrap.Modal.getOrCreateInstance(modalEl).show();
@@ -1366,6 +1531,7 @@
         var modalEl = document.getElementById('property-detail-modal');
         var bodyEl  = document.getElementById('property-detail-content');
         if (!property || !modalEl || !bodyEl) return;
+        modalEl.dataset.propertyId = String(property.id);
         bodyEl.innerHTML = buildPropertyCardHtml(property, { mapMode: false });
         bootstrap.Modal.getOrCreateInstance(modalEl).show();
     }
@@ -1571,6 +1737,31 @@
                     }, 1200);
                 })
                 .catch(function () { window.alert('Impossibile copiare il numero.'); });
+            return;
+        }
+        var removePhoneBtn = t.closest('.remove-owner-phone-btn');
+        if (removePhoneBtn) {
+            event.preventDefault();
+            var phone = String(removePhoneBtn.dataset.phone || '').trim();
+            var propertyId = Number(removePhoneBtn.dataset.propertyId || 0);
+            var ownerId = Number(removePhoneBtn.dataset.ownerId || 0);
+            if (!phone || !propertyId || !ownerId) return;
+            var propertyForRemoval = findPropertyById(propertyId);
+            if (!propertyForRemoval || !propertyCanViewPhone(propertyForRemoval) || !propertyForRemoval.can_edit) return;
+            confirmOwnerPhoneRemoval(phone).then(function (confirmed) {
+                if (!confirmed) return;
+                removePhoneBtn.disabled = true;
+                removeOwnerPhone(propertyId, ownerId, phone)
+                    .then(function (payload) {
+                        applyOwnerPhoneUpdate(propertyId, ownerId, payload.telefono || '');
+                        var property = findPropertyById(propertyId);
+                        if (property) {
+                            renderEditorOwners(property);
+                        }
+                    })
+                    .catch(function (error) { window.alert(error.message); })
+                    .finally(function () { removePhoneBtn.disabled = false; });
+            });
             return;
         }
         if (t.closest('.close-map-popup'))    { event.preventDefault(); if (state.map) state.map.closePopup(); return; }
