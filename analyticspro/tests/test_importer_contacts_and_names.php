@@ -48,11 +48,21 @@ $payload = analyticspro_extract_row_payload([
     'Codice Catastale' => 'B157',
     'Foglio' => '10',
     'Particella' => '25',
+    'Piano' => '2',
     'Contatti' => '3386882344,3387124334 - ,,0309900026',
+    'Note' => 'Nota importata',
 ]);
 if (($payload['owner']['telefono'] ?? '') !== '3386882344;3387124334;0309900026') {
     $pass = false;
     $errors[] = 'Serializzazione telefoni nel payload non corretta: ' . json_encode($payload['owner']['telefono'] ?? null);
+}
+if (($payload['property']['piano'] ?? '') !== '2') {
+    $pass = false;
+    $errors[] = 'Mapping piano non corretto: ' . json_encode($payload['property']['piano'] ?? null);
+}
+if (($payload['note'] ?? '') !== 'Nota importata') {
+    $pass = false;
+    $errors[] = 'Mapping note non corretto: ' . json_encode($payload['note'] ?? null);
 }
 
 if ($pass) {

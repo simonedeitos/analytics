@@ -36,7 +36,9 @@ try {
         throw new RuntimeException('Immobile non accessibile.');
     }
 
-    $stmt = analyticspro_db()->prepare('DELETE FROM properties WHERE id = :id AND user_id = :user_id LIMIT 1');
+    $pdo = analyticspro_db();
+    $pdo->beginTransaction();
+    $stmt = $pdo->prepare('DELETE FROM properties WHERE id = :id AND user_id = :user_id LIMIT 1');
     $stmt->execute([
         'id' => $propertyId,
         'user_id' => $tenantId,
@@ -45,7 +47,11 @@ try {
         throw new RuntimeException('Nessun immobile eliminato.');
     }
 
+    $pdo->commit();
     analyticspro_json(['ok' => true, 'deleted_property_id' => $propertyId, 'deleted_properties' => 1]);
 } catch (Throwable $exception) {
+    if (isset($pdo) && $pdo instanceof PDO && $pdo->inTransaction()) {
+        $pdo->rollBack();
+    }
     analyticspro_json(['ok' => false, 'error' => $exception->getMessage()], 422);
 }

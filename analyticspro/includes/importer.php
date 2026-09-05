@@ -941,7 +941,22 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
             $updateBatch->execute(['processed_rows' => $processed, 'id' => $batchId]);
         }
 
-        $pdo->prepare("UPDATE import_batches SET status = 'completed', completed_at = NOW(), processed_rows = total_rows, enrichment_total = (SELECT COUNT(*) FROM (SELECT 1 FROM properties WHERE import_batch_id = :batch_id AND lat IS NULL GROUP BY provincia, comune, cod_catastale, sezione, foglio, particella) AS unresolved) WHERE id = :id")->execute(['batch_id' => $batchId, 'id' => $batchId]);
+        $pendingStmt = $pdo->prepare(
+            'SELECT COUNT(*) FROM (
+                SELECT 1
+                FROM properties
+                WHERE import_batch_id = :batch_id AND lat IS NULL
+                GROUP BY provincia, comune, cod_catastale, sezione, foglio, particella
+            ) AS unresolved'
+        );
+        $pendingStmt->execute(['batch_id' => $batchId]);
+        $pendingEnrichment = (int) $pendingStmt->fetchColumn();
+
+        $pdo->prepare("UPDATE import_batches SET status = 'completed', completed_at = NOW(), processed_rows = total_rows, enrichment_total = :enrichment_total WHERE id = :id")
+            ->execute([
+                'enrichment_total' => $pendingEnrichment,
+                'id' => $batchId,
+            ]);
         return [
             'processed_rows' => $processed,
             'saved_rows' => $savedRows,
