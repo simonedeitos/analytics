@@ -49,7 +49,7 @@ analyticspro_render_header('Marker assegnati', ['app_assets' => true]);
 
     <div class="card border-0 shadow-sm">
         <div class="card-body">
-            <table id="assigned-table" class="table table-striped table-hover w-100">
+            <table id="assigned-table" class="table table-sm table-striped table-hover w-100 ap-compact-table">
                 <thead></thead>
                 <tfoot></tfoot>
                 <tbody></tbody>

@@ -72,6 +72,10 @@
         return Array.isArray(state.mapCategoriaFilter) ? state.mapCategoriaFilter : null;
     }
 
+    function paletteEntryByColor(color) {
+        return MARKER_COLOR_PALETTE.find(function (item) { return item.value.toLowerCase() === String(color || '').toLowerCase(); }) || null;
+    }
+
     function escapeHtml(value) {
         return String(value === null || value === undefined ? '' : value).replace(/[&<>'"]/g, function (char) {
             return { '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char];
@@ -119,6 +123,37 @@
 
     function clampPercent(value) {
         return Math.min(100, Math.max(0, Number(value) || 0));
+    }
+
+    function colorOptionTextColor(color) {
+        var hex = String(color || '').replace('#', '');
+        if (!/^[0-9a-f]{6}$/i.test(hex)) return '#212529';
+        var red = parseInt(hex.slice(0, 2), 16);
+        var green = parseInt(hex.slice(2, 4), 16);
+        var blue = parseInt(hex.slice(4, 6), 16);
+        var brightness = ((red * 299) + (green * 587) + (blue * 114)) / 1000;
+        return brightness >= 150 ? '#212529' : '#ffffff';
+    }
+
+    function colorOptionLabel(color, fallbackLabel) {
+        var entry = paletteEntryByColor(color);
+        return entry ? entry.label : (fallbackLabel || 'Colore personalizzato');
+    }
+
+    function colorOptionHtml(color, label, selected) {
+        return '<option value="' + escapeHtml(color) + '" style="background-color:' + escapeHtml(color) + ';color:' + escapeHtml(colorOptionTextColor(color)) + ';"' + (selected ? ' selected' : '') + '>' + escapeHtml(label) + '</option>';
+    }
+
+    function updateColorSelectAppearance(select) {
+        if (!select) return;
+        var color = select.value || '';
+        if (!/^#[0-9a-f]{6}$/i.test(color)) {
+            select.style.removeProperty('background-color');
+            select.style.removeProperty('color');
+            return;
+        }
+        select.style.backgroundColor = color;
+        select.style.color = colorOptionTextColor(color);
     }
 
     function formatDobWithAge(raw) {
@@ -169,11 +204,11 @@
 
     function colorPaletteOptions(selected, legacyColor) {
         var options = [];
-        if (legacyColor && legacyColor !== selected) {
-            options.push('<option value="' + escapeHtml(legacyColor) + '">Colore attuale (' + escapeHtml(legacyColor) + ')</option>');
+        if (legacyColor) {
+            options.push(colorOptionHtml(legacyColor, colorOptionLabel(legacyColor, 'Colore attuale'), legacyColor === selected));
         }
         return options.join('') + MARKER_COLOR_PALETTE.map(function (item) {
-            return '<option value="' + item.value + '"' + (item.value === selected ? ' selected' : '') + '>' + item.label + ' (' + item.value + ')</option>';
+            return colorOptionHtml(item.value, item.label, item.value === selected);
         }).join('');
     }
 
@@ -318,13 +353,14 @@
 
     function editableColumns(property) {
         var disabled = property.can_edit ? '' : 'disabled';
-        var actions = [
-            '<button type="button" class="btn btn-outline-primary btn-sm open-editor-modal" data-property-id="' + property.id + '" ' + disabled + '><i class="bi bi-pencil-square me-1"></i>Modifica</button>'
-        ];
-        if (property.can_delete) {
-            actions.push('<button type="button" class="btn btn-outline-danger btn-sm delete-property-btn ms-1" data-property-id="' + property.id + '"><i class="bi bi-trash me-1"></i>Elimina</button>');
+        return '<button type="button" class="btn btn-outline-primary btn-sm open-editor-modal" data-property-id="' + property.id + '" ' + disabled + '><i class="bi bi-pencil-square me-1"></i>Modifica</button>';
+    }
+
+    function deleteColumns(property) {
+        if (!property.can_delete) {
+            return '<span class="text-muted small">—</span>';
         }
-        return actions.join('');
+        return '<button type="button" class="btn btn-outline-danger btn-sm delete-property-btn" data-property-id="' + property.id + '"><i class="bi bi-trash me-1"></i>Elimina</button>';
     }
 
     function detailColumn(property) {
@@ -353,6 +389,7 @@
                 assignments: buildAssignmentSummary(property),
                 detail: detailColumn(property),
                 editor: editableColumns(property),
+                deleteAction: deleteColumns(property),
                 raw: property,
             };
         });
@@ -375,6 +412,7 @@
             { title: 'Stato', data: 'stato' },
             { title: 'Dettaglio', data: 'detail' },
             { title: 'Modifica', data: 'editor' },
+            { title: 'Elimina', data: 'deleteAction' },
         ];
         var assignedColumns = [
             { title: 'Colore', data: 'colore' },
@@ -384,6 +422,7 @@
             { title: 'Intestatari', data: 'owners' },
             { title: 'Assegnati a', data: 'assignments' },
             { title: 'Modifica', data: 'editor' },
+            { title: 'Elimina', data: 'deleteAction' },
         ];
         var fullColumns = [
             { title: 'Tenant', data: 'tenant' },
@@ -396,13 +435,15 @@
             { title: 'Intestatari', data: 'owners' },
             { title: 'Assegnazioni', data: 'assignments' },
             { title: 'Modifica', data: 'editor' },
+            { title: 'Elimina', data: 'deleteAction' },
         ];
         var columns = context === 'report' ? reportColumns : (context === 'assigned' ? assignedColumns : fullColumns);
+        var pageLength = (context === 'assigned' || context === 'report') ? 75 : 25;
 
         var theadHtml = '<tr>' + columns.map(function (c) { return '<th>' + c.title + '</th>'; }).join('') + '</tr>';
         var useFooterFilters = context !== 'report';
         var tfootHtml = '<tr>' + columns.map(function (c) {
-            var skip = !useFooterFilters || c.title === 'Modifica' || c.title === 'Dettaglio';
+            var skip = !useFooterFilters || c.title === 'Modifica' || c.title === 'Dettaglio' || c.title === 'Elimina';
             return '<th>' + (skip ? '' : '<input type="text" class="form-control form-control-sm" placeholder="' + escapeHtml(c.title) + '">') + '</th>';
         }).join('') + '</tr>';
 
@@ -413,12 +454,21 @@
         state.tables[selector] = $(selector).DataTable({
             data: rows,
             columns: columns,
-            pageLength: 25,
+            pageLength: pageLength,
+            lengthMenu: context === 'assigned' || context === 'report' ? [25, 50, 75, 100, 150] : [25, 50, 100],
             order: [],
             language: { url: 'https://cdn.datatables.net/plug-ins/1.13.8/i18n/it-IT.json' },
             dom: buttons.length ? 'Bfrtip' : 'frtip',
             buttons: buttons,
-            columnDefs: [{ targets: [0, columns.length - 1], orderable: false }],
+            columnDefs: [{
+                targets: columns.reduce(function (targets, column, index) {
+                    if (['Colore', 'Dettaglio', 'Modifica', 'Elimina'].indexOf(column.title) !== -1) {
+                        targets.push(index);
+                    }
+                    return targets;
+                }, []),
+                orderable: false
+            }],
         });
 
         if (!useFooterFilters) return;
@@ -461,8 +511,11 @@
             var selectedColor = colorSelect.value;
             var colors = [], seen = {};
             state.properties.forEach(function (p) { if (p.colore_marker && !seen[p.colore_marker]) { seen[p.colore_marker] = true; colors.push(p.colore_marker); } });
-            colorSelect.innerHTML = '<option value="">Tutti</option>' + colors.map(function (c) { return '<option value="' + escapeHtml(c) + '">' + escapeHtml(c) + '</option>'; }).join('');
+            colorSelect.innerHTML = '<option value="">Tutti</option>' + colors.map(function (c, index) {
+                return colorOptionHtml(c, colorOptionLabel(c, 'Colore personalizzato ' + (index + 1)), false);
+            }).join('');
             colorSelect.value = (selectedColor && seen[selectedColor]) ? selectedColor : '';
+            updateColorSelectAppearance(colorSelect);
         }
         if (stateSelect) {
             var selectedStato = stateSelect.value;
@@ -1285,6 +1338,7 @@
         colorEl.dataset.autoColor = (!isLegacyColor && selectedColor === defaultColor) ? '1' : '0';
         colorEl.dataset.originalColor = property.colore_marker || defaultColor;
         updateEditorColorPreview(selectedColor);
+        updateColorSelectAppearance(colorEl);
         customStateEl.value = property.stato_personalizzato || '';
         noteEl.value = '';
         saveBtn.dataset.propertyId = String(property.id);
@@ -1466,15 +1520,21 @@
                 ce2.value = defaultColorForState(event.target.value);
                 ce2.dataset.autoColor = '1';
                 updateEditorColorPreview(ce2.value);
+                updateColorSelectAppearance(ce2);
             }
         }
         if (event.target.id === 'editor-color') {
             event.target.dataset.autoColor = '0';
             updateEditorColorPreview(event.target.value);
+            updateColorSelectAppearance(event.target);
         }
         if (event.target.id === 'assigned-subuser-filter') { var sid = event.target.value; api(withTenant(state.propertiesEndpoint + '?mode=assigned' + (sid ? '&subuser_id=' + sid : ''))).then(function (p) { state.assignedProperties = p.properties || []; renderAssignedTable(); }).catch(function (e) { alert(e.message); }); }
         if (event.target.id === 'assigned-assignment-filter') renderAssignedTable();
-        if (event.target.id === 'report-filter-color' || event.target.id === 'report-filter-stato') applyReportFilters();
+        if (event.target.id === 'report-filter-color') {
+            updateColorSelectAppearance(event.target);
+            applyReportFilters();
+        }
+        if (event.target.id === 'report-filter-stato') applyReportFilters();
         if (event.target.id === 'ade-zips')      setAdeUploadButtonState('ade-zips',      'ade-zips-submit',  '<i class="bi bi-cloud-upload me-1"></i>Importa',     '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Importazione\u2026', false);
         if (event.target.id === 'ade-sql-files') setAdeUploadButtonState('ade-sql-files', 'ade-sql-submit',   '<i class="bi bi-cloud-upload me-1"></i>Importa SQL', '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Importazione\u2026', false);
     });

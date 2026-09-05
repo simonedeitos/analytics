@@ -1,0 +1,131 @@
+<?php
+
+declare(strict_types=1);
+
+// Serve the EasyCatasto favicon from this app's origin because some browsers
+// do not reliably show the direct cross-origin <link rel="icon"> reference.
+
+function analyticspro_favicon_fetch(string $url): ?array
+{
+    $context = stream_context_create([
+        'http' => [
+            'timeout' => 4,
+            'follow_location' => 1,
+            'ignore_errors' => true,
+            'user_agent' => 'AnalyticsPRO favicon proxy',
+        ],
+        'ssl' => [
+            'verify_peer' => true,
+            'verify_peer_name' => true,
+        ],
+    ]);
+    $body = @file_get_contents($url, false, $context);
+    if ($body === false || $body === '') {
+        return null;
+    }
+
+    $headers = $http_response_header ?? [];
+    $statusLine = is_array($headers) && isset($headers[0]) ? (string) $headers[0] : '';
+    if ($statusLine !== '' && preg_match('/\s(\d{3})\s/', $statusLine, $matches)) {
+        $statusCode = (int) $matches[1];
+        if ($statusCode >= 400) {
+            return null;
+        }
+    }
+
+    $contentType = 'image/x-icon';
+    foreach ($headers as $header) {
+        if (stripos((string) $header, 'Content-Type:') === 0) {
+            $contentType = trim((string) substr((string) $header, 13));
+            break;
+        }
+    }
+
+    return [
+        'body' => $body,
+        'content_type' => $contentType,
+    ];
+}
+
+function analyticspro_favicon_absolute_url(string $baseUrl, string $href): string
+{
+    $href = trim($href);
+    if ($href === '') {
+        return '';
+    }
+    if (preg_match('~^https?://~i', $href)) {
+        return $href;
+    }
+    if (strpos($href, '//') === 0) {
+        $scheme = parse_url($baseUrl, PHP_URL_SCHEME) ?: 'https';
+        return $scheme . ':' . $href;
+    }
+
+    $parts = parse_url($baseUrl);
+    if (!is_array($parts) || empty($parts['scheme']) || empty($parts['host'])) {
+        return $href;
+    }
+    $origin = $parts['scheme'] . '://' . $parts['host'] . (!empty($parts['port']) ? ':' . $parts['port'] : '');
+    if (strpos($href, '/') === 0) {
+        return $origin . $href;
+    }
+
+    $path = $parts['path'] ?? '/';
+    $dir = rtrim(str_replace('\\', '/', dirname($path)), '/');
+    return $origin . ($dir !== '' ? $dir : '') . '/' . ltrim($href, '/');
+}
+
+function analyticspro_favicon_from_homepage(string $homepageUrl): ?string
+{
+    $homepage = analyticspro_favicon_fetch($homepageUrl);
+    if ($homepage === null) {
+        return null;
+    }
+
+    if (!preg_match_all('/<link\b[^>]*>/i', $homepage['body'], $matches)) {
+        return null;
+    }
+
+    foreach ($matches[0] as $tag) {
+        if (!preg_match('/\brel=["\']?([^"\'>]+)["\']?/i', $tag, $relMatch) || !preg_match('/\bhref=["\']?([^"\'>]+)["\']?/i', $tag, $hrefMatch)) {
+            continue;
+        }
+        $rel = strtolower(trim((string) ($relMatch[1] ?? '')));
+        if (strpos($rel, 'icon') === false) {
+            continue;
+        }
+        $candidate = analyticspro_favicon_absolute_url($homepageUrl, (string) ($hrefMatch[1] ?? ''));
+        if ($candidate !== '') {
+            return $candidate;
+        }
+    }
+
+    return null;
+}
+
+$homepageUrl = 'https://app.easycatasto.it/';
+$candidates = array_values(array_unique(array_filter([
+    analyticspro_favicon_from_homepage($homepageUrl),
+    'https://app.easycatasto.it/favicon.ico',
+])));
+
+foreach ($candidates as $candidateUrl) {
+    $icon = analyticspro_favicon_fetch($candidateUrl);
+    if ($icon === null) {
+        continue;
+    }
+    header('Content-Type: ' . $icon['content_type']);
+    header('Cache-Control: public, max-age=86400');
+    echo $icon['body'];
+    exit;
+}
+
+header('Content-Type: image/svg+xml; charset=utf-8');
+header('Cache-Control: public, max-age=3600');
+echo <<<SVG
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="EasyCatasto">
+  <rect width="64" height="64" rx="12" fill="#2A519F"/>
+  <path d="M18 45V26l14-9 14 9v19h-8V31H26v14z" fill="#ffffff"/>
+  <path d="M32 17l18 11v5h-4v10h-6V29H24v14h-6V33h-4v-5z" fill="#f28e0e"/>
+</svg>
+SVG;

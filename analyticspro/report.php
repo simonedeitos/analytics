@@ -69,7 +69,7 @@ analyticspro_render_header('Report in griglia', ['app_assets' => true]);
                     </div>
                 </div>
             </div>
-            <table id="report-table" class="table table-sm table-striped table-hover w-100">
+            <table id="report-table" class="table table-sm table-striped table-hover w-100 ap-compact-table">
                 <thead></thead>
                 <tfoot></tfoot>
                 <tbody></tbody>
