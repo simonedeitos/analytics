@@ -149,10 +149,12 @@ function analyticspro_favicon_write_cache(array $icon): void
 function analyticspro_favicon_output(array $icon, int $maxAge): never
 {
     $contentType = analyticspro_favicon_safe_content_type((string) ($icon['content_type'] ?? '')) ?: 'image/x-icon';
+    $body = (string) ($icon['body'] ?? '');
     header('Content-Type: ' . $contentType);
     header('Cache-Control: public, max-age=' . $maxAge);
+    header('Content-Length: ' . strlen($body));
     header('Vary: Accept');
-    echo $icon['body'];
+    echo $body;
     exit;
 }
 
@@ -237,13 +239,13 @@ if ($staleIcon = analyticspro_favicon_read_cache()) {
     analyticspro_favicon_output($staleIcon, 3600);
 }
 
-header('Content-Type: image/svg+xml; charset=utf-8');
-header('Cache-Control: public, max-age=3600');
-header('Vary: Accept');
-echo <<<SVG
+analyticspro_favicon_output([
+    'content_type' => 'image/svg+xml; charset=utf-8',
+    'body' => <<<SVG
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="EasyCatasto">
   <rect width="64" height="64" rx="12" fill="#2A519F"/>
   <path d="M18 45V26l14-9 14 9v19h-8V31H26v14z" fill="#ffffff"/>
   <path d="M32 17l18 11v5h-4v10h-6V29H24v14h-6V33h-4v-5z" fill="#f28e0e"/>
 </svg>
-SVG;
+SVG
+], 3600);
