@@ -17,7 +17,7 @@ try {
     analyticspro_verify_csrf($input['csrf_token'] ?? null);
     $mode = $input['mode'] ?? 'analyze';
     $rows = $input['rows'] ?? [];
-    if (!is_array($rows) || $rows === []) {
+    if ($mode !== 'manual_create' && (!is_array($rows) || $rows === [])) {
         throw new RuntimeException('Nessuna riga da importare.');
     }
 
@@ -32,8 +32,16 @@ try {
         analyticspro_json(['ok' => true, 'conflicts' => $conflicts]);
     }
 
-    if ($mode === 'process') {
-        $filename = trim((string) ($input['filename'] ?? 'import.csv'));
+    if ($mode === 'process' || $mode === 'manual_create') {
+        if ($mode === 'manual_create') {
+            $manualRow = is_array($input['row'] ?? null) ? $input['row'] : [];
+            if ($manualRow === []) {
+                throw new RuntimeException('Record manuale non valido.');
+            }
+            $rows = [$manualRow];
+        }
+
+        $filename = trim((string) ($input['filename'] ?? ($mode === 'manual_create' ? 'inserimento_manuale' : 'import.csv')));
         $decisions = is_array($input['decisions'] ?? null) ? $input['decisions'] : [];
         $pdo = analyticspro_db();
         $stmt = $pdo->prepare("INSERT INTO import_batches (user_id, uploaded_by, filename, total_rows, processed_rows, status) VALUES (:user_id, :uploaded_by, :filename, :total_rows, 0, 'processing')");
@@ -48,6 +56,7 @@ try {
         $payload = [
             'tenant_id' => $tenantId,
             'uploaded_by' => $user['id'],
+            'uploaded_by_name' => analyticspro_full_name($user),
             'rows' => $rows,
             'decisions' => $decisions,
         ];
@@ -61,7 +70,7 @@ try {
         // outcome (success or failure) is immediate and certain.  A background worker is
         // no longer needed for this phase.
         try {
-            analyticspro_process_import_batch_payload($batchId, $payload);
+            $processSummary = analyticspro_process_import_batch_payload($batchId, $payload);
         } catch (Throwable $e) {
             analyticspro_json(['ok' => false, 'error' => $e->getMessage()], 500);
         }
@@ -78,8 +87,12 @@ try {
         analyticspro_json([
             'ok' => true,
             'batch_id' => $batchId,
-            'saved_rows' => (int) ($enrichment['saved_rows'] ?? 0),
+            'saved_rows' => (int) ($processSummary['saved_rows'] ?? 0),
             'total_rows' => count($rows),
+            'processed_rows' => (int) ($processSummary['processed_rows'] ?? count($rows)),
+            'skipped_rows' => (int) ($processSummary['skipped_rows'] ?? 0),
+            'skipped_reasons' => $processSummary['skipped_reasons'] ?? [],
+            'notes_imported' => (int) ($processSummary['notes_imported'] ?? 0),
             'geolocated_parcels' => (int) ($enrichment['geolocated'] ?? 0),
             'processed_parcels' => (int) ($enrichment['processed_unique'] ?? 0),
             'total_unique_parcels' => (int) ($enrichment['total_unique'] ?? 0),

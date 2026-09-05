@@ -29,7 +29,8 @@ analyticspro_render_header('Mappa', ['app_assets' => true]);
      data-can-export="<?= !analyticspro_is_subuser() || !empty($subuserPermissions['can_export']) ? '1' : '0' ?>"
      data-can-edit-all-markers="<?= !analyticspro_is_subuser() || !empty($subuserPermissions['can_edit_all_markers']) ? '1' : '0' ?>"
      data-properties-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/properties.php')) ?>"
-     data-property-update-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/update_property.php')) ?>">
+     data-property-update-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/update_property.php')) ?>"
+     data-property-delete-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/delete_property.php')) ?>">
 
     <div class="d-flex justify-content-between align-items-center mb-3 gap-3 flex-wrap">
         <div>
@@ -93,6 +94,7 @@ analyticspro_render_header('Mappa', ['app_assets' => true]);
 <button id="btn-select-all-stati" class="btn btn-xs btn-outline-secondary" style="font-size:0.7rem;padding:0.1rem 0.4rem;margin-left:2rem;">Seleziona tutti</button>
 <button id="btn-apply-filter" class="btn btn-xs btn-primary" style="font-size:0.7rem;padding:0.1rem 0.4rem;">Applica</button>
             </div>
+            <div id="map-category-filter-panel" class="d-flex flex-wrap align-items-center gap-1 mt-2 small"></div>
         </div>
     </div>
 

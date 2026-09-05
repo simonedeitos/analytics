@@ -146,14 +146,33 @@ function analyticspro_state_options(): array
 function analyticspro_state_colors(): array
 {
     return [
-        'non_interessato' => '#6c757d',
+        'non_interessato' => '#dc3545',
         'interessato' => '#198754',
         'contattato' => '#0dcaf0',
         'da_contattare' => '#0d6efd',
         'in_vendita_noi' => '#fd7e14',
-        'in_vendita_altri' => '#dc3545',
+        'in_vendita_altri' => '#ffc107',
         'altro' => '#6f42c1',
     ];
+}
+
+function analyticspro_marker_color_palette(): array
+{
+    return [
+        'Rosso' => '#dc3545',
+        'Arancio' => '#fd7e14',
+        'Giallo' => '#ffc107',
+        'Verde' => '#198754',
+        'Azzurro' => '#0dcaf0',
+        'Blu' => '#0d6efd',
+        'Fucsia' => '#d63384',
+        'Viola' => '#6f42c1',
+    ];
+}
+
+function analyticspro_allowed_marker_colors(): array
+{
+    return array_values(analyticspro_marker_color_palette());
 }
 
 function analyticspro_default_color_for_state(string $state): string

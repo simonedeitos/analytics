@@ -16,6 +16,17 @@
         altro: 'Altro',
     };
 
+    const MARKER_COLOR_PALETTE = [
+        { label: 'Rosso', value: '#dc3545' },
+        { label: 'Arancio', value: '#fd7e14' },
+        { label: 'Giallo', value: '#ffc107' },
+        { label: 'Verde', value: '#198754' },
+        { label: 'Azzurro', value: '#0dcaf0' },
+        { label: 'Blu', value: '#0d6efd' },
+        { label: 'Fucsia', value: '#d63384' },
+        { label: 'Viola', value: '#6f42c1' }
+    ];
+
     var state = {
         csrfToken: document.querySelector('meta[name="csrf-token"]') ? document.querySelector('meta[name="csrf-token"]').content : '',
         role: root.dataset.role,
@@ -33,6 +44,7 @@
         enrichChunkEndpoint: root.dataset.enrichChunkEndpoint || '',
         adeJobsEndpoint: root.dataset.adeJobsEndpoint || '',
         adeManualFilesEndpoint: root.dataset.adeManualFilesEndpoint || '',
+        propertyDeleteEndpoint: root.dataset.propertyDeleteEndpoint || '',
         properties: [],
         subusers: [],
         map: null,
@@ -42,15 +54,22 @@
         tables: {},
         overlay: importOverlayEl ? new bootstrap.Modal(importOverlayEl) : null,
         mapStatiFilter: null,
+        mapCategoriaFilter: null,
+        currentImportStats: null,
     };
 
     state.mapStatiFilter = Object.keys(STATE_OPTIONS).slice();
+    state.mapCategoriaFilter = null;
 
     function getStatiFilter() {
         if (state.mapStatiFilter && Array.isArray(state.mapStatiFilter) && state.mapStatiFilter.length > 0) {
             return state.mapStatiFilter;
         }
         return Object.keys(STATE_OPTIONS).slice();
+    }
+
+    function getCategorieFilter() {
+        return Array.isArray(state.mapCategoriaFilter) ? state.mapCategoriaFilter : null;
     }
 
     function escapeHtml(value) {
@@ -87,15 +106,95 @@
 
     function defaultColorForState(stateKey) {
         var map = {
-            non_interessato: '#6c757d',
+            non_interessato: '#dc3545',
             interessato: '#198754',
             contattato: '#0dcaf0',
             da_contattare: '#0d6efd',
             in_vendita_noi: '#fd7e14',
-            in_vendita_altri: '#dc3545',
+            in_vendita_altri: '#ffc107',
             altro: '#6f42c1',
         };
         return map[stateKey] || '#0d6efd';
+    }
+
+    function clampPercent(value) {
+        return Math.min(100, Math.max(0, Number(value) || 0));
+    }
+
+    function formatDobWithAge(raw) {
+        var dob = parseDob(raw);
+        if (!dob || Number.isNaN(dob.getTime())) return raw || '';
+        var gg = String(dob.getDate()).padStart(2, '0');
+        var mm = String(dob.getMonth() + 1).padStart(2, '0');
+        var yyyy = dob.getFullYear();
+        var age = calcAge(raw);
+        return gg + '-' + mm + '-' + yyyy + (age !== null ? ' (' + age + ' anni)' : '');
+    }
+
+    function splitPhoneNumbers(raw) {
+        if (!raw) return [];
+        var chunks = String(raw).split(/[;,]/).map(function (item) { return item.trim(); }).filter(Boolean);
+        return chunks.filter(function (item, index) { return chunks.indexOf(item) === index; });
+    }
+
+    function buildPhoneChips(raw) {
+        var phones = splitPhoneNumbers(raw);
+        if (!phones.length) return '';
+        return '<div class="d-flex flex-wrap gap-1 mt-1">' + phones.map(function (phone) {
+            return '<button type="button" class="btn btn-outline-primary btn-sm copy-phone-btn" data-phone="' + escapeHtml(phone) + '" data-default-label="' + escapeHtml(phone) + '">' + escapeHtml(phone) + '</button>';
+        }).join('') + '</div>';
+    }
+
+    function copyTextToClipboard(text) {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            return navigator.clipboard.writeText(text);
+        }
+        return new Promise(function (resolve, reject) {
+            try {
+                var input = document.createElement('textarea');
+                input.value = text;
+                input.setAttribute('readonly', 'readonly');
+                input.style.position = 'fixed';
+                input.style.opacity = '0';
+                document.body.appendChild(input);
+                input.select();
+                document.execCommand('copy');
+                document.body.removeChild(input);
+                resolve();
+            } catch (error) {
+                reject(error);
+            }
+        });
+    }
+
+    function colorPaletteOptions(selected, legacyColor) {
+        var options = [];
+        if (legacyColor && legacyColor !== selected) {
+            options.push('<option value="' + escapeHtml(legacyColor) + '">Colore attuale (' + escapeHtml(legacyColor) + ')</option>');
+        }
+        return options.join('') + MARKER_COLOR_PALETTE.map(function (item) {
+            return '<option value="' + item.value + '"' + (item.value === selected ? ' selected' : '') + '>' + item.label + ' (' + item.value + ')</option>';
+        }).join('');
+    }
+
+    function updateEditorColorPreview(color) {
+        var preview = document.getElementById('editor-color-preview');
+        if (!preview) return;
+        preview.style.backgroundColor = color || '#0d6efd';
+        preview.setAttribute('aria-label', 'Colore selezionato ' + (color || '#0d6efd'));
+    }
+
+    function propertyHeaderFacts(property) {
+        return [
+            { label: 'Classe', value: property.classe || '—' },
+            { label: 'Rendita', value: property.rendita || '—' },
+            { label: 'Piano', value: property.piano || '—' },
+            { label: 'Consistenza', value: property.consistenza || '—' }
+        ];
+    }
+
+    function importProgressLabel(saved, total) {
+        return 'Caricato ' + saved + ' su ' + total + ' righe';
     }
 
     async function api(url, options) {
@@ -143,6 +242,7 @@
         if (state.canViewReports || state.role !== 'subuser') renderReportTable();
         if (state.canViewAnalytics || state.role !== 'subuser') renderCharts();
         populateAssignedSubuserFilter();
+        refreshMapCategoryFilters();
     }
 
     function updateKpis() {
@@ -176,10 +276,18 @@
     }
 
     function buildOwnerSummary(property) {
-        var names = (property.owners || []).map(function (owner) {
+        return (property.owners || []).map(function (owner) {
             return ((owner.cognome || '') + ' ' + (owner.nome || '')).trim() || 'Intestatario';
         });
-        return escapeHtml(names.join(', '));
+    }
+
+    function buildOwnersTableHtml(property) {
+        var owners = property.owners || [];
+        if (!owners.length) return '<span class="text-muted small">Nessun intestatario</span>';
+        return owners.map(function (owner) {
+            var fullName = ((owner.cognome || '') + ' ' + (owner.nome || '')).trim() || 'Intestatario';
+            return '<div class="mb-1"><div>' + escapeHtml(fullName) + '</div>' + (state.canViewPhone ? buildPhoneChips(owner.telefono) : '') + '</div>';
+        }).join('');
     }
 
     function assignmentNames(property) {
@@ -210,7 +318,13 @@
 
     function editableColumns(property) {
         var disabled = property.can_edit ? '' : 'disabled';
-        return '<button type="button" class="btn btn-outline-primary btn-sm open-editor-modal" data-property-id="' + property.id + '" ' + disabled + '><i class="bi bi-pencil-square me-1"></i>Modifica</button>';
+        var actions = [
+            '<button type="button" class="btn btn-outline-primary btn-sm open-editor-modal" data-property-id="' + property.id + '" ' + disabled + '><i class="bi bi-pencil-square me-1"></i>Modifica</button>'
+        ];
+        if (property.can_delete) {
+            actions.push('<button type="button" class="btn btn-outline-danger btn-sm delete-property-btn ms-1" data-property-id="' + property.id + '"><i class="bi bi-trash me-1"></i>Elimina</button>');
+        }
+        return actions.join('');
     }
 
     function detailColumn(property) {
@@ -234,7 +348,7 @@
                 unita: unitLabel(property),
                 stato: STATE_OPTIONS[property.stato !== null && property.stato !== undefined ? property.stato : ''] || (property.stato || ''),
                 colore: '<span class="color-dot" style="background:' + escapeHtml(property.colore_marker || '#0d6efd') + '"></span>',
-                owners: buildOwnerSummary(property),
+                owners: buildOwnersTableHtml(property),
                 assignmentsText: escapeHtml(assignmentNamesLabel(property)),
                 assignments: buildAssignmentSummary(property),
                 detail: detailColumn(property),
@@ -456,6 +570,37 @@
         return result;
     }
 
+    function refreshMapCategoryFilters() {
+        var container = document.getElementById('map-category-filter-panel');
+        if (!container) return;
+        var categories = state.properties.map(function (property) { return (property.categoria || '').trim(); }).filter(Boolean);
+        categories = categories.filter(function (value, index) { return categories.indexOf(value) === index; }).sort();
+        if (!categories.length) {
+            state.mapCategoriaFilter = [];
+            container.innerHTML = '';
+            return;
+        }
+
+        var active = getCategorieFilter();
+        if (active === null) {
+            active = categories.slice();
+            state.mapCategoriaFilter = active.slice();
+        } else {
+            active = active.filter(function (value) { return categories.indexOf(value) !== -1; });
+            state.mapCategoriaFilter = active.slice();
+        }
+
+        container.innerHTML = '<strong class="me-1">Categoria:</strong>'
+            + categories.map(function (category, index) {
+                var safeId = 'filter-categoria-' + index;
+                return '<div class="form-check form-check-inline me-0">'
+                    + '<input class="form-check-input map-categoria-filter" type="checkbox" value="' + escapeHtml(category) + '" id="' + safeId + '"' + (active.indexOf(category) !== -1 ? ' checked' : '') + ' style="width:0.75rem;height:0.75rem;">'
+                    + '<label class="form-check-label" for="' + safeId + '">' + escapeHtml(category) + '</label>'
+                    + '</div>';
+            }).join('')
+            + '<button id="btn-select-all-categorie" class="btn btn-xs btn-outline-secondary" style="font-size:0.7rem;padding:0.1rem 0.4rem;margin-left:1rem;">Seleziona tutte</button>';
+    }
+
     function renderMap() {
         var container = document.getElementById('map-fullpage') || document.getElementById('map-container');
         if (!container) return;
@@ -526,6 +671,7 @@
         }
 
         var statiFilter = getStatiFilter();
+        var categorieFilter = getCategorieFilter();
         state.markers.clearLayers();
         var points = [];
 
@@ -541,6 +687,7 @@
 
             var statoVal = (property.stato !== null && property.stato !== undefined) ? String(property.stato) : '';
             if (statiFilter.indexOf(statoVal) === -1) continue;
+            if (categorieFilter !== null && categorieFilter.indexOf(String(property.categoria || '').trim()) === -1) continue;
 
             var color  = property.colore_marker || '#2A519F';
             var marker = L.circleMarker([lat, lng], {
@@ -573,15 +720,15 @@
             if (owner.email)          identityParts.push('\u2709 ' + owner.email);
             if (owner.indirizzo)      identityParts.push('\uD83D\uDCCD ' + owner.indirizzo);
             var profileParts = [];
-            if (owner.data_nascita)                      profileParts.push('Nato il: ' + owner.data_nascita);
-            if (owner.genere)                            profileParts.push('Genere: ' + owner.genere);
-            if (state.canViewPhone && owner.telefono)    profileParts.push('\u260E ' + owner.telefono);
+            if (owner.data_nascita)                   profileParts.push('Nato il: ' + formatDobWithAge(owner.data_nascita));
+            if (owner.genere)                         profileParts.push('Genere: ' + owner.genere);
             var quota      = property.quota      ? ' (' + escapeHtml(property.quota)      + ')' : '';
             var titolarita = property.titolarita ? ' \u2013 ' + escapeHtml(property.titolarita) : '';
             return '<div class="property-owner-row">'
                 + '<div class="fw-semibold">' + escapeHtml(fullName) + quota + titolarita + '</div>'
                 + (identityParts.length ? '<div class="owner-meta">' + escapeHtml(identityParts.join(' | ')) + '</div>' : '')
                 + (profileParts.length  ? '<div class="owner-meta">' + escapeHtml(profileParts.join(' | '))  + '</div>' : '')
+                + (state.canViewPhone && owner.telefono ? buildPhoneChips(owner.telefono) : '')
                 + '</div>';
         }).join('');
     }
@@ -604,14 +751,12 @@
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Card HTML professionale del popup — ora con owners nel titolo
+    // Card HTML professionale del popup — header con dati immobile
     // ─────────────────────────────────────────────────────────────────────────
     function buildPropertyCardHtml(property, options) {
         options = options || {};
         var mapMode      = options.mapMode === true;
         var addressLabel = ((property.indirizzo || '') + ' ' + (property.civico || '')).trim() || 'Immobile';
-        var ownersShort  = ownerNamesShort(property);
-
         var aNames         = assignmentNames(property);
         var assignmentText = aNames.length ? escapeHtml(aNames.join(', ')) : '<span class="text-muted">Non assegnato</span>';
         var assignmentBtn  = (state.role !== 'subuser' && state.subusers.length)
@@ -620,6 +765,9 @@
         var editAction = property.can_edit
             ? '<button type="button" class="btn btn-outline-primary btn-sm open-editor-modal" data-property-id="' + property.id + '"><i class="bi bi-pencil-square me-1"></i>Modifica</button>'
             : '<div class="small text-warning-emphasis">\u26A0\uFE0F Non hai i permessi per modificare questo marker.</div>';
+        var deleteAction = property.can_delete
+            ? '<button type="button" class="btn btn-outline-danger btn-sm delete-property-btn" data-property-id="' + property.id + '"><i class="bi bi-trash me-1"></i>Elimina</button>'
+            : '';
         var closeAction = mapMode
             ? '<button type="button" class="btn btn-outline-secondary btn-sm close-map-popup"><i class="bi bi-x-lg me-1"></i>Chiudi</button>'
             : '<button type="button" class="btn btn-outline-secondary btn-sm close-detail-modal"><i class="bi bi-x-lg me-1"></i>Chiudi</button>';
@@ -627,12 +775,16 @@
         var statoBadge = statoLabel
             ? '<span class="badge ms-1" style="background:' + escapeHtml(property.colore_marker || '#0d6efd') + ';color:#fff;font-size:.65rem;">' + escapeHtml(statoLabel) + '</span>'
             : '';
+        var headerFacts = propertyHeaderFacts(property).map(function (item) {
+            return '<span class="me-3"><strong>' + escapeHtml(item.label) + ':</strong> ' + escapeHtml(item.value) + '</span>';
+        }).join('');
 
         return '<div class="card map-popup-card mb-2" data-property-id="' + property.id + '">'
-            // ── HEADER: indirizzo + unità + nomi proprietari ──────────────
             + '<div class="card-header py-2 px-3">'
             + '<div class="fw-semibold">\uD83C\uDFE0 ' + escapeHtml(addressLabel) + ' \u2013 ' + escapeHtml(unitLabel(property)) + '</div>'
-            + (ownersShort ? '<div class="popup-owners-summary mt-1">' + escapeHtml(ownersShort) + '</div>' : '')
+            + '<div class="small mt-1">'
+            + headerFacts
+            + '</div>'
             + '<div class="small mt-1">'
             + '<span class="color-dot me-1" style="background:' + escapeHtml(property.colore_marker || '#0d6efd') + '"></span>'
             + escapeHtml(property.comune || '')
@@ -654,7 +806,7 @@
             + '</div>'
             // ── FOOTER ────────────────────────────────────────────────────
             + '<div class="card-footer py-2 px-3 d-flex align-items-center justify-content-between gap-2 flex-wrap">'
-            + editAction + closeAction
+            + '<div class="d-flex align-items-center gap-2 flex-wrap">' + editAction + deleteAction + '</div>' + closeAction
             + '</div>'
             + '</div>';
     }
@@ -749,6 +901,111 @@
         await loadProperties();
     }
 
+    async function deleteProperty(propertyId) {
+        if (!state.propertyDeleteEndpoint) throw new Error('Endpoint eliminazione non configurato.');
+        await api(state.propertyDeleteEndpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ csrf_token: state.csrfToken, property_id: propertyId })
+        });
+        await loadProperties();
+    }
+
+    function manualRecordFormData() {
+        var form = document.getElementById('manual-record-form');
+        if (!form) return {};
+        var data = {};
+        Array.from(form.elements).forEach(function (field) {
+            if (!field.name) return;
+            data[field.name] = String(field.value || '').trim();
+        });
+        return data;
+    }
+
+    function manualRecordFormHasValues() {
+        var data = manualRecordFormData();
+        return Object.keys(data).some(function (key) { return data[key] !== ''; });
+    }
+
+    function resetManualRecordForm() {
+        var form = document.getElementById('manual-record-form');
+        var feedback = document.getElementById('manual-record-feedback');
+        if (form) form.reset();
+        if (feedback) {
+            feedback.className = 'alert d-none py-2';
+            feedback.textContent = '';
+        }
+    }
+
+    function initManualRecordModal() {
+        var modalEl = document.getElementById('manual-record-modal');
+        var openBtn = document.getElementById('open-manual-record-modal');
+        var saveBtn = document.getElementById('save-manual-record-btn');
+        if (!modalEl || !openBtn || !saveBtn) return;
+        var modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+        var allowClose = false;
+        openBtn.addEventListener('click', function () {
+            allowClose = false;
+            modal.show();
+        });
+        modalEl.addEventListener('hide.bs.modal', function (event) {
+            if (allowClose || !manualRecordFormHasValues()) return;
+            if (!window.confirm('Ci sono dati non salvati. Vuoi davvero chiudere il modulo?')) {
+                event.preventDefault();
+                return;
+            }
+            allowClose = true;
+        });
+        modalEl.addEventListener('hidden.bs.modal', function () {
+            if (allowClose) {
+                resetManualRecordForm();
+                allowClose = false;
+            }
+        });
+        saveBtn.addEventListener('click', async function () {
+            var feedback = document.getElementById('manual-record-feedback');
+            var row = manualRecordFormData();
+            if (!Object.keys(row).some(function (key) { return row[key] !== ''; })) {
+                if (feedback) {
+                    feedback.className = 'alert alert-warning py-2';
+                    feedback.textContent = 'Compila almeno un campo prima di salvare.';
+                }
+                return;
+            }
+            saveBtn.disabled = true;
+            if (feedback) {
+                feedback.className = 'alert d-none py-2';
+                feedback.textContent = '';
+            }
+            try {
+                var response = await api(state.importEndpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        csrf_token: state.csrfToken,
+                        mode: 'manual_create',
+                        filename: 'inserimento_manuale',
+                        row: row
+                    })
+                });
+                if (!Number(response.saved_rows || 0)) {
+                    throw new Error('Il record non è stato salvato: verifica i campi catastali minimi obbligatori.');
+                }
+                allowClose = true;
+                modal.hide();
+                await loadProperties();
+                window.alert('Record salvato correttamente.');
+            } catch (error) {
+                if (feedback) {
+                    feedback.className = 'alert alert-danger py-2';
+                    feedback.textContent = error.message;
+                }
+            } finally {
+                saveBtn.disabled = false;
+            }
+        });
+    }
+
     async function saveProperty(button) {
         var wrapper    = button.closest('[data-property-id]') || button.closest('tr');
         var propertyId = Number(button.dataset.propertyId || (wrapper && wrapper.dataset.propertyId) || 0);
@@ -786,7 +1043,17 @@
             var sheet = workbook.Sheets[workbook.SheetNames[0]];
             var rows  = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', blankrows: false, raw: false });
             if (!rows.length) continue;
-            var headers = rows[0].map(function (v) { return String(v).trim(); });
+            var headerCounts = {};
+            var headers = rows[0].map(function (v, index) {
+                var header = String(v || '').trim();
+                if (!header) header = 'ColonnaVuota ' + (index + 1);
+                if (headerCounts[header]) {
+                    headerCounts[header]++;
+                    return header + ' DUP ' + headerCounts[header];
+                }
+                headerCounts[header] = 1;
+                return header;
+            });
             for (var ri = 1; ri < rows.length; ri++) {
                 var current    = rows[ri];
                 var rowPayload = {};
@@ -810,6 +1077,7 @@
         if (text)   text.textContent   = 'Preparazione import...';
         if (log)    log.textContent    = '';
         if (reportEl) { reportEl.className = 'small d-none'; reportEl.innerHTML = ''; }
+        state.currentImportStats = null;
     }
 
     function importLog(level, message) {
@@ -825,7 +1093,7 @@
         var bar   = document.getElementById('import-progress-bar');
         var text  = document.getElementById('import-progress-text');
         if (phase) phase.textContent = phaseLabel;
-        if (bar && Number.isFinite(percent)) bar.style.width = Math.max(0, Math.min(100, Number(percent))) + '%';
+        if (bar && Number.isFinite(percent)) bar.style.width = clampPercent(percent) + '%';
         if (text && statusText) text.textContent = statusText;
     }
 
@@ -834,27 +1102,45 @@
         importLog('info', 'Fase Lettura file avviata');
         var rows = await parseFiles(files);
         if (!rows.length) { setImportPhase('Completato', 100, 'Nessuna riga valida trovata'); importLog('warning', 'Nessuna riga valida trovata.'); return; }
-        setImportPhase('Lettura file', 10, 'Righe lette: ' + rows.length);
+        setImportPhase('Lettura file', 10, importProgressLabel(0, rows.length) + ' · Righe lette: ' + rows.length);
         importLog('info', 'Righe lette: ' + rows.length);
-        setImportPhase('Analisi duplicati', 20, 'Analisi duplicati in corso...');
+        setImportPhase('Analisi duplicati', 20, importProgressLabel(0, rows.length) + ' · Analisi duplicati in corso...');
         var analysis = await api(state.importEndpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ csrf_token: state.csrfToken, mode: 'analyze', rows: rows }) });
         importLog('info', 'Duplicati rilevati: ' + (analysis.conflicts || []).length);
         var decisions = {};
         for (var ci = 0; ci < (analysis.conflicts || []).length; ci++) {
             var conflict = analysis.conflicts[ci];
-            var confirmUpdate = window.confirm('Duplicato per ' + conflict.comune + ' F.' + conflict.foglio + ' P.' + conflict.particella + (conflict.subalterno ? '/' + conflict.subalterno : '') + '.\nNuovo intestatario: ' + (conflict.new_owner || 'N/D') + '.\nSostituire?');
+            var confirmUpdate = window.confirm('Duplicato per ' + conflict.comune + ' F.' + conflict.foglio + ' P.' + conflict.particella + (conflict.subalterno ? '/' + conflict.subalterno : '') + '.\nNuovo intestatario: ' + (conflict.incoming_owner || conflict.new_owner || 'N/D') + '.\nSostituire?');
             decisions[conflict.row_index] = confirmUpdate ? 'updated' : 'kept_old';
         }
-        setImportPhase('Salvataggio dati', 45, 'Salvataggio dati in corso...');
+        setImportPhase('Salvataggio dati', 45, importProgressLabel(0, rows.length) + ' · Salvataggio dati in corso...');
         importLog('info', 'Fase Salvataggio dati avviata');
         var processPayload = await api(state.importEndpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ csrf_token: state.csrfToken, mode: 'process', filename: Array.from(files).map(function(f){return f.name;}).join(', '), decisions: decisions, rows: rows }) });
-        setImportPhase('Geolocalizzazione', 80, 'Geolocalizzazione particelle in corso...');
+        state.currentImportStats = {
+            savedRows: Number(processPayload.saved_rows || 0),
+            totalRows: Number(processPayload.total_rows || rows.length)
+        };
+        setImportPhase('Geolocalizzazione', 80, importProgressLabel(state.currentImportStats.savedRows, state.currentImportStats.totalRows) + ' · Geolocalizzazione particelle in corso...');
         importLog('info', 'Righe salvate: ' + (processPayload.saved_rows !== undefined ? processPayload.saved_rows : rows.length));
+        if (processPayload.skipped_rows) {
+            importLog('warning', 'Righe saltate: ' + processPayload.skipped_rows);
+        }
+        Object.keys(processPayload.skipped_reasons || {}).forEach(function (reasonKey) {
+            var reasonCount = Number(processPayload.skipped_reasons[reasonKey] || 0);
+            if (!reasonCount) return;
+            var reasonLabel = reasonKey === 'missing_cadastral_fields'
+                ? 'mancano i campi catastali minimi'
+                : reasonKey;
+            importLog('warning', reasonCount + ' righe saltate: ' + reasonLabel);
+        });
+        if (processPayload.notes_imported) {
+            importLog('info', 'Note importate: ' + processPayload.notes_imported);
+        }
         importLog('info', 'Particelle geolocalizzate: ' + (processPayload.geolocated_parcels || 0));
         await loadProperties();
         renderEnrichmentReport({ coord_source: processPayload.coord_source || {}, failure_codes: processPayload.failure_codes || {}, unresolved_rows: processPayload.unresolved_rows || [], truncated: !!processPayload.unresolved_truncated });
         if (processPayload.batch_id) {
-            if (processPayload.enrichment_done) { setImportPhase('Completato', 100, 'Completato: ' + (processPayload.saved_rows || rows.length) + ' righe'); importLog('info', 'Geolocalizzazione completata.'); }
+            if (processPayload.enrichment_done) { setImportPhase('Completato', 100, importProgressLabel(state.currentImportStats.savedRows, state.currentImportStats.totalRows) + ' · Completato'); importLog('info', 'Geolocalizzazione completata.'); }
             else { importLog('warning', 'Particelle residue: ' + (processPayload.remaining_unique_parcels || 0)); await enrichChunkLoop(processPayload.batch_id); }
         }
     }
@@ -873,10 +1159,13 @@
             try { var p2 = await api(state.importProgressEndpoint + '?batch_id=' + batchId); batch = p2.batch; } catch(e) { await new Promise(function(r){setTimeout(r,3000);}); continue; }
             var status = batch.enrichment_status || null, processed = batch.enrichment_processed || 0, total = batch.enrichment_total || 0;
             var pct = total > 0 ? Math.round(processed / total * 100) : 0;
+            var progressPrefix = state.currentImportStats
+                ? importProgressLabel(state.currentImportStats.savedRows, state.currentImportStats.totalRows) + ' · '
+                : '';
             renderEnrichmentReport(batch.enrichment_report);
-            if (bar) bar.style.width = Math.max(80, pct) + '%';
-            if (text) text.textContent = 'Geolocalizzazione: ' + processed + '/' + total + ' (' + pct + '%)';
-            if (status === 'completed') { if (text) text.textContent = 'Completata.'; if (bar) bar.style.width = '100%'; setImportPhase('Completato', 100, 'Completato'); try { await loadProperties(); } catch(e){} if (container) setTimeout(function(){container.style.display='none';},4000); return; }
+            if (bar) bar.style.width = Math.max(80, clampPercent(pct)) + '%';
+            if (text) text.textContent = progressPrefix + 'Geolocalizzazione: ' + processed + '/' + total + ' (' + clampPercent(pct) + '%)';
+            if (status === 'completed') { if (text) text.textContent = progressPrefix + 'Geolocalizzazione completata.'; if (bar) bar.style.width = '100%'; setImportPhase('Completato', 100, progressPrefix + 'Completato'); try { await loadProperties(); } catch(e){} if (container) setTimeout(function(){container.style.display='none';},4000); return; }
             if (status === 'failed') { if (text) { text.textContent = 'Geolocalizzazione non riuscita.'; text.classList.add('text-danger'); } if (bar) bar.classList.replace('bg-primary','bg-danger'); return; }
             if (status === 'pending' && processed === 0) { stalledSince++; if (stalledSince >= 6 && state.enrichChunkEndpoint) { enrichChunkLoop(batchId).catch(function(){}); return; } }
             else if (processed !== lastProcessed) { stalledSince = 0; lastProcessed = processed; }
@@ -893,7 +1182,7 @@
         if (container) container.style.display = '';
         if (reportEl) { reportEl.className = 'small mt-2 d-none'; reportEl.innerHTML = ''; }
         var maxChunks = 500, calls = 0;
-        setImportPhase('Geolocalizzazione', 80, 'Geolocalizzazione sincrona...');
+        setImportPhase('Geolocalizzazione', 80, (state.currentImportStats ? importProgressLabel(state.currentImportStats.savedRows, state.currentImportStats.totalRows) + ' · ' : '') + 'Geolocalizzazione sincrona...');
         importLog('info', 'Avvio fallback chunk sincrono');
         while (calls < maxChunks) {
             calls++;
@@ -909,11 +1198,14 @@
             }
             var p2 = result.processed || 0, t2 = result.total || 0;
             var pct2 = t2 > 0 ? Math.round(p2 / t2 * 100) : (result.done ? 100 : 0);
+            var progressPrefix = state.currentImportStats
+                ? importProgressLabel(state.currentImportStats.savedRows, state.currentImportStats.totalRows) + ' · '
+                : '';
             renderEnrichmentReport(result.enrichment_report);
-            if (bar) bar.style.width = pct2 + '%';
-            if (text) text.textContent = 'Geolocalizzazione: ' + p2 + '/' + t2 + ' (' + pct2 + '%)';
+            if (bar) bar.style.width = clampPercent(pct2) + '%';
+            if (text) text.textContent = progressPrefix + 'Geolocalizzazione: ' + p2 + '/' + t2 + ' (' + clampPercent(pct2) + '%)';
             importLog('info', 'Chunk ' + calls + ': ' + p2 + '/' + t2);
-            if (result.done || result.status === 'completed') { if (text) text.textContent = 'Completata: ' + p2 + '/' + t2 + '.'; if (bar) bar.style.width = '100%'; setImportPhase('Completato', 100, 'Completato'); importLog('info', 'Completato.'); try { await loadProperties(); } catch(e){} if (container) setTimeout(function(){container.style.display='none';},4000); return; }
+            if (result.done || result.status === 'completed') { if (text) text.textContent = progressPrefix + 'Geolocalizzazione completata: ' + p2 + '/' + t2 + '.'; if (bar) bar.style.width = '100%'; setImportPhase('Completato', 100, progressPrefix + 'Completato'); importLog('info', 'Completato.'); try { await loadProperties(); } catch(e){} if (container) setTimeout(function(){container.style.display='none';},4000); return; }
             if (result.status === 'failed') { if (text) { text.textContent = 'Non riuscita.'; text.classList.add('text-danger'); } if (bar) bar.classList.replace('bg-primary','bg-danger'); return; }
             await new Promise(function(r){setTimeout(r,200);});
         }
@@ -938,7 +1230,7 @@
     function ensureSharedModals() {
         if (!document.getElementById('property-editor-modal')) {
             var editorModal = document.createElement('div');
-            editorModal.innerHTML = '<div class="modal fade" id="property-editor-modal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Modifica marker</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button></div><div class="modal-body"><div id="property-editor-meta" class="small text-muted mb-3"></div><div id="property-editor-error" class="alert alert-danger py-2 px-3 small d-none mb-3"></div><div class="row g-2"><div class="col-md-6"><label class="form-label small mb-1">Stato</label><select id="editor-state" class="form-select form-select-sm"></select></div><div class="col-md-6"><label class="form-label small mb-1">Colore marker</label><input type="color" id="editor-color" class="form-control form-control-color form-control-sm" value="#0d6efd"></div><div class="col-12"><label class="form-label small mb-1">Stato personalizzato</label><input id="editor-custom-state" class="form-control form-control-sm" placeholder="Stato personalizzato"></div><div class="col-12"><label class="form-label small mb-1">Assegnazioni</label><div id="editor-assignments-summary" class="small"></div></div><div class="col-12"><button type="button" class="btn btn-outline-secondary btn-sm d-none" id="editor-assignments-open"><i class="bi bi-person-plus me-1"></i>Gestisci assegnazioni</button></div><div class="col-12"><label class="form-label small mb-1">Nota</label><textarea id="editor-note" class="form-control form-control-sm" rows="3" placeholder="Aggiungi nota"></textarea></div></div></div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Annulla</button><button type="button" class="btn btn-primary btn-sm" id="editor-save-btn">Salva</button></div></div></div></div>';
+            editorModal.innerHTML = '<div class="modal fade" id="property-editor-modal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Modifica marker</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button></div><div class="modal-body"><div id="property-editor-meta" class="small text-muted mb-3"></div><div id="property-editor-error" class="alert alert-danger py-2 px-3 small d-none mb-3"></div><div class="row g-2"><div class="col-md-6"><label class="form-label small mb-1">Stato</label><select id="editor-state" class="form-select form-select-sm"></select></div><div class="col-md-6"><label class="form-label small mb-1">Colore marker</label><div class="d-flex align-items-center gap-2"><span id="editor-color-preview" class="color-dot" style="width:18px;height:18px;"></span><select id="editor-color" class="form-select form-select-sm"></select></div></div><div class="col-12"><label class="form-label small mb-1">Stato personalizzato</label><input id="editor-custom-state" class="form-control form-control-sm" placeholder="Stato personalizzato"></div><div class="col-12"><label class="form-label small mb-1">Assegnazioni</label><div id="editor-assignments-summary" class="small"></div></div><div class="col-12"><button type="button" class="btn btn-outline-secondary btn-sm d-none" id="editor-assignments-open"><i class="bi bi-person-plus me-1"></i>Gestisci assegnazioni</button></div><div class="col-12"><label class="form-label small mb-1">Nota</label><textarea id="editor-note" class="form-control form-control-sm" rows="3" placeholder="Aggiungi nota"></textarea></div></div></div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Annulla</button><button type="button" class="btn btn-primary btn-sm" id="editor-save-btn">Salva</button></div></div></div></div>';
             document.body.appendChild(editorModal.firstElementChild);
         }
         if (!document.getElementById('assignment-picker-modal')) {
@@ -984,7 +1276,15 @@
         setModalError('property-editor-error', '');
         meta.textContent = (property.comune || '') + ' \u00B7 ' + unitLabel(property) + ' \u00B7 ' + ((property.indirizzo || '') + ' ' + (property.civico || '')).trim();
         stateEl.innerHTML = buildSelectOptions(property.stato !== null && property.stato !== undefined ? property.stato : '');
-        colorEl.value = property.colore_marker || '#0d6efd';
+        var allowedColors = MARKER_COLOR_PALETTE.map(function (item) { return item.value; });
+        var defaultColor = defaultColorForState(property.stato || '');
+        var isLegacyColor = allowedColors.indexOf(property.colore_marker || '') === -1 && !!property.colore_marker;
+        var selectedColor = isLegacyColor ? property.colore_marker : (property.colore_marker || defaultColor);
+        colorEl.innerHTML = colorPaletteOptions(selectedColor, isLegacyColor ? property.colore_marker : '');
+        colorEl.value = selectedColor;
+        colorEl.dataset.autoColor = (!isLegacyColor && selectedColor === defaultColor) ? '1' : '0';
+        colorEl.dataset.originalColor = property.colore_marker || defaultColor;
+        updateEditorColorPreview(selectedColor);
         customStateEl.value = property.stato_personalizzato || '';
         noteEl.value = '';
         saveBtn.dataset.propertyId = String(property.id);
@@ -1160,6 +1460,18 @@
     document.addEventListener('change', function (event) {
         if (event.target.id === 'import-files' && event.target.files && event.target.files.length) { runImport(event.target.files).catch(function (e) { if (state.overlay) state.overlay.hide(); alert(e.message); }); }
         if (event.target.classList.contains('state-select')) { var wr = event.target.closest('[data-property-id]') || event.target.closest('tr'); var ci = wr && wr.querySelector('.color-input'); if (ci) ci.value = defaultColorForState(event.target.value); }
+        if (event.target.id === 'editor-state') {
+            var ce2 = document.getElementById('editor-color');
+            if (ce2 && ce2.dataset.autoColor !== '0') {
+                ce2.value = defaultColorForState(event.target.value);
+                ce2.dataset.autoColor = '1';
+                updateEditorColorPreview(ce2.value);
+            }
+        }
+        if (event.target.id === 'editor-color') {
+            event.target.dataset.autoColor = '0';
+            updateEditorColorPreview(event.target.value);
+        }
         if (event.target.id === 'assigned-subuser-filter') { var sid = event.target.value; api(withTenant(state.propertiesEndpoint + '?mode=assigned' + (sid ? '&subuser_id=' + sid : ''))).then(function (p) { state.assignedProperties = p.properties || []; renderAssignedTable(); }).catch(function (e) { alert(e.message); }); }
         if (event.target.id === 'assigned-assignment-filter') renderAssignedTable();
         if (event.target.id === 'report-filter-color' || event.target.id === 'report-filter-stato') applyReportFilters();
@@ -1169,10 +1481,37 @@
 
     document.addEventListener('click', function (event) {
         var t = event.target;
+        var phoneBtn = t.closest('.copy-phone-btn');
+        if (phoneBtn) {
+            event.preventDefault();
+            copyTextToClipboard(phoneBtn.dataset.phone || '')
+                .then(function () {
+                    var originalLabel = phoneBtn.dataset.defaultLabel || phoneBtn.dataset.phone || '';
+                    phoneBtn.textContent = 'Copiato!';
+                    phoneBtn.classList.remove('btn-outline-primary');
+                    phoneBtn.classList.add('btn-success');
+                    window.setTimeout(function () {
+                        phoneBtn.textContent = originalLabel;
+                        phoneBtn.classList.add('btn-outline-primary');
+                        phoneBtn.classList.remove('btn-success');
+                    }, 1200);
+                })
+                .catch(function () { window.alert('Impossibile copiare il numero.'); });
+            return;
+        }
         if (t.closest('.close-map-popup'))    { event.preventDefault(); if (state.map) state.map.closePopup(); return; }
         if (t.closest('.close-detail-modal')) { event.preventDefault(); var dm = bootstrap.Modal.getInstance(document.getElementById('property-detail-modal')); if (dm) dm.hide(); return; }
         var detailBtn = t.closest('.open-detail-modal');   if (detailBtn)     { event.preventDefault(); openDetailModal(Number(detailBtn.dataset.propertyId || 0)); return; }
         var editorBtn = t.closest('.open-editor-modal');   if (editorBtn)     { event.preventDefault(); openEditorModal(Number(editorBtn.dataset.propertyId || 0)); return; }
+        var deleteBtn = t.closest('.delete-property-btn');
+        if (deleteBtn) {
+            event.preventDefault();
+            var deleteId = Number(deleteBtn.dataset.propertyId || 0);
+            if (!deleteId) return;
+            if (!window.confirm('Confermi l\'eliminazione definitiva di questo immobile?')) return;
+            deleteProperty(deleteId).catch(function (error) { window.alert(error.message); });
+            return;
+        }
         var assignBtn = t.closest('.assignment-picker-btn'); if (assignBtn)   { event.preventDefault(); openAssignmentPicker(Number(assignBtn.dataset.propertyId || 0)); return; }
         if (t.id === 'editor-assignments-open') { event.preventDefault(); openAssignmentPicker(Number(t.dataset.propertyId || 0)); return; }
         if (t.id === 'assignment-picker-save') {
@@ -1204,9 +1543,18 @@
             var cbs = document.querySelectorAll('.map-stato-filter:checked');
             var nf  = Array.from(cbs).map(function (cb) { return cb.value; });
             state.mapStatiFilter = nf.length > 0 ? nf : Object.keys(STATE_OPTIONS).slice();
+            var categoryChecks = document.querySelectorAll('.map-categoria-filter:checked');
+            state.mapCategoriaFilter = Array.from(categoryChecks).map(function (cb) { return cb.value; });
             renderMap();
         }
         if (t.id === 'btn-select-all-stati') { var cbs2 = document.querySelectorAll('.map-stato-filter'); var allC = Array.from(cbs2).every(function(cb){return cb.checked;}); cbs2.forEach(function(cb){cb.checked=!allC;}); }
+        if (t.id === 'btn-select-all-categorie') {
+            var cbs3 = document.querySelectorAll('.map-categoria-filter');
+            var allC3 = Array.from(cbs3).every(function(cb){return cb.checked;});
+            cbs3.forEach(function(cb){cb.checked=!allC3;});
+            state.mapCategoriaFilter = Array.from(document.querySelectorAll('.map-categoria-filter:checked')).map(function (cb) { return cb.value; });
+            renderMap();
+        }
         if (t.id === 'ade-zips-submit')      submitAdeUpload('ade-zips',      'ade-zips-submit',  'zip', '<i class="bi bi-cloud-upload me-1"></i>Importa',     '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Importazione\u2026').catch(function(e){alert(e.message);});
         if (t.id === 'ade-sql-submit')       submitAdeUpload('ade-sql-files', 'ade-sql-submit',   'sql', '<i class="bi bi-cloud-upload me-1"></i>Importa SQL', '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Importazione\u2026').catch(function(e){alert(e.message);});
         if (t.id === 'ade-server-submit')     submitAdeServerFiles({ type:'zip', listId:'ade-server-files-list',     submitId:'ade-server-submit',     idleHtml:'<i class="bi bi-play-fill me-1"></i>Importa selezionati',     loadingHtml:'<span class="spinner-border spinner-border-sm me-1"></span>Elaborazione\u2026', reloadOptions:{type:'zip', listId:'ade-server-files-list',     selectAllId:'ade-server-select-all',     submitId:'ade-server-submit',     emptyLabel:'Nessun file ZIP presente in <code>storage/manual_upload/</code>.'} }).catch(function(e){alert(e.message);});
@@ -1237,6 +1585,7 @@
     })();
 
     ensureSharedModals();
+    initManualRecordModal();
 
     if (state.propertiesEndpoint) {
         loadProperties().catch(function (error) { alert(error.message); });

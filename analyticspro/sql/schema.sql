@@ -74,6 +74,7 @@ CREATE TABLE properties (
     civico VARCHAR(20) NULL,
     categoria VARCHAR(50) NULL,
     classe VARCHAR(50) NULL,
+    piano VARCHAR(50) NULL,
     consistenza VARCHAR(50) NULL,
     superficie VARCHAR(50) NULL,
     rendita VARCHAR(50) NULL,
