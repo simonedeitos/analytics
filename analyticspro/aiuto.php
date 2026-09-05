@@ -155,6 +155,7 @@ analyticspro_render_header('Aiuto');
                                     <li>Dati catastali dell'immobile (Comune, Foglio, Particella, Subalterno, Indirizzo, Categoria) con intestazione rapida di <strong>Classe, Rendita, Piano, Consistenza</strong>.</li>
                                     <li>Elenco di tutti gli intestatari correnti con <strong><i class="bi bi-person"></i> icona persona</strong> per le persone fisiche o <strong><i class="bi bi-building"></i> icona azienda</strong> per le persone giuridiche.</li>
                                     <li>Stato attuale, colore, note, assegnazioni e pulsanti rapidi per copiare i numeri di telefono.</li>
+                                    <li>Nel modal <strong>Modifica marker</strong>, per ogni intestatario puoi eliminare i singoli numeri non più validi con il pulsante <strong>✕</strong> (con conferma esplicita prima del salvataggio definitivo).</li>
                                 </ul>
 
                                 <h6 class="mt-3">Stato del marker</h6>

@@ -119,6 +119,51 @@ function analyticspro_normalize_hash_value(?string $value): ?string
     return mb_strtoupper($value, 'UTF-8');
 }
 
+function analyticspro_split_phone_values(?string $raw): array
+{
+    $raw = trim((string) $raw);
+    if ($raw === '') {
+        return [];
+    }
+
+    $parts = preg_split('/[;,]/', $raw) ?: [];
+    $phones = [];
+    $seen = [];
+    foreach ($parts as $part) {
+        $value = trim((string) $part);
+        if ($value === '') {
+            continue;
+        }
+        if (!isset($seen[$value])) {
+            $seen[$value] = true;
+            $phones[] = $value;
+        }
+    }
+
+    return $phones;
+}
+
+function analyticspro_remove_phone_value(?string $raw, ?string $phoneToRemove): ?string
+{
+    $phones = analyticspro_split_phone_values($raw);
+    $phoneToRemove = trim((string) $phoneToRemove);
+    if ($phoneToRemove === '') {
+        return $phones ? implode(';', $phones) : null;
+    }
+
+    $updated = [];
+    $removed = false;
+    foreach ($phones as $phone) {
+        if (!$removed && $phone === $phoneToRemove) {
+            $removed = true;
+            continue;
+        }
+        $updated[] = $phone;
+    }
+
+    return $updated ? implode(';', $updated) : null;
+}
+
 function analyticspro_random_password(int $length = 12): string
 {
     $alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%';

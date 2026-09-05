@@ -34,6 +34,53 @@ try {
         throw new RuntimeException('Non puoi modificare questo marker.');
     }
 
+    $action = trim((string) ($input['action'] ?? ''));
+    if ($action === 'remove_owner_phone') {
+        $ownerId = (int) ($input['owner_id'] ?? 0);
+        $phoneToRemove = trim((string) ($input['phone'] ?? ''));
+        if ($ownerId <= 0 || $phoneToRemove === '') {
+            throw new RuntimeException('Dati telefono non validi.');
+        }
+
+        $showPhone = analyticspro_is_admin() || analyticspro_tenant_phone_visibility((int) $property['user_id']);
+        if (!$showPhone) {
+            throw new RuntimeException('Visibilità telefono non abilitata.');
+        }
+
+        $pdo = analyticspro_db();
+        $ownerStmt = $pdo->prepare('SELECT id, telefono_enc FROM property_owners WHERE id = :id AND property_id = :property_id AND is_current = 1 LIMIT 1');
+        $ownerStmt->execute([
+            'id' => $ownerId,
+            'property_id' => $propertyId,
+        ]);
+        $owner = $ownerStmt->fetch();
+        if (!$owner) {
+            throw new RuntimeException('Intestatario non trovato.');
+        }
+
+        $currentPhone = analyticspro_decrypt($owner['telefono_enc']);
+        $currentList = analyticspro_split_phone_values($currentPhone);
+        if (!in_array($phoneToRemove, $currentList, true)) {
+            throw new RuntimeException('Numero non trovato.');
+        }
+        $updatedPhone = analyticspro_remove_phone_value($currentPhone, $phoneToRemove);
+
+        $pdo->beginTransaction();
+        $pdo->prepare('UPDATE property_owners SET telefono_enc = :telefono_enc, telefono_hash = :telefono_hash WHERE id = :id')
+            ->execute([
+                'telefono_enc' => analyticspro_encrypt($updatedPhone),
+                'telefono_hash' => analyticspro_hash($updatedPhone),
+                'id' => $ownerId,
+            ]);
+        $pdo->commit();
+
+        analyticspro_json([
+            'ok' => true,
+            'owner_id' => $ownerId,
+            'telefono' => $updatedPhone ?? '',
+        ]);
+    }
+
     $newState = (string) ($input['stato'] ?? $property['stato']);
     $allowedStates = array_keys(analyticspro_state_options());
     if (!in_array($newState, $allowedStates, true)) {

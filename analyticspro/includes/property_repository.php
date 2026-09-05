@@ -114,6 +114,7 @@ function analyticspro_fetch_properties_payload(array $user, string $mode = 'all'
         $owners = [];
         foreach ($ownersByProperty[$propertyId] ?? [] as $owner) {
             $ownerPayload = [
+                'id' => (int) $owner['id'],
                 'tipo' => $owner['tipo'],
                 'nome' => analyticspro_decrypt($owner['nome_enc']),
                 'cognome' => analyticspro_decrypt($owner['cognome_enc']),
