@@ -37,6 +37,14 @@ try {
             $propertiesCount = (int) $countStmt->fetchColumn();
 
             $pdo->beginTransaction();
+            foreach ([
+                'DELETE pn FROM property_notes pn INNER JOIN properties p ON p.id = pn.property_id WHERE p.user_id = :user_id',
+                'DELETE pa FROM property_assignments pa INNER JOIN properties p ON p.id = pa.property_id WHERE p.user_id = :user_id',
+                'DELETE ph FROM property_status_history ph INNER JOIN properties p ON p.id = ph.property_id WHERE p.user_id = :user_id',
+                'DELETE po FROM property_owners po INNER JOIN properties p ON p.id = po.property_id WHERE p.user_id = :user_id',
+            ] as $sql) {
+                $pdo->prepare($sql)->execute(['user_id' => $targetUserId]);
+            }
             $deleteStmt = $pdo->prepare('DELETE FROM properties WHERE user_id = :user_id');
             $deleteStmt->execute(['user_id' => $targetUserId]);
             $pdo->commit();

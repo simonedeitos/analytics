@@ -41,7 +41,8 @@ try {
     }
 
     $newColor = trim((string) ($input['colore_marker'] ?? ''));
-    if ($newColor !== '' && !in_array($newColor, analyticspro_allowed_marker_colors(), true)) {
+    $currentColor = trim((string) ($property['colore_marker'] ?? ''));
+    if ($newColor !== '' && $newColor !== $currentColor && !in_array($newColor, analyticspro_allowed_marker_colors(), true)) {
         throw new RuntimeException('Colore non consentito.');
     }
     if ($newColor === '') {

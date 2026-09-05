@@ -167,8 +167,12 @@
         });
     }
 
-    function colorPaletteOptions(selected) {
-        return MARKER_COLOR_PALETTE.map(function (item) {
+    function colorPaletteOptions(selected, legacyColor) {
+        var options = [];
+        if (legacyColor && legacyColor !== selected) {
+            options.push('<option value="' + escapeHtml(legacyColor) + '">Colore attuale (' + escapeHtml(legacyColor) + ')</option>');
+        }
+        return options.join('') + MARKER_COLOR_PALETTE.map(function (item) {
             return '<option value="' + item.value + '"' + (item.value === selected ? ' selected' : '') + '>' + item.label + ' (' + item.value + ')</option>';
         }).join('');
     }
@@ -1274,12 +1278,12 @@
         stateEl.innerHTML = buildSelectOptions(property.stato !== null && property.stato !== undefined ? property.stato : '');
         var allowedColors = MARKER_COLOR_PALETTE.map(function (item) { return item.value; });
         var defaultColor = defaultColorForState(property.stato || '');
-        var selectedColor = allowedColors.indexOf(property.colore_marker || '') !== -1
-            ? property.colore_marker
-            : defaultColor;
-        colorEl.innerHTML = colorPaletteOptions(selectedColor);
+        var isLegacyColor = allowedColors.indexOf(property.colore_marker || '') === -1 && !!property.colore_marker;
+        var selectedColor = isLegacyColor ? property.colore_marker : (property.colore_marker || defaultColor);
+        colorEl.innerHTML = colorPaletteOptions(selectedColor, isLegacyColor ? property.colore_marker : '');
         colorEl.value = selectedColor;
-        colorEl.dataset.autoColor = selectedColor === defaultColor ? '1' : '0';
+        colorEl.dataset.autoColor = (!isLegacyColor && selectedColor === defaultColor) ? '1' : '0';
+        colorEl.dataset.originalColor = property.colore_marker || defaultColor;
         updateEditorColorPreview(selectedColor);
         customStateEl.value = property.stato_personalizzato || '';
         noteEl.value = '';
