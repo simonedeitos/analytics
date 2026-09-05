@@ -47,6 +47,73 @@ function analyticspro_favicon_fetch(string $url): ?array
     ];
 }
 
+function analyticspro_favicon_cache_dir(): string
+{
+    $dir = rtrim(sys_get_temp_dir(), DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'analyticspro-favicon-cache';
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0775, true);
+    }
+    return $dir;
+}
+
+function analyticspro_favicon_cache_paths(): array
+{
+    $dir = analyticspro_favicon_cache_dir();
+    return [
+        'body' => $dir . DIRECTORY_SEPARATOR . 'easycatasto-favicon.bin',
+        'meta' => $dir . DIRECTORY_SEPARATOR . 'easycatasto-favicon.json',
+    ];
+}
+
+function analyticspro_favicon_read_cache(?int $maxAge = null): ?array
+{
+    $paths = analyticspro_favicon_cache_paths();
+    if (!is_file($paths['body']) || !is_file($paths['meta'])) {
+        return null;
+    }
+
+    $meta = json_decode((string) @file_get_contents($paths['meta']), true);
+    if (!is_array($meta) || empty($meta['cached_at']) || empty($meta['content_type'])) {
+        return null;
+    }
+    if ($maxAge !== null && ((int) $meta['cached_at'] + $maxAge) < time()) {
+        return null;
+    }
+
+    $body = @file_get_contents($paths['body']);
+    if ($body === false || $body === '') {
+        return null;
+    }
+
+    return [
+        'body' => $body,
+        'content_type' => (string) $meta['content_type'],
+        'cached_at' => (int) $meta['cached_at'],
+    ];
+}
+
+function analyticspro_favicon_write_cache(array $icon): void
+{
+    if (($icon['body'] ?? '') === '' || ($icon['content_type'] ?? '') === '') {
+        return;
+    }
+
+    $paths = analyticspro_favicon_cache_paths();
+    @file_put_contents($paths['body'], (string) $icon['body'], LOCK_EX);
+    @file_put_contents($paths['meta'], json_encode([
+        'content_type' => (string) $icon['content_type'],
+        'cached_at' => time(),
+    ], JSON_UNESCAPED_SLASHES), LOCK_EX);
+}
+
+function analyticspro_favicon_output(array $icon, int $maxAge): never
+{
+    header('Content-Type: ' . (string) $icon['content_type']);
+    header('Cache-Control: public, max-age=' . $maxAge);
+    echo $icon['body'];
+    exit;
+}
+
 function analyticspro_favicon_absolute_url(string $baseUrl, string $href): string
 {
     $href = trim($href);
@@ -104,6 +171,12 @@ function analyticspro_favicon_from_homepage(string $homepageUrl): ?string
 }
 
 $homepageUrl = 'https://app.easycatasto.it/';
+$cacheMaxAge = 86400;
+
+if ($cachedIcon = analyticspro_favicon_read_cache($cacheMaxAge)) {
+    analyticspro_favicon_output($cachedIcon, $cacheMaxAge);
+}
+
 $candidates = array_values(array_unique(array_filter([
     analyticspro_favicon_from_homepage($homepageUrl),
     'https://app.easycatasto.it/favicon.ico',
@@ -114,10 +187,12 @@ foreach ($candidates as $candidateUrl) {
     if ($icon === null) {
         continue;
     }
-    header('Content-Type: ' . $icon['content_type']);
-    header('Cache-Control: public, max-age=86400');
-    echo $icon['body'];
-    exit;
+    analyticspro_favicon_write_cache($icon);
+    analyticspro_favicon_output($icon, $cacheMaxAge);
+}
+
+if ($staleIcon = analyticspro_favicon_read_cache()) {
+    analyticspro_favicon_output($staleIcon, 3600);
 }
 
 header('Content-Type: image/svg+xml; charset=utf-8');

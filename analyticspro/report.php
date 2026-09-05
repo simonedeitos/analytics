@@ -45,9 +45,12 @@ analyticspro_render_header('Report in griglia', ['app_assets' => true]);
                 <div class="row g-2 align-items-end">
                     <div class="col-12 col-md-2">
                         <label for="report-filter-color" class="form-label form-label-sm small mb-1">Colore</label>
-                        <select id="report-filter-color" class="form-select form-select-sm">
-                            <option value="">Tutti</option>
-                        </select>
+                        <div class="d-flex align-items-center gap-2">
+                            <span id="report-filter-color-preview" class="color-dot" aria-hidden="true"></span>
+                            <select id="report-filter-color" class="form-select form-select-sm">
+                                <option value="">Tutti</option>
+                            </select>
+                        </div>
                     </div>
                     <div class="col-12 col-md-2">
                         <label for="report-filter-comune" class="form-label form-label-sm small mb-1">Comune</label>

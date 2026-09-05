@@ -222,13 +222,13 @@ body {
 .table tfoot input, .table tfoot select { width: 100%; min-width: 90px; }
 .ap-compact-table td,
 .ap-compact-table th {
-    font-size: .6rem;
+    font-size: .72rem;
     line-height: 1.15;
 }
 .ap-compact-table .btn,
 .ap-compact-table .form-control,
 .ap-compact-table .form-select {
-    font-size: .6rem;
+    font-size: .72rem;
 }
 .ap-compact-table .color-dot {
     width: 10px;

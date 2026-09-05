@@ -219,6 +219,14 @@
         preview.setAttribute('aria-label', 'Colore selezionato ' + (color || '#0d6efd'));
     }
 
+    function updateReportFilterColorPreview(color) {
+        var preview = document.getElementById('report-filter-color-preview');
+        if (!preview) return;
+        preview.style.backgroundColor = color || '#dee2e6';
+        preview.style.opacity = color ? '1' : '0.45';
+        preview.setAttribute('aria-label', color ? 'Filtro colore ' + color : 'Filtro colore non selezionato');
+    }
+
     function propertyHeaderFacts(property) {
         return [
             { label: 'Classe', value: property.classe || '—' },
@@ -516,6 +524,7 @@
             }).join('');
             colorSelect.value = (selectedColor && seen[selectedColor]) ? selectedColor : '';
             updateColorSelectAppearance(colorSelect);
+            updateReportFilterColorPreview(colorSelect.value);
         }
         if (stateSelect) {
             var selectedStato = stateSelect.value;
@@ -1532,6 +1541,7 @@
         if (event.target.id === 'assigned-assignment-filter') renderAssignedTable();
         if (event.target.id === 'report-filter-color') {
             updateColorSelectAppearance(event.target);
+            updateReportFilterColorPreview(event.target.value);
             applyReportFilters();
         }
         if (event.target.id === 'report-filter-stato') applyReportFilters();
