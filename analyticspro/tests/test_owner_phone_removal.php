@@ -25,6 +25,18 @@ if ($missing !== '111;222;333') {
     $errors[] = 'Numero non presente non deve alterare la stringa: ' . json_encode($missing);
 }
 
+$missingComma = analyticspro_remove_phone_value('111,222', '999');
+if ($missingComma !== '111,222') {
+    $pass = false;
+    $errors[] = 'Numero non presente non deve alterare il formato originale: ' . json_encode($missingComma);
+}
+
+$missingDup = analyticspro_remove_phone_value('111;111;222', '999');
+if ($missingDup !== '111;111;222') {
+    $pass = false;
+    $errors[] = 'Numero non presente non deve deduplicare i dati esistenti: ' . json_encode($missingDup);
+}
+
 $empty = analyticspro_remove_phone_value('', '222');
 if ($empty !== null) {
     $pass = false;

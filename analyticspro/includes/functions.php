@@ -145,10 +145,11 @@ function analyticspro_split_phone_values(?string $raw): array
 
 function analyticspro_remove_phone_value(?string $raw, ?string $phoneToRemove): ?string
 {
+    $original = $raw;
     $phones = analyticspro_split_phone_values($raw);
     $phoneToRemove = trim((string) $phoneToRemove);
     if ($phoneToRemove === '') {
-        return $phones ? implode(';', $phones) : null;
+        return trim((string) $original) === '' ? null : $original;
     }
 
     $updated = [];
@@ -159,6 +160,10 @@ function analyticspro_remove_phone_value(?string $raw, ?string $phoneToRemove): 
             continue;
         }
         $updated[] = $phone;
+    }
+
+    if (!$removed) {
+        return trim((string) $original) === '' ? null : $original;
     }
 
     return $updated ? implode(';', $updated) : null;

@@ -66,13 +66,20 @@ try {
         $updatedPhone = analyticspro_remove_phone_value($currentPhone, $phoneToRemove);
 
         $pdo->beginTransaction();
-        $pdo->prepare('UPDATE property_owners SET telefono_enc = :telefono_enc, telefono_hash = :telefono_hash WHERE id = :id')
-            ->execute([
-                'telefono_enc' => analyticspro_encrypt($updatedPhone),
-                'telefono_hash' => analyticspro_hash($updatedPhone),
-                'id' => $ownerId,
-            ]);
-        $pdo->commit();
+        try {
+            $pdo->prepare('UPDATE property_owners SET telefono_enc = :telefono_enc, telefono_hash = :telefono_hash WHERE id = :id')
+                ->execute([
+                    'telefono_enc' => analyticspro_encrypt($updatedPhone),
+                    'telefono_hash' => analyticspro_hash($updatedPhone),
+                    'id' => $ownerId,
+                ]);
+            $pdo->commit();
+        } catch (Throwable $exception) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $exception;
+        }
 
         analyticspro_json([
             'ok' => true,
