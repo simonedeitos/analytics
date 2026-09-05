@@ -790,6 +790,7 @@
                 fillOpacity: 0.92,
                 weight: 2,
             });
+            marker._analyticsPropertyId = Number(property.id);
             marker.bindPopup(buildPopupHtml(property), { maxWidth: 460 });
             state.markers.addLayer(marker);
             points.push(property);
@@ -1023,6 +1024,27 @@
         renderAssignedTable();
         if (state.canViewReports || state.role !== 'subuser') renderReportTable();
         if (state.canViewAnalytics || state.role !== 'subuser') renderCharts();
+        refreshOpenPropertyViews(propertyId);
+    }
+
+    function refreshOpenPropertyViews(propertyId) {
+        var property = findPropertyById(propertyId);
+        if (!property) return;
+
+        var detailModal = document.getElementById('property-detail-modal');
+        var detailContent = document.getElementById('property-detail-content');
+        if (detailModal && detailModal.classList.contains('show') && Number(detailModal.dataset.propertyId || 0) === Number(propertyId) && detailContent) {
+            detailContent.innerHTML = buildPropertyCardHtml(property, { mapMode: false });
+        }
+
+        if (state.markers && typeof state.markers.eachLayer === 'function') {
+            state.markers.eachLayer(function (layer) {
+                if (Number(layer._analyticsPropertyId || 0) !== Number(propertyId)) return;
+                if (typeof layer.setPopupContent === 'function') {
+                    layer.setPopupContent(buildPopupHtml(property));
+                }
+            });
+        }
     }
 
     async function deleteProperty(propertyId) {
@@ -1500,6 +1522,7 @@
         var modalEl = document.getElementById('property-detail-modal');
         var bodyEl  = document.getElementById('property-detail-content');
         if (!property || !modalEl || !bodyEl) return;
+        modalEl.dataset.propertyId = String(property.id);
         bodyEl.innerHTML = buildPropertyCardHtml(property, { mapMode: false });
         bootstrap.Modal.getOrCreateInstance(modalEl).show();
     }

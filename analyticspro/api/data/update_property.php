@@ -74,9 +74,6 @@ try {
                     'id' => $ownerId,
                     'property_id' => $propertyId,
                 ]);
-            if ($updateStmt->rowCount() < 1) {
-                throw new RuntimeException('Intestatario non aggiornabile.');
-            }
             $pdo->commit();
         } catch (Throwable $exception) {
             if ($pdo->inTransaction()) {
