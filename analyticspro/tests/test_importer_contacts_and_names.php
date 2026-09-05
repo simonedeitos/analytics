@@ -42,6 +42,19 @@ if ($duplicateHeaders !== ['3331112222', '0333555777']) {
     $errors[] = 'Gestione header duplicati non corretta: ' . json_encode($duplicateHeaders);
 }
 
+$payload = analyticspro_extract_row_payload([
+    'Provincia' => 'BS',
+    'Comune' => 'Brescia',
+    'Codice Catastale' => 'B157',
+    'Foglio' => '10',
+    'Particella' => '25',
+    'Contatti' => '3386882344,3387124334 - ,,0309900026',
+]);
+if (($payload['owner']['telefono'] ?? '') !== '3386882344;3387124334;0309900026') {
+    $pass = false;
+    $errors[] = 'Serializzazione telefoni nel payload non corretta: ' . json_encode($payload['owner']['telefono'] ?? null);
+}
+
 if ($pass) {
     echo "PASS: contatti multipli e nomi multipli OK\n";
     exit(0);

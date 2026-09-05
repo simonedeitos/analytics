@@ -36,8 +36,11 @@ try {
         throw new RuntimeException('Immobile non accessibile.');
     }
 
-    $stmt = analyticspro_db()->prepare('DELETE FROM properties WHERE id = :id LIMIT 1');
-    $stmt->execute(['id' => $propertyId]);
+    $stmt = analyticspro_db()->prepare('DELETE FROM properties WHERE id = :id AND user_id = :user_id LIMIT 1');
+    $stmt->execute([
+        'id' => $propertyId,
+        'user_id' => $tenantId,
+    ]);
     if ($stmt->rowCount() < 1) {
         throw new RuntimeException('Nessun immobile eliminato.');
     }

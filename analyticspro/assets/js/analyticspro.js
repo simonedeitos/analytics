@@ -59,7 +59,7 @@
     };
 
     state.mapStatiFilter = Object.keys(STATE_OPTIONS).slice();
-    state.mapCategoriaFilter = [];
+    state.mapCategoriaFilter = null;
 
     function getStatiFilter() {
         if (state.mapStatiFilter && Array.isArray(state.mapStatiFilter) && state.mapStatiFilter.length > 0) {
@@ -69,7 +69,7 @@
     }
 
     function getCategorieFilter() {
-        return Array.isArray(state.mapCategoriaFilter) ? state.mapCategoriaFilter : [];
+        return Array.isArray(state.mapCategoriaFilter) ? state.mapCategoriaFilter : null;
     }
 
     function escapeHtml(value) {
@@ -571,14 +571,11 @@
         }
 
         var active = getCategorieFilter();
-        if (!active.length) {
+        if (active === null) {
             active = categories.slice();
             state.mapCategoriaFilter = active.slice();
         } else {
             active = active.filter(function (value) { return categories.indexOf(value) !== -1; });
-            if (!active.length) {
-                active = categories.slice();
-            }
             state.mapCategoriaFilter = active.slice();
         }
 
@@ -679,7 +676,7 @@
 
             var statoVal = (property.stato !== null && property.stato !== undefined) ? String(property.stato) : '';
             if (statiFilter.indexOf(statoVal) === -1) continue;
-            if (categorieFilter.length && categorieFilter.indexOf(String(property.categoria || '').trim()) === -1) continue;
+            if (categorieFilter !== null && categorieFilter.indexOf(String(property.categoria || '').trim()) === -1) continue;
 
             var color  = property.colore_marker || '#2A519F';
             var marker = L.circleMarker([lat, lng], {

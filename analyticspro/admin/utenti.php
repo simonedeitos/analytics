@@ -36,8 +36,10 @@ try {
             $countStmt->execute(['user_id' => $targetUserId]);
             $propertiesCount = (int) $countStmt->fetchColumn();
 
+            $pdo->beginTransaction();
             $deleteStmt = $pdo->prepare('DELETE FROM properties WHERE user_id = :user_id');
             $deleteStmt->execute(['user_id' => $targetUserId]);
+            $pdo->commit();
             analyticspro_set_flash('success', 'Dati utente eliminati. Immobili rimossi: ' . $propertiesCount . '.');
             analyticspro_redirect('admin/utenti.php');
         }
@@ -51,6 +53,9 @@ try {
         analyticspro_redirect('admin/utenti.php');
     }
 } catch (Throwable $exception) {
+    if (isset($pdo) && $pdo instanceof PDO && $pdo->inTransaction()) {
+        $pdo->rollBack();
+    }
     analyticspro_set_flash('danger', $exception->getMessage());
     analyticspro_redirect('admin/utenti.php');
 }
