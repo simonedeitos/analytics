@@ -1738,7 +1738,7 @@
             var ownerId = Number(removePhoneBtn.dataset.ownerId || 0);
             if (!phone || !propertyId || !ownerId) return;
             var propertyForRemoval = findPropertyById(propertyId);
-            if (!propertyForRemoval || !propertyCanViewPhone(propertyForRemoval)) return;
+            if (!propertyForRemoval || !propertyCanViewPhone(propertyForRemoval) || !propertyForRemoval.can_edit) return;
             confirmOwnerPhoneRemoval(phone).then(function (confirmed) {
                 if (!confirmed) return;
                 removePhoneBtn.disabled = true;

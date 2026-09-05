@@ -48,25 +48,25 @@ try {
         }
 
         $pdo = analyticspro_db();
-        $ownerStmt = $pdo->prepare('SELECT id, telefono_enc FROM property_owners WHERE id = :id AND property_id = :property_id AND is_current = 1 LIMIT 1');
-        $ownerStmt->execute([
-            'id' => $ownerId,
-            'property_id' => $propertyId,
-        ]);
-        $owner = $ownerStmt->fetch();
-        if (!$owner) {
-            throw new RuntimeException('Intestatario non trovato.');
-        }
-
-        $currentPhone = analyticspro_decrypt($owner['telefono_enc']);
-        $currentList = analyticspro_split_phone_values($currentPhone);
-        if (!in_array($phoneToRemove, $currentList, true)) {
-            throw new RuntimeException('Numero non trovato.');
-        }
-        $updatedPhone = analyticspro_remove_phone_value($currentPhone, $phoneToRemove);
-
         $pdo->beginTransaction();
         try {
+            $ownerStmt = $pdo->prepare('SELECT id, telefono_enc FROM property_owners WHERE id = :id AND property_id = :property_id AND is_current = 1 LIMIT 1 FOR UPDATE');
+            $ownerStmt->execute([
+                'id' => $ownerId,
+                'property_id' => $propertyId,
+            ]);
+            $owner = $ownerStmt->fetch();
+            if (!$owner) {
+                throw new RuntimeException('Intestatario non trovato.');
+            }
+
+            $currentPhone = analyticspro_decrypt($owner['telefono_enc']);
+            $currentList = analyticspro_split_phone_values($currentPhone);
+            if (!in_array($phoneToRemove, $currentList, true)) {
+                throw new RuntimeException('Numero non trovato.');
+            }
+            $updatedPhone = analyticspro_remove_phone_value($currentPhone, $phoneToRemove);
+
             $updateStmt = $pdo->prepare('UPDATE property_owners SET telefono_enc = :telefono_enc, telefono_hash = :telefono_hash WHERE id = :id AND property_id = :property_id AND is_current = 1');
             $updateStmt->execute([
                     'telefono_enc' => analyticspro_encrypt($updatedPhone),
