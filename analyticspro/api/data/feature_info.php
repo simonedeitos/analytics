@@ -310,6 +310,58 @@ function analyticspro_feature_info_from_gml(string $body): ?array
     return analyticspro_feature_info_from_text_pairs($pairs);
 }
 
+function analyticspro_feature_info_getfeatureinfo_profiles(float $lat, float $lng, float $radius): array
+{
+    return [
+        [
+            'name' => 'wms130_epsg4258',
+            'params' => [
+                'language' => 'ita',
+                'SERVICE' => 'WMS',
+                'REQUEST' => 'GetFeatureInfo',
+                'VERSION' => '1.3.0',
+                'LAYERS' => 'CP.CadastralParcel',
+                'QUERY_LAYERS' => 'CP.CadastralParcel',
+                'CRS' => 'EPSG:4258',
+                'BBOX' => implode(',', [
+                    $lat - $radius,
+                    $lng - $radius,
+                    $lat + $radius,
+                    $lng + $radius,
+                ]),
+                'WIDTH' => 256,
+                'HEIGHT' => 256,
+                'I' => 128,
+                'J' => 128,
+                'FEATURE_COUNT' => 5,
+            ],
+        ],
+        [
+            'name' => 'wms111_epsg4326',
+            'params' => [
+                'language' => 'ita',
+                'SERVICE' => 'WMS',
+                'REQUEST' => 'GetFeatureInfo',
+                'VERSION' => '1.1.1',
+                'LAYERS' => 'CP.CadastralParcel',
+                'QUERY_LAYERS' => 'CP.CadastralParcel',
+                'SRS' => 'EPSG:4326',
+                'BBOX' => implode(',', [
+                    $lng - $radius,
+                    $lat - $radius,
+                    $lng + $radius,
+                    $lat + $radius,
+                ]),
+                'WIDTH' => 256,
+                'HEIGHT' => 256,
+                'X' => 128,
+                'Y' => 128,
+                'FEATURE_COUNT' => 5,
+            ],
+        ],
+    ];
+}
+
 try {
     $lat = (float) ($_GET['lat'] ?? 0);
     $lng = (float) ($_GET['lng'] ?? 0);
@@ -369,27 +421,7 @@ try {
     }
 
     $radius = 0.00035;
-    $bbox = implode(',', [
-        $lat - $radius,
-        $lng - $radius,
-        $lat + $radius,
-        $lng + $radius,
-    ]);
-    $baseParams = [
-        'language' => 'ita',
-        'SERVICE' => 'WMS',
-        'REQUEST' => 'GetFeatureInfo',
-        'VERSION' => '1.3.0',
-        'LAYERS' => 'CP.CadastralParcel',
-        'QUERY_LAYERS' => 'CP.CadastralParcel',
-        'CRS' => 'EPSG:4258',
-        'BBOX' => $bbox,
-        'WIDTH' => 256,
-        'HEIGHT' => 256,
-        'I' => 128,
-        'J' => 128,
-        'FEATURE_COUNT' => 5,
-    ];
+    $requestProfiles = analyticspro_feature_info_getfeatureinfo_profiles($lat, $lng, $radius);
 
     $formats = [
         'text/html' => 'analyticspro_feature_info_from_html',
@@ -397,53 +429,58 @@ try {
         'text/plain' => 'analyticspro_feature_info_from_plain',
     ];
 
-    foreach ($formats as $format => $parser) {
-        $url = 'https://wms.cartografia.agenziaentrate.gov.it/inspire/wms/ows01.php?' . http_build_query($baseParams + ['INFO_FORMAT' => $format], '', '&', PHP_QUERY_RFC3986);
-        $requestStartedAt = microtime(true);
-        try {
-            $response = analyticspro_feature_info_request($url, $format . ',*/*;q=0.8', [
-                'connect_timeout' => ANALYTICSPRO_FEATURE_INFO_CONNECT_TIMEOUT,
-                'timeout' => ANALYTICSPRO_FEATURE_INFO_GETFEATUREINFO_TIMEOUT,
-            ]);
-            $trace('getfeatureinfo_request', (int) ($response['duration_ms'] ?? 0), [
-                'format' => $format,
-                'status' => $response['status'] ?? 0,
-            ]);
-        } catch (Throwable $exception) {
-            $timedOut = analyticspro_feature_info_message_is_timeout($exception->getMessage());
-            if ($timedOut) {
-                $diagnostics['timeouts']++;
-            } else {
-                $diagnostics['errors']++;
+    foreach ($requestProfiles as $profile) {
+        foreach ($formats as $format => $parser) {
+            $url = 'https://wms.cartografia.agenziaentrate.gov.it/inspire/wms/ows01.php?' . http_build_query($profile['params'] + ['INFO_FORMAT' => $format], '', '&', PHP_QUERY_RFC3986);
+            $requestStartedAt = microtime(true);
+            try {
+                $response = analyticspro_feature_info_request($url, $format . ',*/*;q=0.8', [
+                    'connect_timeout' => ANALYTICSPRO_FEATURE_INFO_CONNECT_TIMEOUT,
+                    'timeout' => ANALYTICSPRO_FEATURE_INFO_GETFEATUREINFO_TIMEOUT,
+                ]);
+                $trace('getfeatureinfo_request', (int) ($response['duration_ms'] ?? 0), [
+                    'profile' => $profile['name'] ?? '',
+                    'format' => $format,
+                    'status' => $response['status'] ?? 0,
+                ]);
+            } catch (Throwable $exception) {
+                $timedOut = analyticspro_feature_info_message_is_timeout($exception->getMessage());
+                if ($timedOut) {
+                    $diagnostics['timeouts']++;
+                } else {
+                    $diagnostics['errors']++;
+                }
+                $trace('getfeatureinfo_error', (int) round((microtime(true) - $requestStartedAt) * 1000), [
+                    'profile' => $profile['name'] ?? '',
+                    'format' => $format,
+                    'error' => $exception->getMessage(),
+                ]);
+                if ($timedOut) {
+                    break 2;
+                }
+                continue;
             }
-            $trace('getfeatureinfo_error', (int) round((microtime(true) - $requestStartedAt) * 1000), [
-                'format' => $format,
-                'error' => $exception->getMessage(),
-            ]);
-            if ($timedOut) {
-                break;
+            if ($response['status'] >= 400) {
+                continue;
             }
-            continue;
-        }
-        if ($response['status'] >= 400) {
-            continue;
-        }
-        $diagnostics['successful_responses']++;
-        $fields = analyticspro_feature_info_complete_fields(
-            $parser($response['body']) ?? [],
-            $lat,
-            $lng,
-            $resolveLocation,
-            $trace
-        );
-        if ($fields !== null) {
-            analyticspro_json(['ok' => true, 'found' => true] + $fields + [
-                'source' => 'feature_info',
-                'info_format' => $format,
-                'zoom' => $zoom,
-                'parcel_found' => analyticspro_feature_info_has_parcel($fields),
-                'resolve_location' => $resolveLocation,
-            ]);
+            $diagnostics['successful_responses']++;
+            $fields = analyticspro_feature_info_complete_fields(
+                $parser($response['body']) ?? [],
+                $lat,
+                $lng,
+                $resolveLocation,
+                $trace
+            );
+            if ($fields !== null) {
+                analyticspro_json(['ok' => true, 'found' => true] + $fields + [
+                    'source' => 'feature_info',
+                    'request_profile' => $profile['name'] ?? '',
+                    'info_format' => $format,
+                    'zoom' => $zoom,
+                    'parcel_found' => analyticspro_feature_info_has_parcel($fields),
+                    'resolve_location' => $resolveLocation,
+                ]);
+            }
         }
     }
 
