@@ -98,15 +98,33 @@ Richiede **MySQL 8.0+** o **MariaDB 10.5+** per il supporto a `GEOMETRY` con SRI
 
 ### Mappa catastale AdE in `mappa.php`
 
-La pagina `analyticspro/mappa.php` usa un flusso mappa catastale portato/adattato dal progetto
+La pagina `analyticspro/mappa.php` usa un flusso mappa catastale allineato al progetto
 gemello **CataMap**:
 
-- `api/data/wms_proxy.php` fa da proxy server-side per le tile WMS AdE, con validazione host,
-  cache breve e header dedicati per evitare blocchi CORS/referer lato browser;
-- `api/data/feature_info.php` completa i dati del click mappa con normalizzazione comune/provincia,
-  risoluzione del codice catastale e fallback di reverse geocoding lato server;
-- `assets/js/analyticspro.js` gestisce toggle layer, retry delle tile fallite, hint di zoom minimo
-  e slider di opacità persistente in `localStorage`.
+- `assets/js/analyticspro.js` crea il layer Leaflet WMS con `VERSION=1.3.0`,
+  `LAYERS=province,CP.CadastralZoning,CP.CadastralParcel,fabbricati,strade,vestizioni,acque`,
+  `FORMAT=image/png`, `TRANSPARENT=true`, `STYLES=`, `CRS=EPSG:4258`, tile `WIDTH/HEIGHT=256`
+  e BBOX con ordine assi **latitudine,longitudine** come richiesto da WMS 1.3.0 in EPSG:4258;
+- `api/data/wms_proxy.php` fa da proxy server-side per le tile AdE, con whitelist host,
+  passthrough completo della query string, header `User-Agent`/`Referer`, cache breve,
+  log diagnostici `error_log()` su URL upstream/status/content-type e passthrough di eventuali
+  risposte XML/non-image per facilitare il debug;
+- in caso di `tileerror`, il client effettua retry e fallback all’URL WMS diretto non proxato,
+  così da aggirare rapidamente eventuali errori intermedi del proxy;
+- il toggle mostra il layer solo a zoom ≥ `10` e lo slider `#cadastral-opacity-slider`
+  applica in tempo reale l’opacità, aggiorna la percentuale e salva il valore in `localStorage`.
+
+Il click sulla mappa usa `api/data/feature_info.php`, che tenta in sequenza:
+
+1. dati AdE da endpoint AJAX/GetFeatureInfo;
+2. completamento comune/provincia/codice catastale tramite `data/comuni_catastali.json`
+   e/o tabella `cadastral_comuni` (lookup Belfiore/codice catastale);
+3. fallback di reverse geocoding server-side via Nominatim (con `User-Agent`, timeout breve e cache locale).
+
+La provincia viene sempre normalizzata in sigla a 2 lettere; se il click non restituisce la
+particella ma consente comunque di risolvere comune/provincia dalla coordinata, il popup permette
+lo stesso la creazione del marker e il form blocca in sola lettura solo i campi effettivamente
+autocompilati dalla mappa.
 
 ### Lookup coordinate
 

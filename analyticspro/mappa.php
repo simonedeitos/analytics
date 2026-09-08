@@ -65,8 +65,9 @@ analyticspro_render_header('Mappa', ['app_assets' => true, 'body_class' => 'map-
                             <input class="form-check-input" type="checkbox" role="switch" id="cadastral-layer-toggle">
                             <label class="form-check-label small fw-semibold" for="cadastral-layer-toggle">Mostra layer catastale</label>
                         </div>
-                        <div id="cadastral-opacity-control" class="d-none d-flex align-items-center gap-2">
+                        <div id="cadastral-opacity-control" class="d-none d-flex align-items-center gap-2 analyticspro-cadastral-opacity-control">
                             <i class="bi bi-layers-half text-muted" aria-hidden="true"></i>
+                            <span class="small text-muted fw-semibold">Trasparenza</span>
                             <input type="range"
                                    id="cadastral-opacity-slider"
                                    class="form-range mb-0"
@@ -172,7 +173,7 @@ analyticspro_render_header('Mappa', ['app_assets' => true, 'body_class' => 'map-
         </div>
 
         <div id="map-cadastral-zoom-hint" class="alert alert-warning shadow-sm d-none analyticspro-map-hint" role="status">
-            <i class="bi bi-zoom-in me-1"></i>Ingrandisci la mappa per vedere il layer catastale.
+            <i class="bi bi-zoom-in me-1"></i>Ingrandisci la mappa almeno al livello 10 per vedere il layer catastale.
         </div>
         <div id="map-cadastral-feedback" class="alert alert-light border shadow-sm d-none analyticspro-map-feedback" role="status"></div>
     </div>

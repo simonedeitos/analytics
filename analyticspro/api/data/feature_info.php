@@ -43,10 +43,30 @@ function analyticspro_feature_info_complete_fields(array $fields, float $lat, fl
 {
     $normalized = analyticspro_feature_info_normalize($fields);
     if ($normalized === null) {
-        return null;
+        $normalized = [
+            'comune' => '',
+            'provincia' => '',
+            'cod_catastale' => '',
+            'sezione' => '',
+            'foglio' => '',
+            'particella' => '',
+            'subalterno' => '',
+            'categoria' => '',
+            'indirizzo' => '',
+            'civico' => '',
+        ];
     }
 
-    return analyticspro_cadastral_complete_fields($normalized, $lat, $lng);
+    $completed = analyticspro_cadastral_complete_fields($normalized, $lat, $lng);
+    return analyticspro_cadastral_has_meaningful_fields($completed) ? $completed : null;
+}
+
+function analyticspro_feature_info_has_parcel(array $fields): bool
+{
+    return trim((string) ($fields['foglio'] ?? '')) !== ''
+        || trim((string) ($fields['particella'] ?? '')) !== ''
+        || trim((string) ($fields['subalterno'] ?? '')) !== ''
+        || trim((string) ($fields['sezione'] ?? '')) !== '';
 }
 
 function analyticspro_feature_info_lookup(array $source, array $aliases): string
@@ -232,7 +252,10 @@ try {
                 $lng
             );
             if ($ajaxFields !== null) {
-                analyticspro_json(['ok' => true, 'found' => true] + $ajaxFields + ['source' => 'ajax']);
+                analyticspro_json(['ok' => true, 'found' => true] + $ajaxFields + [
+                    'source' => 'ajax',
+                    'parcel_found' => analyticspro_feature_info_has_parcel($ajaxFields),
+                ]);
             }
         }
         error_log('[feature_info] ajax empty response at lat=' . $lat . ' lng=' . $lng);
@@ -242,24 +265,24 @@ try {
 
     $radius = 0.00035;
     $bbox = implode(',', [
-        $lng - $radius,
         $lat - $radius,
-        $lng + $radius,
+        $lng - $radius,
         $lat + $radius,
+        $lng + $radius,
     ]);
     $baseParams = [
         'language' => 'ita',
         'SERVICE' => 'WMS',
         'REQUEST' => 'GetFeatureInfo',
-        'VERSION' => '1.1.1',
+        'VERSION' => '1.3.0',
         'LAYERS' => 'CP.CadastralParcel',
         'QUERY_LAYERS' => 'CP.CadastralParcel',
-        'SRS' => 'EPSG:4326',
+        'CRS' => 'EPSG:4258',
         'BBOX' => $bbox,
         'WIDTH' => 256,
         'HEIGHT' => 256,
-        'X' => 128,
-        'Y' => 128,
+        'I' => 128,
+        'J' => 128,
         'FEATURE_COUNT' => 5,
     ];
 
@@ -284,8 +307,22 @@ try {
         }
         $fields = analyticspro_feature_info_complete_fields($parser($response['body']) ?? [], $lat, $lng);
         if ($fields !== null) {
-            analyticspro_json(['ok' => true, 'found' => true] + $fields + ['source' => 'feature_info', 'info_format' => $format, 'zoom' => $zoom]);
+            analyticspro_json(['ok' => true, 'found' => true] + $fields + [
+                'source' => 'feature_info',
+                'info_format' => $format,
+                'zoom' => $zoom,
+                'parcel_found' => analyticspro_feature_info_has_parcel($fields),
+            ]);
         }
+    }
+
+    $reverseFields = analyticspro_feature_info_complete_fields([], $lat, $lng);
+    if ($reverseFields !== null) {
+        analyticspro_json(['ok' => true, 'found' => true] + $reverseFields + [
+            'source' => 'reverse',
+            'zoom' => $zoom,
+            'parcel_found' => false,
+        ]);
     }
 
     error_log('[feature_info] no cadastral data at lat=' . $lat . ' lng=' . $lng);

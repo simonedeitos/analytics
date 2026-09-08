@@ -15,6 +15,11 @@ declare(strict_types=1);
                     <input type="hidden" name="Latitudine">
                     <input type="hidden" name="Longitudine">
                     <div class="col-12"><h3 class="h6 mb-0">Dati catastali</h3></div>
+                    <div class="col-12">
+                        <div id="manual-record-autofill-hint" class="manual-record-autofill-hint small text-muted d-none">
+                            <i class="bi bi-lock-fill me-1" aria-hidden="true"></i>I campi evidenziati sono stati compilati automaticamente dalla mappa.
+                        </div>
+                    </div>
                     <div class="col-md-2"><label class="form-label small">Provincia</label><input class="form-control form-control-sm manual-record-lockable" name="Provincia"></div>
                     <div class="col-md-4"><label class="form-label small">Comune</label><input class="form-control form-control-sm manual-record-lockable" name="Comune"></div>
                     <div class="col-md-3"><label class="form-label small">Codice catastale</label><input class="form-control form-control-sm manual-record-lockable" name="Codice Catastale"></div>

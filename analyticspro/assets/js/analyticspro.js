@@ -92,6 +92,12 @@
         if (state.mapStatiFilter && Array.isArray(state.mapStatiFilter) && state.mapStatiFilter.length > 0) {
             return state.mapStatiFilter;
         }
+
+        function resolveManualRecordLockedFields(values, candidateFields) {
+            return (candidateFields || []).filter(function (fieldName) {
+                return String(values && values[fieldName] !== undefined && values[fieldName] !== null ? values[fieldName] : '').trim() !== '';
+            });
+        }
         return Object.keys(STATE_OPTIONS).slice();
     }
 
@@ -1283,6 +1289,7 @@
     function setManualRecordFieldLocked(form, field, shouldLock) {
         if (!field) return;
         field.classList.toggle('readonly', shouldLock);
+        field.classList.toggle('bg-light', shouldLock);
         field.dataset.autoFilled = shouldLock ? '1' : '0';
         field.title = shouldLock ? MANUAL_RECORD_AUTOFILL_TITLE : '';
         if (shouldLock) {
@@ -1302,6 +1309,15 @@
         field.readOnly = shouldLock;
     }
 
+    function syncManualRecordAutofillHint(form) {
+        var hint = document.getElementById('manual-record-autofill-hint');
+        if (!hint) return;
+        var hasLockedFields = !!form && Array.from(form.querySelectorAll('.manual-record-lockable')).some(function (field) {
+            return field.dataset.autoFilled === '1';
+        });
+        hint.classList.toggle('d-none', !hasLockedFields);
+    }
+
     function resetManualRecordForm() {
         var form = document.getElementById('manual-record-form');
         var feedback = document.getElementById('manual-record-feedback');
@@ -1314,6 +1330,7 @@
         Array.from(document.querySelectorAll('.manual-record-lockable')).forEach(function (field) {
             setManualRecordFieldLocked(form, field, false);
         });
+        syncManualRecordAutofillHint(form);
         if (feedback) {
             feedback.className = 'alert d-none py-2';
             feedback.textContent = '';
@@ -1341,6 +1358,7 @@
             var shouldLock = Array.isArray(lockedFields) && lockedFields.indexOf(field.name) !== -1;
             setManualRecordFieldLocked(form, field, shouldLock);
         });
+        syncManualRecordAutofillHint(form);
     }
 
     function openManualRecordModal(values, lockedFields) {
@@ -1912,15 +1930,43 @@
 
     function ensureLeafletEpsg4258() {
         if (!window.L || L.CRS.EPSG4258) return;
-        L.CRS.EPSG4258 = L.extend({}, L.CRS.EPSG4326, { code: 'EPSG:4258' });
+        L.CRS.EPSG4258 = L.extend({}, L.CRS.EPSG4326, {
+            code: 'EPSG:4258',
+            projection: L.Projection.LonLat,
+            transformation: new L.Transformation(1 / 180, 1, -1 / 180, 0.5),
+            wrapLng: [-180, 180],
+            wrapLat: [-90, 90],
+        });
     }
 
-    function cadastralLayerBaseUrl() {
+    function proxifyCadastralUrl(url) {
         if (!state.wmsProxyEndpoint) {
-            return CATASTRAL_WMS_BASE_URL;
+            return url;
         }
         var separator = state.wmsProxyEndpoint.indexOf('?') === -1 ? '?' : '&';
-        return state.wmsProxyEndpoint + separator + 'url=' + encodeURIComponent(CATASTRAL_WMS_BASE_URL);
+        return state.wmsProxyEndpoint + separator + 'url=' + encodeURIComponent(url);
+    }
+
+    function cadastralLayerBaseUrl(useDirectUrl) {
+        return useDirectUrl ? CATASTRAL_WMS_BASE_URL : proxifyCadastralUrl(CATASTRAL_WMS_BASE_URL);
+    }
+
+    function deproxifyCadastralTileUrl(url) {
+        var raw = String(url || '').trim();
+        if (!raw || !state.wmsProxyEndpoint) return raw;
+        try {
+            var parsed = new URL(raw, window.location.origin);
+            var upstreamRaw = parsed.searchParams.get('url');
+            if (!upstreamRaw) return raw;
+            var upstream = new URL(upstreamRaw, window.location.origin);
+            parsed.searchParams.forEach(function (value, key) {
+                if (key === 'url' || key.indexOf('_ap_') === 0) return;
+                upstream.searchParams.append(key, value);
+            });
+            return upstream.toString();
+        } catch (error) {
+            return raw;
+        }
     }
 
     function createFindAreaPinIcon() {
@@ -1981,7 +2027,12 @@
             + '<div class="card map-popup-card">'
             + '<div class="card-header py-2 px-3 fw-semibold"><i class="bi bi-map me-1"></i>Dati catastali</div>'
             + '<div class="card-body py-2 px-3">'
-            + (rows.length ? '<ul class="list-unstyled small mb-3">' + rows.join('') + '</ul>' : '<div class="small text-muted mb-3">Nessun dato catastale disponibile.</div>')
+            + (rows.length
+                ? '<ul class="list-unstyled small mb-3">' + rows.join('') + '</ul>'
+                : '<div class="small text-muted mb-3">Nessun dato catastale disponibile.</div>')
+            + (!hasCadastralParcelDetails(details) && hasCadastralLocationDetails(details)
+                ? '<div class="small text-muted mb-3"><i class="bi bi-geo-alt me-1"></i>Comune e provincia sono stati rilevati dalla coordinata; la particella non è disponibile in questo punto.</div>'
+                : '')
             + (state.canImport
                 ? '<div class="d-flex justify-content-end"><button type="button" class="btn btn-primary btn-sm add-cadastral-marker-btn"'
                     + ' data-lat="' + escapeHtml(String(latlng.lat)) + '"'
@@ -2034,6 +2085,7 @@
         if (tile && ((tile.currentSrc || tile.src || '') === CATASTRAL_ERROR_TILE_URL)) return;
         if (tile && tile.dataset) {
             tile.dataset.apRetryCount = '0';
+            tile.dataset.apFallbackUsed = '0';
         }
         clearCadastralTileWarning();
     }
@@ -2048,13 +2100,26 @@
         if (!tile.dataset.apOriginalSrc) {
             tile.dataset.apOriginalSrc = tile.currentSrc || tile.src || '';
         }
+        if (!tile.dataset.apDirectSrc) {
+            tile.dataset.apDirectSrc = deproxifyCadastralTileUrl(tile.dataset.apOriginalSrc);
+        }
         var attempts = parseInt(tile.dataset.apRetryCount || '0', 10);
         if (!Number.isFinite(attempts)) attempts = 0;
-        if (attempts < CATASTRAL_TILE_RETRY_LIMIT && tile.dataset.apOriginalSrc) {
+        var fallbackUrl = tile.dataset.apDirectSrc || tile.dataset.apOriginalSrc;
+        if (tile.dataset.apFallbackUsed !== '1' && fallbackUrl && fallbackUrl !== tile.dataset.apOriginalSrc) {
+            tile.dataset.apRetryCount = String(attempts + 1);
+            tile.dataset.apFallbackUsed = '1';
+            window.setTimeout(function () {
+                if (!state.cadastralLayerEnabled) return;
+                tile.src = cadastralTileRetryUrl(fallbackUrl, attempts + 1);
+            }, CATASTRAL_TILE_RETRY_DELAY_MS * (attempts + 1));
+            return;
+        }
+        if (attempts < CATASTRAL_TILE_RETRY_LIMIT && fallbackUrl) {
             tile.dataset.apRetryCount = String(attempts + 1);
             window.setTimeout(function () {
                 if (!state.cadastralLayerEnabled) return;
-                tile.src = cadastralTileRetryUrl(tile.dataset.apOriginalSrc, attempts + 1);
+                tile.src = cadastralTileRetryUrl(fallbackUrl, attempts + 1);
             }, CATASTRAL_TILE_RETRY_DELAY_MS * (attempts + 1));
             return;
         }
@@ -2062,25 +2127,55 @@
         showCadastralTileWarning(status);
     }
 
+    function createLeafletEpsg4258TileUrl(tileLayer, coords) {
+        var bounds = tileLayer._tileCoordsToNwSe(coords);
+        var crs = tileLayer.options.crs || (tileLayer._map && tileLayer._map.options ? tileLayer._map.options.crs : null) || L.CRS.EPSG3857;
+        var projectedNorthWest = crs.project(bounds[0]);
+        var projectedSouthEast = crs.project(bounds[1]);
+        var bbox = [
+            projectedSouthEast.y,
+            projectedNorthWest.x,
+            projectedNorthWest.y,
+            projectedSouthEast.x,
+        ].join(',');
+        return tileLayer._url
+            + L.Util.getParamString(tileLayer.wmsParams, tileLayer._url, tileLayer.options.uppercase)
+            + (tileLayer.options.uppercase ? '&BBOX=' : '&bbox=')
+            + bbox;
+    }
+
+    function hasCadastralLocationDetails(details) {
+        return !!(details && (details.comune || details.provincia || details.cod_catastale || details.foglio || details.particella));
+    }
+
+    function hasCadastralParcelDetails(details) {
+        return !!(details && (details.foglio || details.particella || details.sezione || details.subalterno));
+    }
+
     function createCadastralLayer() {
         if (!state.map) return null;
         ensureLeafletEpsg4258();
         var layer = L.tileLayer.wms(cadastralLayerBaseUrl(), {
             layers: 'province,CP.CadastralZoning,CP.CadastralParcel,fabbricati,strade,vestizioni,acque',
+            styles: '',
             format: 'image/png',
             transparent: true,
-            version: '1.1.1',
+            version: '1.3.0',
             crs: L.CRS.EPSG4258,
             opacity: getStoredCadastralOpacity(),
             zIndex: 200,
             minZoom: CATASTRAL_MIN_ZOOM,
             maxZoom: 22,
             attribution: '© Agenzia delle Entrate',
+            uppercase: true,
             updateWhenIdle: false,
             updateWhenZooming: false,
             keepBuffer: 4,
             errorTileUrl: CATASTRAL_ERROR_TILE_URL,
         });
+        layer.getTileUrl = function (coords) {
+            return createLeafletEpsg4258TileUrl(this, coords);
+        };
         layer.on('add', function () {
             clearCadastralTileWarning();
             layer.setOpacity(getStoredCadastralOpacity());
@@ -2200,11 +2295,17 @@
             showMapFeedback(error.message || 'Impossibile recuperare i dati catastali.', 'danger', 3200);
             return;
         }
-        if (!details || (!details.comune && !details.foglio && !details.particella)) {
+        if (!hasCadastralLocationDetails(details)) {
             showMapFeedback('Nessuna particella in questo punto.', 'warning', 2600);
             return;
         }
-        showMapFeedback('Dati catastali trovati.', 'success', 1800);
+        showMapFeedback(
+            hasCadastralParcelDetails(details)
+                ? 'Dati catastali trovati.'
+                : 'Comune e provincia rilevati; particella non disponibile in questo punto.',
+            hasCadastralParcelDetails(details) ? 'success' : 'warning',
+            2200
+        );
         state.cadastralPopup = L.popup({ maxWidth: 420 })
             .setLatLng(event.latlng)
             .setContent(buildCadastralPopupHtml(details, event.latlng))
@@ -2792,7 +2893,7 @@
         var cadastralAddBtn = t.closest('.add-cadastral-marker-btn');
         if (cadastralAddBtn) {
             event.preventDefault();
-            openManualRecordModal({
+            var autoFillValues = {
                 'Provincia': cadastralAddBtn.dataset.provincia || '',
                 'Comune': cadastralAddBtn.dataset.comune || '',
                 'Codice Catastale': cadastralAddBtn.dataset.codCatastale || '',
@@ -2806,7 +2907,11 @@
                 'Quota': '',
                 'Latitudine': cadastralAddBtn.dataset.lat || '',
                 'Longitudine': cadastralAddBtn.dataset.lng || '',
-            }, ['Provincia', 'Comune', 'Codice Catastale', 'Sezione', 'Foglio', 'Particella', 'Subalterno', 'Categoria', 'Indirizzo', 'Civico']);
+            };
+            openManualRecordModal(
+                autoFillValues,
+                resolveManualRecordLockedFields(autoFillValues, ['Provincia', 'Comune', 'Codice Catastale', 'Sezione', 'Foglio', 'Particella', 'Subalterno', 'Categoria', 'Indirizzo', 'Civico'])
+            );
             return;
         }
         if (t.closest('.close-map-popup'))    { event.preventDefault(); if (state.map) state.map.closePopup(); return; }
