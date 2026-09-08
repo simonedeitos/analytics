@@ -887,6 +887,7 @@ function analyticspro_gml_search_comuni(string $query, int $limit = 12, ?array $
     }
 
     $catalog = is_array($catalogOverride) ? $catalogOverride : analyticspro_gml_build_catalog();
+    $provinceMap = analyticspro_gml_belfiore_province_map();
     $matches = [];
     foreach ($catalog as $belfiore => $entry) {
         $comune = trim((string) ($entry['nome'] ?? ''));
@@ -898,12 +899,16 @@ function analyticspro_gml_search_comuni(string $query, int $limit = 12, ?array $
         }
         $normComune = analyticspro_gml_norm_nome_comune($comune);
         $compactComune = str_replace(' ', '', $normComune);
-        if (!str_contains($normComune, $normQuery) && !str_contains($compactComune, $compactQuery)) {
+        if (!str_starts_with($normComune, $normQuery) && !str_starts_with($compactComune, $compactQuery)) {
             continue;
         }
         $key = strtoupper($comune);
         if (!isset($matches[$key])) {
-            $matches[$key] = ['comune' => $comune, 'belfiore' => (string) $belfiore];
+            $matches[$key] = [
+                'comune' => $comune,
+                'belfiore' => (string) $belfiore,
+                'provincia' => implode('/', $provinceMap[(string) $belfiore] ?? []),
+            ];
         }
     }
 

@@ -49,6 +49,39 @@ function analyticspro_parse_birth_date(?string $value): ?string
     return null;
 }
 
+function analyticspro_normalize_quota(?string $value): string
+{
+    $value = trim((string) $value);
+    if ($value === '') {
+        return '';
+    }
+
+    $value = preg_replace('/\s*\/\s*/', '/', $value) ?? $value;
+    if (
+        preg_match('/^\d{4}[-\/\.]\d{2}[-\/\.]\d{2}$/', $value) === 1
+        || preg_match('/^\d{2}[-\/\.]\d{2}[-\/\.]\d{4}$/', $value) === 1
+    ) {
+        return '';
+    }
+
+    return $value;
+}
+
+function analyticspro_parse_coordinate(?string $value): ?float
+{
+    $value = trim((string) $value);
+    if ($value === '') {
+        return null;
+    }
+
+    $normalized = str_replace(',', '.', $value);
+    if (!is_numeric($normalized)) {
+        return null;
+    }
+
+    return (float) $normalized;
+}
+
 function analyticspro_guess_gender(?string $cf): ?string
 {
     $cf = strtoupper(trim((string) $cf));
@@ -255,7 +288,9 @@ function analyticspro_extract_row_payload(array $row): array
             'superficie' => analyticspro_extract_row_value($row, ['Superficie']),
             'rendita' => analyticspro_extract_row_value($row, ['Rendita']),
             'titolarita' => analyticspro_extract_row_value($row, ['Titolarita', 'Titolarità']),
-            'quota' => analyticspro_extract_row_value($row, ['Quota']),
+            'quota' => analyticspro_normalize_quota(analyticspro_extract_row_value($row, ['Quota'])),
+            'lat' => analyticspro_parse_coordinate(analyticspro_extract_row_value($row, ['Latitudine', 'Lat', 'Latitude'])),
+            'lng' => analyticspro_parse_coordinate(analyticspro_extract_row_value($row, ['Longitudine', 'Lng', 'Lon', 'Longitude'])),
         ],
         'owner' => [
             'tipo' => preg_match('/^\d{11}$/', $cf) ? 'azienda' : 'persona',
@@ -785,15 +820,18 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
     $findProperty = $pdo->prepare('SELECT * FROM properties WHERE user_id = :user_id AND provincia = :provincia AND comune = :comune AND sezione <=> :sezione AND foglio = :foglio AND particella = :particella AND subalterno <=> :subalterno LIMIT 1');
     $insertProperty = $pdo->prepare(
         $hasPianoColumn
-            ? 'INSERT INTO properties (user_id, import_batch_id, provincia, comune, cod_catastale, sezione, foglio, particella, subalterno, indirizzo, civico, categoria, classe, piano, consistenza, superficie, rendita, titolarita, quota, lat, lng, posizione_verificata, stato, stato_personalizzato, colore_marker) VALUES (:user_id, :import_batch_id, :provincia, :comune, :cod_catastale, :sezione, :foglio, :particella, :subalterno, :indirizzo, :civico, :categoria, :classe, :piano, :consistenza, :superficie, :rendita, :titolarita, :quota, NULL, NULL, 0, :stato, :stato_personalizzato, :colore_marker)'
-            : 'INSERT INTO properties (user_id, import_batch_id, provincia, comune, cod_catastale, sezione, foglio, particella, subalterno, indirizzo, civico, categoria, classe, consistenza, superficie, rendita, titolarita, quota, lat, lng, posizione_verificata, stato, stato_personalizzato, colore_marker) VALUES (:user_id, :import_batch_id, :provincia, :comune, :cod_catastale, :sezione, :foglio, :particella, :subalterno, :indirizzo, :civico, :categoria, :classe, :consistenza, :superficie, :rendita, :titolarita, :quota, NULL, NULL, 0, :stato, :stato_personalizzato, :colore_marker)'
+            ? 'INSERT INTO properties (user_id, import_batch_id, provincia, comune, cod_catastale, sezione, foglio, particella, subalterno, indirizzo, civico, categoria, classe, piano, consistenza, superficie, rendita, titolarita, quota, lat, lng, posizione_verificata, coord_source, stato, stato_personalizzato, colore_marker) VALUES (:user_id, :import_batch_id, :provincia, :comune, :cod_catastale, :sezione, :foglio, :particella, :subalterno, :indirizzo, :civico, :categoria, :classe, :piano, :consistenza, :superficie, :rendita, :titolarita, :quota, :lat, :lng, :posizione_verificata, :coord_source, :stato, :stato_personalizzato, :colore_marker)'
+            : 'INSERT INTO properties (user_id, import_batch_id, provincia, comune, cod_catastale, sezione, foglio, particella, subalterno, indirizzo, civico, categoria, classe, consistenza, superficie, rendita, titolarita, quota, lat, lng, posizione_verificata, coord_source, stato, stato_personalizzato, colore_marker) VALUES (:user_id, :import_batch_id, :provincia, :comune, :cod_catastale, :sezione, :foglio, :particella, :subalterno, :indirizzo, :civico, :categoria, :classe, :consistenza, :superficie, :rendita, :titolarita, :quota, :lat, :lng, :posizione_verificata, :coord_source, :stato, :stato_personalizzato, :colore_marker)'
     );
-    // lat/lng/posizione_verificata are intentionally excluded: coordinate enrichment runs
-    // asynchronously in enrich_property_coordinates.php after the batch is persisted.
     $updateProperty = $pdo->prepare(
         $hasPianoColumn
             ? 'UPDATE properties SET import_batch_id = :import_batch_id, cod_catastale = :cod_catastale, indirizzo = :indirizzo, civico = :civico, categoria = :categoria, classe = :classe, piano = :piano, consistenza = :consistenza, superficie = :superficie, rendita = :rendita, titolarita = :titolarita, quota = :quota WHERE id = :id'
             : 'UPDATE properties SET import_batch_id = :import_batch_id, cod_catastale = :cod_catastale, indirizzo = :indirizzo, civico = :civico, categoria = :categoria, classe = :classe, consistenza = :consistenza, superficie = :superficie, rendita = :rendita, titolarita = :titolarita, quota = :quota WHERE id = :id'
+    );
+    $updatePropertyWithCoords = $pdo->prepare(
+        $hasPianoColumn
+            ? 'UPDATE properties SET import_batch_id = :import_batch_id, cod_catastale = :cod_catastale, indirizzo = :indirizzo, civico = :civico, categoria = :categoria, classe = :classe, piano = :piano, consistenza = :consistenza, superficie = :superficie, rendita = :rendita, titolarita = :titolarita, quota = :quota, lat = :lat, lng = :lng, posizione_verificata = :posizione_verificata, coord_source = :coord_source WHERE id = :id'
+            : 'UPDATE properties SET import_batch_id = :import_batch_id, cod_catastale = :cod_catastale, indirizzo = :indirizzo, civico = :civico, categoria = :categoria, classe = :classe, consistenza = :consistenza, superficie = :superficie, rendita = :rendita, titolarita = :titolarita, quota = :quota, lat = :lat, lng = :lng, posizione_verificata = :posizione_verificata, coord_source = :coord_source WHERE id = :id'
     );
     $selectCurrentOwner = $pdo->prepare('SELECT * FROM property_owners WHERE property_id = :property_id AND is_current = 1 LIMIT 1');
     $closeOwners = $pdo->prepare('UPDATE property_owners SET is_current = 0, valid_to = NOW() WHERE property_id = :property_id AND is_current = 1');
@@ -832,7 +870,8 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
 
             if ($existingProperty) {
                 $propertyId = (int) $existingProperty['id'];
-                $updateProperty->execute([
+                $hasManualCoords = $property['lat'] !== null && $property['lng'] !== null;
+                $updateParams = [
                     'import_batch_id' => $batchId,
                     'cod_catastale' => $property['cod_catastale'] !== '' ? $property['cod_catastale'] : null,
                     'indirizzo' => $property['indirizzo'] !== '' ? $property['indirizzo'] : null,
@@ -845,7 +884,17 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
                     'titolarita' => $property['titolarita'] !== '' ? $property['titolarita'] : null,
                     'quota' => $property['quota'] !== '' ? $property['quota'] : null,
                     'id' => $propertyId,
-                ] + ($hasPianoColumn ? ['piano' => $property['piano'] !== '' ? $property['piano'] : null] : []));
+                ] + ($hasPianoColumn ? ['piano' => $property['piano'] !== '' ? $property['piano'] : null] : []);
+                if ($hasManualCoords) {
+                    $updatePropertyWithCoords->execute($updateParams + [
+                        'lat' => $property['lat'],
+                        'lng' => $property['lng'],
+                        'posizione_verificata' => 1,
+                        'coord_source' => 'manual',
+                    ]);
+                } else {
+                    $updateProperty->execute($updateParams);
+                }
                 $selectCurrentOwner->execute(['property_id' => $propertyId]);
                 $currentOwner = $selectCurrentOwner->fetch();
                 $incomingSignature = analyticspro_owner_identity_signature($entry['owner']);
@@ -904,6 +953,10 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
                     'rendita' => $property['rendita'] !== '' ? $property['rendita'] : null,
                     'titolarita' => $property['titolarita'] !== '' ? $property['titolarita'] : null,
                     'quota' => $property['quota'] !== '' ? $property['quota'] : null,
+                    'lat' => $property['lat'],
+                    'lng' => $property['lng'],
+                    'posizione_verificata' => ($property['lat'] !== null && $property['lng'] !== null) ? 1 : 0,
+                    'coord_source' => ($property['lat'] !== null && $property['lng'] !== null) ? 'manual' : null,
                     'stato' => null,
                     'stato_personalizzato' => null,
                     'colore_marker' => '#0d6efd',

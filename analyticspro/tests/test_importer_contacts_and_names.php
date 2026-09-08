@@ -122,6 +122,33 @@ if (($reorderedPayload['owner']['data_nascita'] ?? null) !== '1980-02-26') {
     $errors[] = 'Mapping data nascita con colonne riordinate non corretto: ' . json_encode($reorderedPayload['owner']['data_nascita'] ?? null);
 }
 
+$invalidQuotaPayload = analyticspro_extract_row_payload([
+    'Quota' => '2001-01-01',
+    'Comune' => 'Calcinato',
+    'Provincia' => 'BS',
+    'Codice Catastale' => 'B394',
+    'Foglio' => '34',
+    'Particella' => '351',
+]);
+if (($invalidQuotaPayload['property']['quota'] ?? 'x') !== '') {
+    $pass = false;
+    $errors[] = 'Quota con formato data deve essere ignorata: ' . json_encode($invalidQuotaPayload['property']['quota'] ?? null);
+}
+
+$manualCoordinatePayload = analyticspro_extract_row_payload([
+    'Comune' => 'Calcinato',
+    'Provincia' => 'BS',
+    'Codice Catastale' => 'B394',
+    'Foglio' => '34',
+    'Particella' => '351',
+    'Latitudine' => '45.489',
+    'Longitudine' => '10.410',
+]);
+if (abs((float) ($manualCoordinatePayload['property']['lat'] ?? 0) - 45.489) > 0.000001 || abs((float) ($manualCoordinatePayload['property']['lng'] ?? 0) - 10.410) > 0.000001) {
+    $pass = false;
+    $errors[] = 'Coordinate manuali non mappate correttamente: ' . json_encode($manualCoordinatePayload['property']);
+}
+
 if ($pass) {
     echo "PASS: contatti multipli e nomi multipli OK\n";
     exit(0);
