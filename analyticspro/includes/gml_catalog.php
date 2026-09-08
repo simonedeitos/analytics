@@ -965,22 +965,14 @@ function analyticspro_gml_search_comuni(string $query, int $limit = 12, ?array $
         }
     }
 
-    usort($matches, static fn (array $a, array $b): int => strcmp($a['comune'], $b['comune']));
+    usort($matches, static fn (array $a, array $b): int => strcasecmp($a['comune'], $b['comune']));
     $results = array_values(array_slice($matches, 0, max(1, $limit)));
-    if ($results !== [] || is_array($catalogOverride)) {
-        return $results;
-    }
-
-    $fallback = analyticspro_gml_search_comuni_from_db($normQuery, $compactQuery, $limit);
-    if ($fallback !== []) {
-        return $fallback;
-    }
 
     if ($catalog === []) {
         error_log('[gml_catalog] search comuni without catalog entries for query "' . $query . '".');
     }
 
-    return [];
+    return $results;
 }
 
 /**

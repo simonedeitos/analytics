@@ -27,6 +27,11 @@
         { label: 'Fucsia · P7', value: '#d63384' },
         { label: 'Viola · P8', value: '#6f42c1' }
     ];
+    const CATASTRAL_WMS_BASE_URL = 'https://wms.cartografia.agenziaentrate.gov.it/inspire/wms/ows01.php?language=ita';
+    const CATASTRAL_OPACITY_STORAGE_KEY = 'cadastral-layer-opacity';
+    const DEFAULT_CATASTRAL_OPACITY = 0.5;
+    const CATASTRAL_MIN_ZOOM = 10;
+    const CATASTRAL_LOOKUP_TIMEOUT_MS = 12000;
 
     var state = {
         csrfToken: document.querySelector('meta[name="csrf-token"]') ? document.querySelector('meta[name="csrf-token"]').content : '',
@@ -121,6 +126,25 @@
     function writeLocalFlag(key, enabled) {
         try {
             window.localStorage.setItem(localStorageKey(key), enabled ? '1' : '0');
+        } catch (error) {
+        }
+    }
+
+    function getStoredCadastralOpacity() {
+        try {
+            var savedValue = window.localStorage.getItem(localStorageKey(CATASTRAL_OPACITY_STORAGE_KEY));
+            if (savedValue === null) return DEFAULT_CATASTRAL_OPACITY;
+            var saved = parseFloat(savedValue);
+            if (!Number.isFinite(saved)) return DEFAULT_CATASTRAL_OPACITY;
+            return Math.min(1, Math.max(0, saved));
+        } catch (error) {
+            return DEFAULT_CATASTRAL_OPACITY;
+        }
+    }
+
+    function setStoredCadastralOpacity(value) {
+        try {
+            window.localStorage.setItem(localStorageKey(CATASTRAL_OPACITY_STORAGE_KEY), String(Math.min(1, Math.max(0, value))));
         } catch (error) {
         }
     }
@@ -1830,7 +1854,11 @@
     }
 
     function cadastralLayerBaseUrl() {
-        return state.wmsProxyEndpoint || 'https://wms.cartografia.agenziaentrate.gov.it/inspire/wms/ows01.php?language=ita';
+        if (!state.wmsProxyEndpoint) {
+            return CATASTRAL_WMS_BASE_URL;
+        }
+        var separator = state.wmsProxyEndpoint.indexOf('?') === -1 ? '?' : '&';
+        return state.wmsProxyEndpoint + separator + 'url=' + encodeURIComponent(CATASTRAL_WMS_BASE_URL);
     }
 
     function createFindAreaPinIcon() {
@@ -1858,8 +1886,25 @@
     function updateCadastralZoomHint() {
         var hint = document.getElementById('map-cadastral-zoom-hint');
         if (!hint) return;
-        var shouldShow = !!state.cadastralLayerEnabled && state.map && state.map.getZoom() < 10;
+        var shouldShow = !!state.cadastralLayerEnabled && state.map && state.map.getZoom() < CATASTRAL_MIN_ZOOM;
         hint.classList.toggle('d-none', !shouldShow);
+    }
+
+    function syncCadastralOpacityControl() {
+        var wrap = document.getElementById('cadastral-opacity-control');
+        var slider = document.getElementById('cadastral-opacity-slider');
+        var valueEl = document.getElementById('cadastral-opacity-value');
+        if (!slider || !valueEl) return;
+        var initialOpacity = getStoredCadastralOpacity();
+        var initialValue = Math.round(initialOpacity * 100);
+        slider.value = String(initialValue);
+        valueEl.textContent = initialValue + '%';
+        if (state.cadastralLayer) {
+            state.cadastralLayer.setOpacity(initialOpacity);
+        }
+        if (wrap) {
+            wrap.classList.toggle('d-none', !state.cadastralLayerEnabled);
+        }
     }
 
     function buildCadastralPopupHtml(details, latlng) {
@@ -1894,15 +1939,22 @@
 
     function createCadastralLayer() {
         if (!state.map) return null;
+        ensureLeafletEpsg4258();
         return L.tileLayer.wms(cadastralLayerBaseUrl(), {
             layers: 'province,CP.CadastralZoning,CP.CadastralParcel,fabbricati,strade,vestizioni,acque',
             format: 'image/png',
             transparent: true,
             version: '1.1.1',
-            crs: L.CRS.EPSG3857,
-            uppercase: true,
-            minZoom: 10,
+            crs: L.CRS.EPSG4258,
+            opacity: getStoredCadastralOpacity(),
+            zIndex: 200,
+            minZoom: CATASTRAL_MIN_ZOOM,
             maxZoom: 22,
+            attribution: '© Agenzia delle Entrate',
+            updateWhenIdle: false,
+            updateWhenZooming: false,
+            keepBuffer: 4,
+            errorTileUrl: '',
         });
     }
 
@@ -1937,10 +1989,14 @@
             if (state.cadastralLayer && state.map && !state.map.hasLayer(state.cadastralLayer)) {
                 state.cadastralLayer.addTo(state.map);
             }
+            if (state.cadastralLayer) {
+                state.cadastralLayer.setOpacity(getStoredCadastralOpacity());
+            }
         } else if (state.cadastralLayer && state.map && state.map.hasLayer(state.cadastralLayer)) {
             state.map.removeLayer(state.cadastralLayer);
         }
         syncCadastralClickBinding();
+        syncCadastralOpacityControl();
         updateCadastralZoomHint();
     }
 
@@ -1973,6 +2029,9 @@
         var response = await fetch('https://wms.cartografia.agenziaentrate.gov.it/inspire/ajax/ajax.php?op=getDatiOggetto&lon=' + encodeURIComponent(latlng.lng) + '&lat=' + encodeURIComponent(latlng.lat), {
             method: 'GET',
             headers: { 'Accept': 'application/json' },
+            signal: window.AbortSignal && typeof window.AbortSignal.timeout === 'function'
+                ? window.AbortSignal.timeout(CATASTRAL_LOOKUP_TIMEOUT_MS)
+                : undefined,
         });
         if (!response.ok) {
             throw new Error('Richiesta AdE non disponibile.');
@@ -1984,18 +2043,38 @@
         if (!state.featureInfoEndpoint) {
             throw new Error('Endpoint catastale non configurato.');
         }
-        var query = '?lat=' + encodeURIComponent(String(latlng.lat)) + '&lng=' + encodeURIComponent(String(latlng.lng));
-        return api(state.featureInfoEndpoint + query);
+        var zoom = state.map ? state.map.getZoom() : '';
+        var query = '?lat=' + encodeURIComponent(String(latlng.lat))
+            + '&lng=' + encodeURIComponent(String(latlng.lng))
+            + '&zoom=' + encodeURIComponent(String(zoom));
+        var response = await fetch(state.featureInfoEndpoint + query, {
+            method: 'GET',
+            headers: { 'Accept': 'application/json' },
+            signal: window.AbortSignal && typeof window.AbortSignal.timeout === 'function'
+                ? window.AbortSignal.timeout(CATASTRAL_LOOKUP_TIMEOUT_MS)
+                : undefined,
+        });
+        var payload = await response.json();
+        if (!response.ok || payload.ok === false) {
+            if (response.status === 404 || payload.found === false) {
+                return null;
+            }
+            throw new Error(payload.error || 'Impossibile recuperare i dati catastali.');
+        }
+        if (payload.found === false) {
+            return null;
+        }
+        return payload;
     }
 
     async function handleCadastralMapClick(event) {
         if (!state.cadastralLayerEnabled || !state.map) return;
-        if (state.map.getZoom() < 10) {
+        if (state.map.getZoom() < CATASTRAL_MIN_ZOOM) {
             showMapFeedback('Ingrandisci la mappa almeno al livello 10 per interrogare il layer catastale.', 'warning', 2600);
             updateCadastralZoomHint();
             return;
         }
-        showMapFeedback('Recupero dati catastali in corso…', 'light');
+        showMapFeedback('Recupero dati catastali in corso…', 'info');
         var details = null;
         try {
             details = await tryDirectCadastralLookup(event.latlng);
@@ -2013,10 +2092,10 @@
             }
         }
         if (!details || (!details.comune && !details.foglio && !details.particella)) {
-            showMapFeedback('Nessun dato catastale disponibile per il punto selezionato.', 'warning', 2600);
+            showMapFeedback('Nessuna particella in questo punto.', 'warning', 2600);
             return;
         }
-        showMapFeedback('', 'light');
+        showMapFeedback('Dati catastali trovati.', 'success', 1800);
         state.cadastralPopup = L.popup({ maxWidth: 420 })
             .setLatLng(event.latlng)
             .setContent(buildCadastralPopupHtml(details, event.latlng))
@@ -2214,6 +2293,8 @@
 
     function initCadastralUi() {
         var toggle = document.getElementById('cadastral-layer-toggle');
+        var slider = document.getElementById('cadastral-opacity-slider');
+        var valueEl = document.getElementById('cadastral-opacity-value');
         if (!toggle) return;
         toggle.checked = state.cadastralLayerEnabled;
         toggle.addEventListener('change', function () {
@@ -2225,6 +2306,18 @@
                 if (state.map) state.map.closePopup();
             }
         });
+        if (slider && valueEl) {
+            slider.addEventListener('input', function () {
+                var nextValue = parseInt(slider.value, 10);
+                var opacity = Number.isFinite(nextValue) ? Math.max(0, Math.min(100, nextValue)) / 100 : DEFAULT_CATASTRAL_OPACITY;
+                valueEl.textContent = Math.round(opacity * 100) + '%';
+                if (state.cadastralLayer) {
+                    state.cadastralLayer.setOpacity(opacity);
+                }
+                setStoredCadastralOpacity(opacity);
+            });
+        }
+        syncCadastralOpacityControl();
         updateCadastralZoomHint();
     }
 
