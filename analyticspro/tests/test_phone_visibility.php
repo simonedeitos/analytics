@@ -18,6 +18,7 @@ function build_owner_payload(array $owner, bool $showPhone): array
         'indirizzo' => $owner['indirizzo'],
         'email' => $owner['email'],
         'data_nascita' => $owner['data_nascita'],
+        'luogo_nascita' => $owner['luogo_nascita'],
         'genere' => $owner['genere'],
     ];
     if ($showPhone) {
@@ -35,6 +36,7 @@ $owner = [
     'indirizzo' => 'Via Roma 1',
     'email' => 'mario@example.com',
     'data_nascita' => '1980-01-01',
+    'luogo_nascita' => 'Brescia (BS)',
     'genere' => 'M',
 ];
 
@@ -51,6 +53,10 @@ $payloadNoPhone = build_owner_payload($owner, false);
 if (array_key_exists('telefono', $payloadNoPhone)) {
     $pass = false;
     $errors[] = 'telefono presente nel payload quando showPhone=false';
+}
+if (($payloadNoPhone['luogo_nascita'] ?? null) !== 'Brescia (BS)') {
+    $pass = false;
+    $errors[] = 'luogo_nascita deve restare nel payload indipendentemente dal telefono';
 }
 
 if ($pass) {

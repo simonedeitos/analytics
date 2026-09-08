@@ -131,6 +131,7 @@ analyticspro_render_header('Importa dati', ['app_assets' => true]);
                     <div class="col-md-4"><label class="form-label small">Codice fiscale / P.IVA</label><input class="form-control form-control-sm" name="Codice Fiscale"></div>
                     <div class="col-md-6"><label class="form-label small">Contatti</label><textarea class="form-control form-control-sm" name="Contatti" rows="2" placeholder="Es. 3380000000,0300000000 - nome@email.it"></textarea></div>
                     <div class="col-md-6"><label class="form-label small">Indirizzo proprietario</label><input class="form-control form-control-sm" name="Indirizzo Proprietario"></div>
+                    <div class="col-md-4"><label class="form-label small">Nato a</label><input class="form-control form-control-sm" name="Nato A" placeholder="Es. MONTICHIARI (BS)"></div>
                     <div class="col-md-4"><label class="form-label small">Data nascita</label><input class="form-control form-control-sm" name="Data Nascita" placeholder="GG/MM/AAAA oppure AAAA-MM-GG"></div>
                     <div class="col-12"><label class="form-label small">Note</label><textarea class="form-control form-control-sm" name="Note" rows="3"></textarea></div>
                 </form>

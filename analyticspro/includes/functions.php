@@ -173,6 +173,21 @@ function analyticspro_remove_phone_value(?string $raw, ?string $phoneToRemove): 
     return $updated ? implode(';', $updated) : null;
 }
 
+function analyticspro_add_phone_value(?string $raw, string $phoneToAdd): string
+{
+    $phoneToAdd = trim($phoneToAdd);
+    if ($phoneToAdd === '') {
+        return trim((string) $raw);
+    }
+
+    $phones = analyticspro_phone_tokens($raw);
+    if (!in_array($phoneToAdd, $phones, true)) {
+        $phones[] = $phoneToAdd;
+    }
+
+    return implode(';', $phones);
+}
+
 function analyticspro_random_password(int $length = 12): string
 {
     $alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%';

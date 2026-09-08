@@ -32,6 +32,7 @@ $owners = [
     ['comune' => 'Milano', 'sezione' => '', 'foglio' => '10', 'particella' => '200', 'subalterno' => 'A', 'nome' => 'Mario'],
     ['comune' => 'Milano', 'sezione' => '', 'foglio' => '10', 'particella' => '200', 'subalterno' => 'A', 'nome' => 'Lucia'],
     ['comune' => 'Milano', 'sezione' => '', 'foglio' => '10', 'particella' => '200', 'subalterno' => 'B', 'nome' => 'Paolo'],
+    ['comune' => 'Brescia', 'sezione' => '', 'foglio' => '10', 'particella' => '200', 'subalterno' => 'A', 'nome' => 'Gianni'],
 ];
 
 $groups = group_by_unit($owners);
@@ -39,16 +40,16 @@ $groups = group_by_unit($owners);
 $pass = true;
 $errors = [];
 
-if (count($groups) !== 2) {
+if (count($groups) !== 3) {
     $pass = false;
-    $errors[] = 'Attesi 2 gruppi, trovati ' . count($groups);
+    $errors[] = 'Attesi 3 gruppi, trovati ' . count($groups);
 }
 
 $groupSizes = array_map('count', $groups);
 sort($groupSizes);
-if ($groupSizes !== [1, 2]) {
+if ($groupSizes !== [1, 1, 2]) {
     $pass = false;
-    $errors[] = 'Dimensioni gruppi attese [1,2], trovate ' . implode(',', $groupSizes);
+    $errors[] = 'Dimensioni gruppi attese [1,1,2], trovate ' . implode(',', $groupSizes);
 }
 
 $subAGroup = null;
@@ -66,6 +67,20 @@ if ($subAGroup === null) {
     if ($names !== ['Lucia', 'Mario']) {
         $pass = false;
         $errors[] = 'Gruppo da 2 contiene ' . implode(',', $names) . ' invece di Mario,Lucia';
+    }
+
+    $mixedComuneGroupFound = false;
+    foreach ($groups as $group) {
+        $names = array_column($group, 'nome');
+        sort($names);
+        if ($names === ['Gianni', 'Lucia', 'Mario']) {
+            $mixedComuneGroupFound = true;
+            break;
+        }
+    }
+    if ($mixedComuneGroupFound) {
+        $pass = false;
+        $errors[] = 'Proprietà con comune diverso non devono essere accorpate nello stesso gruppo';
     }
 }
 

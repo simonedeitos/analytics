@@ -65,6 +65,18 @@ if ($empty !== null) {
     $errors[] = 'Stringa vuota deve restare nulla: ' . json_encode($empty);
 }
 
+$added = analyticspro_add_phone_value('111;222', '333');
+if ($added !== '111;222;333') {
+    $pass = false;
+    $errors[] = 'Aggiunta numero non corretta: ' . json_encode($added);
+}
+
+$addedDup = analyticspro_add_phone_value('111;222', '222');
+if ($addedDup !== '111;222') {
+    $pass = false;
+    $errors[] = 'Aggiunta duplicato non deve alterare la lista: ' . json_encode($addedDup);
+}
+
 if ($pass) {
     echo "PASS: rimozione telefoni multipli OK\n";
     exit(0);

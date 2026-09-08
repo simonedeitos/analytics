@@ -108,7 +108,7 @@ analyticspro_render_header('Aiuto');
                         <div id="g2" class="accordion-collapse collapse" data-bs-parent="#guideAccordion">
                             <div class="accordion-body small">
                                 <h6>Formati supportati</h6>
-                                <p>Puoi importare file <strong>.csv</strong>, <strong>.xlsx</strong> e <strong>.xls</strong>. Il file deve contenere almeno le colonne catastali minime: <em>Provincia, Comune, Foglio, Particella, Subalterno, Indirizzo, Categoria, Codice Fiscale, Titolarità, Quota, Contatti, Data Nascita</em>. L'ordine delle colonne non è vincolante; l'intestazione viene riconosciuta in modo non case-sensitive e tutte le colonne previste dal template vengono lette anche se contengono testo o numeri in celle normalmente lasciate vuote.</p>
+                                <p>Puoi importare file <strong>.csv</strong>, <strong>.xlsx</strong> e <strong>.xls</strong>. Il file deve contenere almeno le colonne catastali minime: <em>Provincia, Comune, Foglio, Particella, Subalterno, Indirizzo, Categoria, Codice Fiscale, Titolarità, Quota, Contatti, Nato A, Data Nascita</em>. L'ordine delle colonne non è vincolante; l'intestazione viene riconosciuta in modo non case-sensitive e tutte le colonne previste dal template vengono lette anche se contengono testo o numeri in celle normalmente lasciate vuote.</p>
 
                                 <h6 class="mt-3">Come avviare l'import</h6>
                                 <ol>
@@ -155,7 +155,7 @@ analyticspro_render_header('Aiuto');
                                     <li>Dati catastali dell'immobile (Comune, Foglio, Particella, Subalterno, Indirizzo, Categoria) con intestazione rapida di <strong>Classe, Rendita, Piano, Consistenza</strong>.</li>
                                     <li>Elenco di tutti gli intestatari correnti con <strong><i class="bi bi-person"></i> icona persona</strong> per le persone fisiche o <strong><i class="bi bi-building"></i> icona azienda</strong> per le persone giuridiche.</li>
                                     <li>Stato attuale, colore, note, assegnazioni e pulsanti rapidi per copiare i numeri di telefono.</li>
-                                    <li>Nel modal <strong>Modifica marker</strong>, per ogni intestatario puoi eliminare i singoli numeri non più validi con il pulsante <strong>✕</strong> (con conferma esplicita prima del salvataggio definitivo).</li>
+                                    <li>Nel modal <strong>Modifica marker</strong>, per ogni intestatario puoi eliminare i singoli numeri non più validi con il pulsante <strong>✕</strong> oppure aggiungerne di nuovi con il pulsante <strong>[+]</strong>.</li>
                                 </ul>
 
                                 <h6 class="mt-3">Stato del marker</h6>
@@ -297,7 +297,7 @@ analyticspro_render_header('Aiuto');
                         ],
                         [
                             'q' => 'Quali formati di file posso importare?',
-                            'a' => 'Puoi importare file .csv, .xlsx e .xls. Il file deve contenere le colonne catastali attese: Provincia, Comune, Foglio, Particella, Subalterno, Indirizzo, Categoria, Codice Fiscale, Titolarità, Quota, Contatti, Data Nascita. Se sono presenti colonne come Note, Piano, Nome1, Nome2 o Nome3, vengono importate automaticamente nei campi corretti.',
+                            'a' => 'Puoi importare file .csv, .xlsx e .xls. Il file deve contenere le colonne catastali attese: Provincia, Comune, Foglio, Particella, Subalterno, Indirizzo, Categoria, Codice Fiscale, Titolarità, Quota, Contatti, Nato A, Data Nascita. Se sono presenti colonne come Note, Piano, Nome1, Nome2 o Nome3, vengono importate automaticamente nei campi corretti.',
                         ],
                         [
                             'q' => 'Posso chiudere la pagina durante l\'import?',

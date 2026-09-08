@@ -799,6 +799,118 @@ function analyticspro_gml_lookup(
 }
 
 /**
+ * Ricerca il bounding box del foglio nell'indice SQLite locale.
+ *
+ * @return array{min_lat:float,min_lng:float,max_lat:float,max_lng:float,lat:float,lng:float,count:int,cod_foglio:string}|null
+ */
+function analyticspro_gml_lookup_foglio_bounds(
+    string $belfiore,
+    string $foglio,
+    string $allegato = '',
+    string $sviluppo = '',
+    ?string $dbPathOverride = null
+): ?array {
+    $belfiore = strtoupper(trim($belfiore));
+    if (!preg_match('/^[A-Z][0-9]{3}$/', $belfiore)) {
+        $belfiore = analyticspro_gml_belfiore_da_comune($belfiore) ?? '';
+    }
+    if ($belfiore === '') {
+        return null;
+    }
+
+    if ($dbPathOverride === null && !analyticspro_gml_parcel_index_valid($belfiore)) {
+        return null;
+    }
+    $dbPath = $dbPathOverride !== null && $dbPathOverride !== ''
+        ? $dbPathOverride
+        : analyticspro_gml_index_dir() . '/' . $belfiore . '.sqlite';
+    if (!is_file($dbPath)) {
+        return null;
+    }
+
+    $codFoglio = analyticspro_gml_codice_foglio($foglio, $allegato, $sviluppo);
+    $foglio4 = substr($codFoglio, 0, 4);
+    try {
+        $db = new SQLite3($dbPath, SQLITE3_OPEN_READONLY);
+        $stmt = $db->prepare(
+            'SELECT MIN(lat) AS min_lat, MAX(lat) AS max_lat, MIN(lon) AS min_lng, MAX(lon) AS max_lng, COUNT(*) AS n
+             FROM parcels
+             WHERE cod_foglio = :cf OR substr(cod_foglio, 1, 4) = :f4'
+        );
+        if ($stmt === false) {
+            $db->close();
+            return null;
+        }
+        $stmt->bindValue(':cf', $codFoglio, SQLITE3_TEXT);
+        $stmt->bindValue(':f4', $foglio4, SQLITE3_TEXT);
+        $result = $stmt->execute();
+        $row = $result !== false ? $result->fetchArray(SQLITE3_ASSOC) : false;
+        $db->close();
+        if ($row === false || (int) ($row['n'] ?? 0) <= 0) {
+            return null;
+        }
+        $minLat = (float) $row['min_lat'];
+        $maxLat = (float) $row['max_lat'];
+        $minLng = (float) $row['min_lng'];
+        $maxLng = (float) $row['max_lng'];
+        return [
+            'min_lat' => $minLat,
+            'min_lng' => $minLng,
+            'max_lat' => $maxLat,
+            'max_lng' => $maxLng,
+            'lat' => ($minLat + $maxLat) / 2,
+            'lng' => ($minLng + $maxLng) / 2,
+            'count' => (int) $row['n'],
+            'cod_foglio' => $codFoglio,
+        ];
+    } catch (Throwable $exception) {
+        error_log('[gml_catalog] lookup foglio bounds error: ' . $exception->getMessage());
+        return null;
+    }
+}
+
+/**
+ * @return array<int,array{comune:string,belfiore:string}>
+ */
+function analyticspro_gml_search_comuni(string $query, int $limit = 12): array
+{
+    $query = trim($query);
+    if ($query === '') {
+        return [];
+    }
+
+    $normQuery = analyticspro_gml_norm_nome_comune($query);
+    $compactQuery = str_replace(' ', '', $normQuery);
+    if ($normQuery === '') {
+        return [];
+    }
+
+    $catalog = analyticspro_gml_build_catalog();
+    $matches = [];
+    foreach ($catalog as $belfiore => $entry) {
+        $comune = trim((string) ($entry['nome'] ?? ''));
+        if ($comune === '') {
+            $comune = analyticspro_gml_nome_comune((string) $belfiore);
+        }
+        if ($comune === '') {
+            continue;
+        }
+        $normComune = analyticspro_gml_norm_nome_comune($comune);
+        $compactComune = str_replace(' ', '', $normComune);
+        if (!str_contains($normComune, $normQuery) && !str_contains($compactComune, $compactQuery)) {
+            continue;
+        }
+        $key = strtoupper($comune);
+        if (!isset($matches[$key])) {
+            $matches[$key] = ['comune' => $comune, 'belfiore' => (string) $belfiore];
+        }
+    }
+
+    usort($matches, static fn (array $a, array $b): int => strcmp($a['comune'], $b['comune']));
+    return array_values(array_slice($matches, 0, max(1, $limit)));
+}
+
+/**
  * Ricerca nell'indice SQLite con foglio esatto e fallback sui primi 4 caratteri.
  *
  * @return array{lat:float,lon:float,area_mq:float,ref:string,local_id:string,cod_foglio:string}|null
