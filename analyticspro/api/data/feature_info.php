@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 require dirname(__DIR__, 2) . '/includes/bootstrap.php';
 require_once ANALYTICSPRO_ROOT . '/includes/api_bootstrap.php';
+require_once ANALYTICSPRO_ROOT . '/includes/cadastral_map.php';
 
 analyticspro_api_guard();
 analyticspro_api_require_auth();
@@ -14,11 +15,14 @@ function analyticspro_feature_info_request(string $url, string $accept): array
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_CONNECTTIMEOUT => 8,
         CURLOPT_TIMEOUT => 20,
         CURLOPT_SSL_VERIFYPEER => true,
+        CURLOPT_ENCODING => '',
         CURLOPT_USERAGENT => 'AnalyticsPRO/1.0',
         CURLOPT_HTTPHEADER => [
             'Accept: ' . $accept,
+            'Accept-Language: it-IT,it;q=0.9',
             'Referer: https://wms.cartografia.agenziaentrate.gov.it/',
         ],
     ]);
@@ -33,6 +37,16 @@ function analyticspro_feature_info_request(string $url, string $accept): array
     }
 
     return ['status' => $status, 'content_type' => $contentType, 'body' => (string) $body];
+}
+
+function analyticspro_feature_info_complete_fields(array $fields, float $lat, float $lng): ?array
+{
+    $normalized = analyticspro_feature_info_normalize($fields);
+    if ($normalized === null) {
+        return null;
+    }
+
+    return analyticspro_cadastral_complete_fields($normalized, $lat, $lng);
 }
 
 function analyticspro_feature_info_lookup(array $source, array $aliases): string
@@ -212,7 +226,11 @@ try {
     try {
         $ajaxResponse = analyticspro_feature_info_request($ajaxUrl, 'application/json');
         if ($ajaxResponse['status'] < 400) {
-            $ajaxFields = analyticspro_feature_info_from_json($ajaxResponse['body']);
+            $ajaxFields = analyticspro_feature_info_complete_fields(
+                analyticspro_feature_info_from_json($ajaxResponse['body']) ?? [],
+                $lat,
+                $lng
+            );
             if ($ajaxFields !== null) {
                 analyticspro_json(['ok' => true, 'found' => true] + $ajaxFields + ['source' => 'ajax']);
             }
@@ -264,7 +282,7 @@ try {
             error_log('[feature_info] GetFeatureInfo status=' . $response['status'] . ' format=' . $format . ' lat=' . $lat . ' lng=' . $lng);
             continue;
         }
-        $fields = $parser($response['body']);
+        $fields = analyticspro_feature_info_complete_fields($parser($response['body']) ?? [], $lat, $lng);
         if ($fields !== null) {
             analyticspro_json(['ok' => true, 'found' => true] + $fields + ['source' => 'feature_info', 'info_format' => $format, 'zoom' => $zoom]);
         }
