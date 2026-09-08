@@ -431,6 +431,17 @@ body {
 .dataTable td .btn-sm { padding: .2rem .45rem; }
 .manual-record-lockable.readonly {
     background-color: #eef3fb;
+    color: #495057;
+    cursor: not-allowed;
+    box-shadow: none;
+}
+.manual-record-lockable.readonly:focus {
+    background-color: #eef3fb;
+    border-color: #b8c6dd;
+    box-shadow: 0 0 0 .2rem rgba(42, 81, 159, .08);
+}
+.manual-record-lockable.readonly::placeholder {
+    color: #6c757d;
 }
 
 /* ----- Misc ---------------------------------------------------------- */

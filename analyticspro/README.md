@@ -96,6 +96,18 @@ Le tabelle aggiunte sono:
 
 Richiede **MySQL 8.0+** o **MariaDB 10.5+** per il supporto a `GEOMETRY` con SRID e `SPATIAL INDEX`.
 
+### Mappa catastale AdE in `mappa.php`
+
+La pagina `analyticspro/mappa.php` usa un flusso mappa catastale portato/adattato dal progetto
+gemello **CataMap**:
+
+- `api/data/wms_proxy.php` fa da proxy server-side per le tile WMS AdE, con validazione host,
+  cache breve e header dedicati per evitare blocchi CORS/referer lato browser;
+- `api/data/feature_info.php` completa i dati del click mappa con normalizzazione comune/provincia,
+  risoluzione del codice catastale e fallback di reverse geocoding lato server;
+- `assets/js/analyticspro.js` gestisce toggle layer, retry delle tile fallite, hint di zoom minimo
+  e slider di opacità persistente in `localStorage`.
+
 ### Lookup coordinate
 
 > **⚠️ Comportamento aggiornato:** la funzione `analyticspro_lookup_cadastral_coordinates()` in

@@ -32,6 +32,10 @@
     const DEFAULT_CATASTRAL_OPACITY = 0.5;
     const CATASTRAL_MIN_ZOOM = 10;
     const CATASTRAL_LOOKUP_TIMEOUT_MS = 12000;
+    const CATASTRAL_TILE_RETRY_LIMIT = 2;
+    const CATASTRAL_TILE_RETRY_DELAY_MS = 900;
+    const CATASTRAL_ERROR_TILE_URL = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
+    const MANUAL_RECORD_AUTOFILL_TITLE = 'Compilato automaticamente dalla mappa';
 
     var state = {
         csrfToken: document.querySelector('meta[name="csrf-token"]') ? document.querySelector('meta[name="csrf-token"]').content : '',
@@ -77,6 +81,7 @@
         cadastralClickBound: false,
         cadastralPopup: null,
         manualRecordModal: null,
+        cadastralTileWarningShown: false,
     };
 
     state.mapStatiFilter = Object.keys(STATE_OPTIONS).slice();
@@ -1236,6 +1241,7 @@
         var data = {};
         Array.from(form.elements).forEach(function (field) {
             if (!field.name) return;
+            if (field.name.indexOf('__manual_record_locked__') === 0) return;
             data[field.name] = String(field.value || '').trim();
         });
         return data;
@@ -1246,13 +1252,67 @@
         return Object.keys(data).some(function (key) { return data[key] !== ''; });
     }
 
+    function manualRecordHiddenMirrorName(name) {
+        return name ? ('__manual_record_locked__' + name) : '';
+    }
+
+    function removeManualRecordHiddenMirror(form, field) {
+        if (!form || !field || !field.name) return;
+        var mirror = Array.from(form.querySelectorAll('input[type="hidden"][data-manual-record-mirror-for]')).find(function (item) {
+            return item.dataset.manualRecordMirrorFor === field.name;
+        });
+        if (mirror) mirror.remove();
+    }
+
+    function ensureManualRecordHiddenMirror(form, field) {
+        if (!form || !field || !field.name) return null;
+        var mirror = Array.from(form.querySelectorAll('input[type="hidden"][data-manual-record-mirror-for]')).find(function (item) {
+            return item.dataset.manualRecordMirrorFor === field.name;
+        });
+        if (!mirror) {
+            mirror = document.createElement('input');
+            mirror.type = 'hidden';
+            mirror.name = manualRecordHiddenMirrorName(field.name);
+            mirror.dataset.manualRecordMirrorFor = field.name;
+            form.appendChild(mirror);
+        }
+        mirror.value = field.value || '';
+        return mirror;
+    }
+
+    function setManualRecordFieldLocked(form, field, shouldLock) {
+        if (!field) return;
+        field.classList.toggle('readonly', shouldLock);
+        field.dataset.autoFilled = shouldLock ? '1' : '0';
+        field.title = shouldLock ? MANUAL_RECORD_AUTOFILL_TITLE : '';
+        if (shouldLock) {
+            field.setAttribute('aria-label', (field.getAttribute('aria-label') || field.name || 'Campo') + ' · ' + MANUAL_RECORD_AUTOFILL_TITLE);
+        } else if (field.hasAttribute('aria-label') && field.getAttribute('aria-label').indexOf(' · ' + MANUAL_RECORD_AUTOFILL_TITLE) !== -1) {
+            field.setAttribute('aria-label', field.getAttribute('aria-label').replace(' · ' + MANUAL_RECORD_AUTOFILL_TITLE, ''));
+        }
+        if (field.tagName === 'SELECT') {
+            field.disabled = shouldLock;
+            if (shouldLock) {
+                ensureManualRecordHiddenMirror(form, field);
+            } else {
+                removeManualRecordHiddenMirror(form, field);
+            }
+            return;
+        }
+        field.readOnly = shouldLock;
+    }
+
     function resetManualRecordForm() {
         var form = document.getElementById('manual-record-form');
         var feedback = document.getElementById('manual-record-feedback');
         if (form) form.reset();
+        if (form) {
+            Array.from(form.querySelectorAll('input[type="hidden"][data-manual-record-mirror-for]')).forEach(function (field) {
+                field.remove();
+            });
+        }
         Array.from(document.querySelectorAll('.manual-record-lockable')).forEach(function (field) {
-            field.readOnly = false;
-            field.classList.remove('readonly');
+            setManualRecordFieldLocked(form, field, false);
         });
         if (feedback) {
             feedback.className = 'alert d-none py-2';
@@ -1265,6 +1325,9 @@
         var field = form.elements.namedItem(name);
         if (!field) return;
         field.value = value === null || value === undefined ? '' : String(value);
+        if (field.tagName === 'SELECT' && field.disabled) {
+            ensureManualRecordHiddenMirror(form, field);
+        }
     }
 
     function prefillManualRecordForm(values, lockedFields) {
@@ -1276,8 +1339,7 @@
         });
         Array.from(document.querySelectorAll('.manual-record-lockable')).forEach(function (field) {
             var shouldLock = Array.isArray(lockedFields) && lockedFields.indexOf(field.name) !== -1;
-            field.readOnly = shouldLock;
-            field.classList.toggle('readonly', shouldLock);
+            setManualRecordFieldLocked(form, field, shouldLock);
         });
     }
 
@@ -1905,11 +1967,13 @@
         if (wrap) {
             wrap.classList.toggle('d-none', !state.cadastralLayerEnabled);
         }
+        slider.disabled = !state.cadastralLayerEnabled;
+        valueEl.classList.toggle('text-muted', !state.cadastralLayerEnabled);
     }
 
     function buildCadastralPopupHtml(details, latlng) {
         var rows = [];
-        [['Comune', details.comune], ['Foglio', details.foglio], ['Particella', details.particella], ['Subalterno', details.subalterno], ['Categoria', details.categoria], ['Indirizzo', details.indirizzo]].forEach(function (entry) {
+        [['Provincia', details.provincia], ['Comune', details.comune], ['Codice catastale', details.cod_catastale], ['Foglio', details.foglio], ['Particella', details.particella], ['Subalterno', details.subalterno], ['Categoria', details.categoria], ['Indirizzo', details.indirizzo]].forEach(function (entry) {
             if (!entry[1]) return;
             rows.push('<li><strong>' + escapeHtml(entry[0]) + ':</strong> ' + escapeHtml(entry[1]) + '</li>');
         });
@@ -1937,10 +2001,71 @@
             + '</div></div></div>';
     }
 
+    function cadastralTileRetryUrl(url, attempt) {
+        var retryParam = '_ap_tile_retry';
+        var retryValue = String(attempt || 0);
+        try {
+            var parsed = new URL(url, window.location.origin);
+            parsed.searchParams.set(retryParam, retryValue);
+            return parsed.toString();
+        } catch (error) {
+            var separator = url.indexOf('?') === -1 ? '?' : '&';
+            return url + separator + retryParam + '=' + encodeURIComponent(retryValue);
+        }
+    }
+
+    function clearCadastralTileWarning() {
+        state.cadastralTileWarningShown = false;
+        var feedback = document.getElementById('map-cadastral-feedback');
+        if (feedback && /^Layer catastale non disponibile/.test(feedback.textContent || '')) {
+            showMapFeedback('', 'light');
+        }
+    }
+
+    function showCadastralTileWarning(status) {
+        if (state.cadastralTileWarningShown) return;
+        state.cadastralTileWarningShown = true;
+        showMapFeedback('Layer catastale non disponibile' + (status || '') + '.', 'warning', 3200);
+    }
+
+    function handleCadastralTileLoad(event) {
+        if (!state.cadastralLayerEnabled) return;
+        var tile = event && event.tile ? event.tile : null;
+        if (tile && ((tile.currentSrc || tile.src || '') === CATASTRAL_ERROR_TILE_URL)) return;
+        if (tile && tile.dataset) {
+            tile.dataset.apRetryCount = '0';
+        }
+        clearCadastralTileWarning();
+    }
+
+    function handleCadastralTileError(event) {
+        var tile = event && event.tile ? event.tile : null;
+        var status = event && event.error && event.error.status ? ' (' + event.error.status + ')' : '';
+        if (!tile || !tile.dataset) {
+            showCadastralTileWarning(status);
+            return;
+        }
+        if (!tile.dataset.apOriginalSrc) {
+            tile.dataset.apOriginalSrc = tile.currentSrc || tile.src || '';
+        }
+        var attempts = parseInt(tile.dataset.apRetryCount || '0', 10);
+        if (!Number.isFinite(attempts)) attempts = 0;
+        if (attempts < CATASTRAL_TILE_RETRY_LIMIT && tile.dataset.apOriginalSrc) {
+            tile.dataset.apRetryCount = String(attempts + 1);
+            window.setTimeout(function () {
+                if (!state.cadastralLayerEnabled) return;
+                tile.src = cadastralTileRetryUrl(tile.dataset.apOriginalSrc, attempts + 1);
+            }, CATASTRAL_TILE_RETRY_DELAY_MS * (attempts + 1));
+            return;
+        }
+        tile.src = CATASTRAL_ERROR_TILE_URL;
+        showCadastralTileWarning(status);
+    }
+
     function createCadastralLayer() {
         if (!state.map) return null;
         ensureLeafletEpsg4258();
-        return L.tileLayer.wms(cadastralLayerBaseUrl(), {
+        var layer = L.tileLayer.wms(cadastralLayerBaseUrl(), {
             layers: 'province,CP.CadastralZoning,CP.CadastralParcel,fabbricati,strade,vestizioni,acque',
             format: 'image/png',
             transparent: true,
@@ -1954,8 +2079,16 @@
             updateWhenIdle: false,
             updateWhenZooming: false,
             keepBuffer: 4,
-            errorTileUrl: '',
+            errorTileUrl: CATASTRAL_ERROR_TILE_URL,
         });
+        layer.on('add', function () {
+            clearCadastralTileWarning();
+            layer.setOpacity(getStoredCadastralOpacity());
+            syncCadastralOpacityControl();
+        });
+        layer.on('tileload', handleCadastralTileLoad);
+        layer.on('tileerror', handleCadastralTileError);
+        return layer;
     }
 
     function syncCadastralClickBinding() {
@@ -1979,12 +2112,6 @@
         if (state.cadastralLayerEnabled) {
             if (!state.cadastralLayer) {
                 state.cadastralLayer = createCadastralLayer();
-                if (state.cadastralLayer) {
-                    state.cadastralLayer.on('tileerror', function (event) {
-                        var status = event && event.error && event.error.status ? ' (' + event.error.status + ')' : '';
-                        showMapFeedback('Layer catastale non disponibile' + status + '.', 'warning', 2600);
-                    });
-                }
             }
             if (state.cadastralLayer && state.map && !state.map.hasLayer(state.cadastralLayer)) {
                 state.cadastralLayer.addTo(state.map);
@@ -1994,6 +2121,7 @@
             }
         } else if (state.cadastralLayer && state.map && state.map.hasLayer(state.cadastralLayer)) {
             state.map.removeLayer(state.cadastralLayer);
+            clearCadastralTileWarning();
         }
         syncCadastralClickBinding();
         syncCadastralOpacityControl();
@@ -2026,17 +2154,7 @@
     }
 
     async function tryDirectCadastralLookup(latlng) {
-        var response = await fetch('https://wms.cartografia.agenziaentrate.gov.it/inspire/ajax/ajax.php?op=getDatiOggetto&lon=' + encodeURIComponent(latlng.lng) + '&lat=' + encodeURIComponent(latlng.lat), {
-            method: 'GET',
-            headers: { 'Accept': 'application/json' },
-            signal: window.AbortSignal && typeof window.AbortSignal.timeout === 'function'
-                ? window.AbortSignal.timeout(CATASTRAL_LOOKUP_TIMEOUT_MS)
-                : undefined,
-        });
-        if (!response.ok) {
-            throw new Error('Richiesta AdE non disponibile.');
-        }
-        return extractCadastralDetailsFromAjax(await response.json());
+        return requestCadastralFeatureInfo(latlng);
     }
 
     async function requestCadastralFeatureInfo(latlng) {
@@ -2077,19 +2195,10 @@
         showMapFeedback('Recupero dati catastali in corso…', 'info');
         var details = null;
         try {
-            details = await tryDirectCadastralLookup(event.latlng);
+            details = await requestCadastralFeatureInfo(event.latlng);
         } catch (error) {
-            if (window.console && typeof window.console.warn === 'function') {
-                window.console.warn('[analyticspro] lookup catastale diretto non disponibile, uso fallback', error);
-            }
-        }
-        if (!details) {
-            try {
-                details = await requestCadastralFeatureInfo(event.latlng);
-            } catch (error) {
-                showMapFeedback(error.message || 'Impossibile recuperare i dati catastali.', 'danger', 3200);
-                return;
-            }
+            showMapFeedback(error.message || 'Impossibile recuperare i dati catastali.', 'danger', 3200);
+            return;
         }
         if (!details || (!details.comune && !details.foglio && !details.particella)) {
             showMapFeedback('Nessuna particella in questo punto.', 'warning', 2600);
