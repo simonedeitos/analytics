@@ -216,7 +216,9 @@ try {
                 analyticspro_json(['ok' => true] + $ajaxFields + ['source' => 'ajax']);
             }
         }
+        error_log('[feature_info] ajax empty response at lat=' . $lat . ' lng=' . $lng);
     } catch (Throwable) {
+        error_log('[feature_info] ajax lookup failed at lat=' . $lat . ' lng=' . $lng);
     }
 
     $radius = 0.00035;
@@ -254,9 +256,11 @@ try {
         try {
             $response = analyticspro_feature_info_request($url, $format . ',*/*;q=0.8');
         } catch (Throwable) {
+            error_log('[feature_info] GetFeatureInfo request failed format=' . $format . ' lat=' . $lat . ' lng=' . $lng);
             continue;
         }
         if ($response['status'] >= 400) {
+            error_log('[feature_info] GetFeatureInfo status=' . $response['status'] . ' format=' . $format . ' lat=' . $lat . ' lng=' . $lng);
             continue;
         }
         $fields = $parser($response['body']);
@@ -265,7 +269,9 @@ try {
         }
     }
 
+    error_log('[feature_info] no cadastral data at lat=' . $lat . ' lng=' . $lng);
     analyticspro_json(['ok' => false, 'error' => 'Nessun dato catastale disponibile.'], 404);
 } catch (Throwable $exception) {
+    error_log('[feature_info] error: ' . $exception->getMessage());
     analyticspro_json(['ok' => false, 'error' => $exception->getMessage()], 422);
 }

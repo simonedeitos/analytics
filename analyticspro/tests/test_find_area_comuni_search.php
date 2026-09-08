@@ -20,6 +20,12 @@ if (count($matches) !== 1 || ($matches[0]['comune'] ?? '') !== 'Calcinato' || ($
     $errors[] = 'Autocomplete comuni: match "cal" non corretto: ' . json_encode($matches);
 }
 
+$matchesUpper = analyticspro_gml_search_comuni('CAL', 10, $catalog);
+if ($matchesUpper === [] || ($matchesUpper[0]['comune'] ?? '') !== 'Calcinato') {
+    $pass = false;
+    $errors[] = 'Autocomplete comuni: match "CAL" non corretto: ' . json_encode($matchesUpper);
+}
+
 $matchesNoSpaces = analyticspro_gml_search_comuni('desenzanodel', 12, $catalog);
 if (count($matchesNoSpaces) !== 1 || ($matchesNoSpaces[0]['belfiore'] ?? '') !== 'D284') {
     $pass = false;

@@ -873,6 +873,59 @@ function analyticspro_gml_lookup_foglio_bounds(
  * @param array<string,array>|null $catalogOverride
  * @return array<int,array{comune:string,belfiore:string}>
  */
+function analyticspro_gml_search_comuni_from_db(string $normQuery, string $compactQuery, int $limit): array
+{
+    if (!function_exists('analyticspro_db')) {
+        return [];
+    }
+    try {
+        $pdo = analyticspro_db();
+        $prefix = str_replace(['%', '_'], ['\\%', '\\_'], $normQuery) . '%';
+        $compactPrefix = str_replace(['%', '_'], ['\\%', '\\_'], $compactQuery) . '%';
+        $stmt = $pdo->prepare(
+            'SELECT cod_catastale, nome_comune, provincia_sigla
+             FROM cadastral_comuni
+             WHERE UPPER(nome_comune) LIKE :prefix ESCAPE \'\\\'
+                OR REPLACE(UPPER(nome_comune), \' \', \'\') LIKE :compact ESCAPE \'\\\'
+             ORDER BY nome_comune ASC
+             LIMIT :limit'
+        );
+        $stmt->bindValue(':prefix', $prefix, PDO::PARAM_STR);
+        $stmt->bindValue(':compact', $compactPrefix, PDO::PARAM_STR);
+        $stmt->bindValue(':limit', max($limit * 3, 60), PDO::PARAM_INT);
+        $stmt->execute();
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        if (!is_array($rows)) {
+            return [];
+        }
+        $matches = [];
+        foreach ($rows as $row) {
+            $comune = trim((string) ($row['nome_comune'] ?? ''));
+            $belfiore = strtoupper(trim((string) ($row['cod_catastale'] ?? '')));
+            if ($comune === '' || $belfiore === '') {
+                continue;
+            }
+            $normComune = analyticspro_gml_norm_nome_comune($comune);
+            $compactComune = str_replace(' ', '', $normComune);
+            if (!str_starts_with($normComune, $normQuery) && !str_starts_with($compactComune, $compactQuery)) {
+                continue;
+            }
+            $key = strtoupper($comune);
+            if (!isset($matches[$key])) {
+                $matches[$key] = [
+                    'comune' => $comune,
+                    'belfiore' => $belfiore,
+                    'provincia' => analyticspro_gml_norm_provincia((string) ($row['provincia_sigla'] ?? '')),
+                ];
+            }
+        }
+        return array_values(array_slice($matches, 0, max(1, $limit)));
+    } catch (Throwable $exception) {
+        error_log('[gml_catalog] fallback search db error: ' . $exception->getMessage());
+        return [];
+    }
+}
+
 function analyticspro_gml_search_comuni(string $query, int $limit = 12, ?array $catalogOverride = null): array
 {
     $query = trim($query);
@@ -913,7 +966,21 @@ function analyticspro_gml_search_comuni(string $query, int $limit = 12, ?array $
     }
 
     usort($matches, static fn (array $a, array $b): int => strcmp($a['comune'], $b['comune']));
-    return array_values(array_slice($matches, 0, max(1, $limit)));
+    $results = array_values(array_slice($matches, 0, max(1, $limit)));
+    if ($results !== [] || is_array($catalogOverride)) {
+        return $results;
+    }
+
+    $fallback = analyticspro_gml_search_comuni_from_db($normQuery, $compactQuery, $limit);
+    if ($fallback !== []) {
+        return $fallback;
+    }
+
+    if ($catalog === []) {
+        error_log('[gml_catalog] search comuni without catalog entries for query "' . $query . '".');
+    }
+
+    return [];
 }
 
 /**
