@@ -2102,6 +2102,29 @@
         valueEl.classList.toggle('text-muted', !state.cadastralLayerEnabled);
     }
 
+    function initMapHeaderDropdowns() {
+        if (!window.bootstrap || !bootstrap.Dropdown) return;
+        document.querySelectorAll('.analyticspro-map-toolbar-dropdown > [data-bs-toggle="dropdown"]').forEach(function (toggle) {
+            bootstrap.Dropdown.getOrCreateInstance(toggle, {
+                boundary: 'viewport',
+                popperConfig: function (defaultConfig) {
+                    var nextConfig = Object.assign({}, defaultConfig || {});
+                    nextConfig.strategy = 'fixed';
+                    return nextConfig;
+                }
+            });
+        });
+    }
+
+    function initCadastralOpacityOverlay() {
+        var wrap = document.getElementById('cadastral-opacity-control');
+        if (!wrap || !window.L || !L.DomEvent) return;
+        L.DomEvent.disableClickPropagation(wrap);
+        if (typeof L.DomEvent.disableScrollPropagation === 'function') {
+            L.DomEvent.disableScrollPropagation(wrap);
+        }
+    }
+
     function buildCadastralPopupHtml(details, latlng) {
         var rows = [];
         [['Provincia', details.provincia], ['Comune', details.comune], ['Codice catastale', details.cod_catastale], ['Foglio', details.foglio], ['Particella', details.particella], ['Subalterno', details.subalterno], ['Categoria', details.categoria], ['Indirizzo', details.indirizzo]].forEach(function (entry) {
@@ -3131,7 +3154,9 @@
     ensureSharedModals();
     initManualRecordModal();
     initFindArea();
+    initMapHeaderDropdowns();
     initCadastralUi();
+    initCadastralOpacityOverlay();
 
     if (state.propertiesEndpoint) {
         loadProperties().catch(function (error) { alert(error.message); });
