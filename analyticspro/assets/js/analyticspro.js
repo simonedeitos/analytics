@@ -2368,7 +2368,17 @@
             }
             throw error;
         }
-        var payload = await response.json();
+        var payload = null;
+        var rawBody = '';
+        try {
+            rawBody = await response.text();
+            payload = rawBody ? JSON.parse(rawBody) : null;
+        } catch (error) {
+            throw new Error('Risposta non valida dal servizio catastale. Riprova tra poco.');
+        }
+        if (!payload || typeof payload !== 'object') {
+            throw new Error('Risposta non valida dal servizio catastale. Riprova tra poco.');
+        }
         if (!response.ok || payload.ok === false) {
             if (response.status === 404 || payload.found === false) {
                 return null;

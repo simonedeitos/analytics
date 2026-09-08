@@ -20,23 +20,36 @@ ob_start();
 ?>
 <div class="analyticspro-map-toolbar">
     <div class="analyticspro-map-toolbar-primary">
-        <div class="form-check form-switch analyticspro-map-toolbar-switch mb-0">
-            <input class="form-check-input" type="checkbox" role="switch" id="cadastral-layer-toggle">
-            <label class="form-check-label small fw-semibold" for="cadastral-layer-toggle">Mostra layer catastale</label>
-        </div>
-        <div id="cadastral-opacity-control" class="d-none d-flex align-items-center gap-2 analyticspro-cadastral-opacity-control">
-            <i class="bi bi-layers-half text-muted" aria-hidden="true"></i>
-            <span class="small text-muted fw-semibold">Trasparenza</span>
-            <input type="range"
-                   id="cadastral-opacity-slider"
-                   class="form-range mb-0"
-                   min="0"
-                   max="100"
-                   step="1"
-                   value="50"
-                   aria-label="Trasparenza layer catastale"
-                   style="width: 140px;">
-            <span id="cadastral-opacity-value" class="small text-muted">50%</span>
+        <div class="dropdown">
+            <button class="btn btn-outline-primary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                <i class="bi bi-search me-1"></i>Trova area
+            </button>
+            <div class="dropdown-menu p-3 shadow analyticspro-map-dropdown analyticspro-find-area-dropdown">
+                <div class="small text-uppercase text-muted fw-semibold mb-2">Trova area</div>
+                <div class="row g-2 align-items-end">
+                    <div class="col-12">
+                        <label for="find-area-comune" class="form-label small mb-1">Comune</label>
+                        <div class="position-relative">
+                            <input id="find-area-comune" class="form-control form-control-sm" autocomplete="off" placeholder="Digita almeno 3 lettere">
+                            <div id="find-area-comune-results" class="list-group analyticspro-autocomplete d-none" role="listbox" aria-label="Suggerimenti comuni"></div>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <label for="find-area-foglio" class="form-label small mb-1">Foglio</label>
+                        <input id="find-area-foglio" class="form-control form-control-sm" placeholder="Es. 34">
+                    </div>
+                    <div class="col-6">
+                        <label for="find-area-particella" class="form-label small mb-1">Particella</label>
+                        <input id="find-area-particella" class="form-control form-control-sm" placeholder="Es. 351">
+                    </div>
+                    <div class="col-12">
+                        <button id="find-area-submit" type="button" class="btn btn-primary btn-sm w-100">Cerca</button>
+                    </div>
+                    <div class="col-12">
+                        <div id="find-area-feedback" class="small text-muted mt-1">Cerca comune + foglio (+ particella opzionale).</div>
+                    </div>
+                </div>
+            </div>
         </div>
         <div class="dropdown">
             <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
@@ -91,36 +104,23 @@ ob_start();
                 <div id="map-category-filter-panel" class="d-flex flex-wrap align-items-center gap-1 mt-2 small"></div>
             </div>
         </div>
-        <div class="dropdown">
-            <button class="btn btn-outline-primary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
-                <i class="bi bi-search me-1"></i>Trova area
-            </button>
-            <div class="dropdown-menu p-3 shadow analyticspro-map-dropdown analyticspro-find-area-dropdown">
-                <div class="small text-uppercase text-muted fw-semibold mb-2">Trova area</div>
-                <div class="row g-2 align-items-end">
-                    <div class="col-12">
-                        <label for="find-area-comune" class="form-label small mb-1">Comune</label>
-                        <div class="position-relative">
-                            <input id="find-area-comune" class="form-control form-control-sm" autocomplete="off" placeholder="Digita almeno 3 lettere">
-                            <div id="find-area-comune-results" class="list-group analyticspro-autocomplete d-none" role="listbox" aria-label="Suggerimenti comuni"></div>
-                        </div>
-                    </div>
-                    <div class="col-6">
-                        <label for="find-area-foglio" class="form-label small mb-1">Foglio</label>
-                        <input id="find-area-foglio" class="form-control form-control-sm" placeholder="Es. 34">
-                    </div>
-                    <div class="col-6">
-                        <label for="find-area-particella" class="form-label small mb-1">Particella</label>
-                        <input id="find-area-particella" class="form-control form-control-sm" placeholder="Es. 351">
-                    </div>
-                    <div class="col-12">
-                        <button id="find-area-submit" type="button" class="btn btn-primary btn-sm w-100">Cerca</button>
-                    </div>
-                    <div class="col-12">
-                        <div id="find-area-feedback" class="small text-muted mt-1">Cerca comune + foglio (+ particella opzionale).</div>
-                    </div>
-                </div>
-            </div>
+        <div class="form-check form-switch analyticspro-map-toolbar-switch mb-0">
+            <input class="form-check-input" type="checkbox" role="switch" id="cadastral-layer-toggle">
+            <label class="form-check-label small fw-semibold" for="cadastral-layer-toggle">Mostra layer catastale</label>
+        </div>
+        <div id="cadastral-opacity-control" class="d-none d-flex align-items-center gap-2 analyticspro-cadastral-opacity-control">
+            <i class="bi bi-layers-half text-muted" aria-hidden="true"></i>
+            <span class="small text-muted fw-semibold">Trasparenza</span>
+            <input type="range"
+                   id="cadastral-opacity-slider"
+                   class="form-range mb-0"
+                   min="0"
+                   max="100"
+                   step="1"
+                   value="50"
+                   aria-label="Trasparenza layer catastale"
+                   style="width: 140px;">
+            <span id="cadastral-opacity-value" class="small text-muted">50%</span>
         </div>
         <button class="btn btn-outline-primary btn-sm" id="refresh-map">
             <i class="bi bi-arrow-clockwise me-1"></i>Aggiorna dati

@@ -263,6 +263,7 @@ body {
 }
 .map-page .ap-topbar > .d-flex {
     align-items: center;
+    flex-wrap: nowrap;
     gap: .75rem 1rem;
 }
 .map-page .ap-topbar .ap-topbar-title {
@@ -271,27 +272,31 @@ body {
 }
 .analyticspro-map-toolbar {
     display: flex;
-    flex: 1 1 720px;
+    flex: 1 1 auto;
     min-width: 0;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     align-items: center;
-    justify-content: flex-end;
-    gap: .5rem 1rem;
+    justify-content: flex-start;
+    gap: .5rem;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
 }
 .analyticspro-map-toolbar-primary,
 .analyticspro-map-toolbar-secondary {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     align-items: center;
-    justify-content: flex-end;
-    gap: .5rem .75rem;
+    justify-content: flex-start;
+    gap: .5rem;
 }
 .analyticspro-map-toolbar-primary {
-    flex: 1 1 520px;
+    flex: 0 0 auto;
     min-width: 0;
 }
 .analyticspro-map-toolbar-secondary {
     flex: 0 0 auto;
+    margin-left: auto;
 }
 .analyticspro-map-toolbar-switch {
     display: inline-flex;
@@ -613,15 +618,14 @@ body {
         margin-left: 0;
     }
     .analyticspro-map-toolbar {
-        flex-basis: 100%;
-        justify-content: flex-start;
+        flex-basis: auto;
     }
     .analyticspro-map-toolbar-primary,
     .analyticspro-map-toolbar-secondary {
         justify-content: flex-start;
     }
     .analyticspro-map-toolbar-secondary {
-        flex-basis: 100%;
+        margin-left: 0;
     }
     .analyticspro-map-toolbar .dropdown-menu.analyticspro-map-dropdown {
         min-width: min(92vw, 520px);
@@ -634,18 +638,14 @@ body {
         padding-right: .85rem;
     }
     .map-page .ap-topbar > .d-flex {
-        align-items: flex-start;
+        align-items: center;
     }
     .analyticspro-map-toolbar {
         gap: .5rem;
     }
-    .analyticspro-map-toolbar-primary,
-    .analyticspro-map-toolbar-secondary {
-        width: 100%;
-    }
     .analyticspro-map-toolbar-secondary .form-select {
-        min-width: 0;
-        width: 100%;
+        min-width: 170px;
+        width: auto;
     }
     .analyticspro-map-toolbar .dropdown-menu.analyticspro-map-dropdown,
     .analyticspro-find-area-dropdown {
