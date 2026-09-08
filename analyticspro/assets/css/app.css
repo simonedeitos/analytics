@@ -242,12 +242,6 @@ body {
     min-height: 0;
     overflow: hidden;
 }
-.map-page #analyticspro-app {
-    display: flex;
-    flex: 1 1 auto;
-    flex-direction: column;
-    min-height: 0;
-}
 .analyticspro-map-shell {
     position: relative;
     flex: 1 1 auto;
@@ -266,7 +260,6 @@ body {
     padding-top: 0;
     display: flex;
     flex-direction: column;
-    overflow: hidden;
 }
 .map-page .ap-topbar > .d-flex {
     align-items: center;
@@ -288,9 +281,6 @@ body {
     overflow-x: auto;
     overflow-y: hidden;
     scrollbar-width: thin;
-}
-.analyticspro-map-toolbar-dropdown .dropdown-menu.analyticspro-map-dropdown {
-    z-index: 1080;
 }
 .analyticspro-map-toolbar-primary,
 .analyticspro-map-toolbar-secondary {
@@ -338,23 +328,14 @@ body {
     height: .85rem;
 }
 .analyticspro-cadastral-opacity-control {
-    position: absolute;
-    left: 1rem;
-    bottom: 1rem;
-    z-index: 850;
-    max-width: calc(100% - 5rem);
-}
-.analyticspro-cadastral-opacity-control-inner {
-    min-height: 36px;
-    padding: .35rem .65rem;
-    border: 1px solid rgba(108,117,125,.24);
-    border-radius: .85rem;
-    background: rgba(255,255,255,.92);
-    box-shadow: 0 .35rem .9rem rgba(0,0,0,.12);
-    backdrop-filter: blur(4px);
+    min-height: 31px;
+    padding: .2rem .55rem;
+    border: 1px solid rgba(108,117,125,.2);
+    border-radius: 999px;
+    background: rgba(248,249,250,.94);
 }
 .analyticspro-cadastral-opacity-control .form-range {
-    width: 128px;
+    width: 140px;
     margin-bottom: 0;
 }
 .analyticspro-map-hint,
@@ -649,14 +630,6 @@ body {
     .analyticspro-map-toolbar .dropdown-menu.analyticspro-map-dropdown {
         min-width: min(92vw, 520px);
     }
-    .analyticspro-cadastral-opacity-control {
-        left: .75rem;
-        bottom: .75rem;
-        max-width: calc(100% - 1.5rem);
-    }
-    .analyticspro-cadastral-opacity-control .form-range {
-        width: 120px;
-    }
 }
 
 @media (max-width: 575.98px) {
@@ -677,15 +650,5 @@ body {
     .analyticspro-map-toolbar .dropdown-menu.analyticspro-map-dropdown,
     .analyticspro-find-area-dropdown {
         min-width: min(92vw, 360px);
-    }
-    .analyticspro-cadastral-opacity-control-inner {
-        gap: .4rem !important;
-        padding: .3rem .55rem;
-    }
-    .analyticspro-cadastral-opacity-control .small {
-        font-size: .72rem;
-    }
-    .analyticspro-cadastral-opacity-control .form-range {
-        width: 108px;
     }
 }
