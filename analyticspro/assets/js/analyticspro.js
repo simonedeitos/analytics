@@ -11,6 +11,7 @@
         interessato: 'Interessato',
         contattato: 'Contattato',
         da_contattare: 'Da Contattare',
+        non_raggiungibile: 'Non Raggiungibile',
         in_vendita_noi: 'In Vendita NOI',
         in_vendita_altri: 'In Vendita ALTRI',
         altro: 'Altro',
@@ -128,11 +129,33 @@
             interessato: '#198754',
             contattato: '#0dcaf0',
             da_contattare: '#0d6efd',
+            non_raggiungibile: '#6c757d',
             in_vendita_noi: '#fd7e14',
             in_vendita_altri: '#ffc107',
             altro: '#6f42c1',
         };
         return map[stateKey] || '#0d6efd';
+    }
+
+    function formatNoteTimestamp(raw) {
+        var value = String(raw || '').trim();
+        var match = value.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
+        if (match) {
+            return match[3] + '/' + match[2] + '/' + match[1] + ' ' + match[4] + ':' + match[5];
+        }
+        return '';
+    }
+
+    function noteLogLine(note) {
+        var text = String((note && note.testo) || '').trim();
+        if (/^\[\d{2}\/\d{2}\/\d{4}\s\d{2}:\d{2}\]\s-\s/u.test(text)) {
+            return text;
+        }
+        if (text !== '') {
+            var fallbackTs = formatNoteTimestamp(note && note.created_at);
+            return fallbackTs ? ('[' + fallbackTs + '] - Nota: ' + text) : text;
+        }
+        return '';
     }
 
     function clampPercent(value) {
@@ -631,11 +654,13 @@
             var p = properties[i];
             var provincia  = String(p.provincia  || '').trim().toUpperCase();
             var comune     = String(p.comune     || '').trim().toUpperCase();
+            var codCatastale = String(p.cod_catastale || '').trim().toUpperCase();
             var sezione    = String(p.sezione    || '').trim().toUpperCase();
             var foglio     = String(p.foglio     || '').trim().toUpperCase();
             var particella = String(p.particella || '').trim().toUpperCase();
             var subalterno = String(p.subalterno || '').trim().toUpperCase();
-            var unitKey    = provincia + '|' + comune + '|' + sezione + '|' + foglio + '|' + particella + '|' + subalterno + '|' + String(p.user_id || '');
+            var comuneKey  = codCatastale !== '' ? ('COD:' + codCatastale) : ('COM:' + comune);
+            var unitKey    = provincia + '|' + comuneKey + '|' + comune + '|' + sezione + '|' + foglio + '|' + particella + '|' + subalterno + '|' + String(p.user_id || '');
 
             if (!groups[unitKey]) {
                 // Prima property del gruppo: diventa la "principale"
@@ -888,7 +913,9 @@
         var notes = property.notes || [];
         if (!notes.length) return '<span class="text-muted small">Nessuna nota</span>';
         return notes.map(function (note) {
-            return '<div class="small mb-1"><strong>' + escapeHtml(note.author_name_snapshot || '') + '</strong> &middot; ' + escapeHtml(note.created_at || '') + '<br>' + escapeHtml(note.testo || '') + '</div>';
+            return noteLogLine(note);
+        }).filter(Boolean).map(function (line) {
+            return '<div class="small mb-1">' + escapeHtml(line) + '</div>';
         }).join('');
     }
 
@@ -1245,11 +1272,149 @@
         }
     }
 
+    function parseCsvRows(text, delimiter) {
+        var rows = [];
+        var row = [];
+        var value = '';
+        var inQuotes = false;
+        var i = 0;
+        var len = text.length;
+
+        while (i < len) {
+            var ch = text[i];
+            if (inQuotes) {
+                if (ch === '"') {
+                    if (i + 1 < len && text[i + 1] === '"') {
+                        value += '"';
+                        i += 2;
+                        continue;
+                    }
+                    inQuotes = false;
+                } else {
+                    value += ch;
+                }
+                i++;
+                continue;
+            }
+
+            if (ch === '"') {
+                inQuotes = true;
+                i++;
+                continue;
+            }
+            if (ch === delimiter) {
+                row.push(value);
+                value = '';
+                i++;
+                continue;
+            }
+            if (ch === '\n' || ch === '\r') {
+                row.push(value);
+                value = '';
+                rows.push(row);
+                row = [];
+                if (ch === '\r' && i + 1 < len && text[i + 1] === '\n') i++;
+                i++;
+                continue;
+            }
+
+            value += ch;
+            i++;
+        }
+
+        row.push(value);
+        rows.push(row);
+        return rows;
+    }
+
+    function detectCsvDelimiter(text) {
+        var candidates = ['\t', ';', ','];
+        var best = { delimiter: ',', columns: 0, mismatches: Number.MAX_SAFE_INTEGER };
+        for (var ci = 0; ci < candidates.length; ci++) {
+            var candidate = candidates[ci];
+            var parsed = parseCsvRows(text, candidate);
+            var firstNonEmptyIndex = -1;
+            for (var pi = 0; pi < parsed.length; pi++) {
+                if (parsed[pi].some(function (cell) { return String(cell || '').trim() !== ''; })) {
+                    firstNonEmptyIndex = pi;
+                    break;
+                }
+            }
+            if (firstNonEmptyIndex < 0) continue;
+            var headerLen = parsed[firstNonEmptyIndex].length;
+            if (headerLen <= 1) continue;
+            var mismatches = 0;
+            for (var ri = firstNonEmptyIndex + 1; ri < parsed.length; ri++) {
+                var row = parsed[ri];
+                var hasContent = row.some(function (cell) { return String(cell || '').trim() !== ''; });
+                if (!hasContent) continue;
+                if (row.length !== headerLen) mismatches++;
+            }
+            if (headerLen > best.columns || (headerLen === best.columns && mismatches < best.mismatches)) {
+                best = { delimiter: candidate, columns: headerLen, mismatches: mismatches };
+            }
+        }
+        return best.delimiter;
+    }
+
+    function parseCsvFile(text, fileName) {
+        var parsedRows = [];
+        var warnings = [];
+        var delimiter = detectCsvDelimiter(text);
+        var rows = parseCsvRows(text, delimiter);
+        if (!rows.length) return { rows: parsedRows, warnings: warnings };
+        var headerRowIndex = -1;
+        for (var i = 0; i < rows.length; i++) {
+            if (rows[i].some(function (cell) { return String(cell || '').trim() !== ''; })) {
+                headerRowIndex = i;
+                break;
+            }
+        }
+        if (headerRowIndex < 0) return { rows: parsedRows, warnings: warnings };
+
+        var headerCounts = {};
+        var headers = rows[headerRowIndex].map(function (v, index) {
+            var header = String(v || '').trim();
+            if (!header) header = 'ColonnaVuota ' + (index + 1);
+            if (headerCounts[header]) {
+                headerCounts[header]++;
+                return header + ' DUP ' + headerCounts[header];
+            }
+            headerCounts[header] = 1;
+            return header;
+        });
+
+        for (var ri = headerRowIndex + 1; ri < rows.length; ri++) {
+            var current = rows[ri];
+            var hasContent = current.some(function (cell) { return String(cell || '').trim() !== ''; });
+            if (!hasContent) continue;
+            if (current.length !== headers.length) {
+                warnings.push('File "' + fileName + '", riga ' + (ri + 1) + ': colonne disallineate (attese ' + headers.length + ', trovate ' + current.length + '). Riga ignorata.');
+                continue;
+            }
+            var rowPayload = {};
+            headers.forEach(function (header, ci) { rowPayload[header] = current[ci] !== undefined ? String(current[ci]).trim() : ''; });
+            parsedRows.push(rowPayload);
+        }
+
+        return { rows: parsedRows, warnings: warnings };
+    }
+
     async function parseFiles(files) {
         var parsedRows = [];
+        var warnings = [];
         for (var fi = 0; fi < files.length; fi++) {
             var file   = files[fi];
             var buffer = await file.arrayBuffer();
+            var fileName = String(file.name || '');
+            var isCsv = fileName.toLowerCase().endsWith('.csv');
+            if (isCsv) {
+                var csvText = new TextDecoder('utf-8').decode(buffer);
+                var csvResult = parseCsvFile(csvText, fileName);
+                parsedRows = parsedRows.concat(csvResult.rows);
+                warnings = warnings.concat(csvResult.warnings);
+                continue;
+            }
             var workbook = XLSX.read(buffer, { type: 'array', raw: false, dateNF: 'yyyy-mm-dd' });
             var sheet = workbook.Sheets[workbook.SheetNames[0]];
             var rows  = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', blankrows: false, raw: false });
@@ -1272,7 +1437,7 @@
                 parsedRows.push(rowPayload);
             }
         }
-        return parsedRows;
+        return { rows: parsedRows, warnings: warnings };
     }
 
     function importLoggerReset() {
@@ -1311,7 +1476,11 @@
     async function runImport(files) {
         importLoggerReset();
         importLog('info', 'Fase Lettura file avviata');
-        var rows = await parseFiles(files);
+        var parseResult = await parseFiles(files);
+        var rows = parseResult.rows || [];
+        (parseResult.warnings || []).forEach(function (warningMessage) {
+            importLog('warning', warningMessage);
+        });
         if (!rows.length) { setImportPhase('Completato', 100, 'Nessuna riga valida trovata'); importLog('warning', 'Nessuna riga valida trovata.'); return; }
         setImportPhase('Lettura file', 10, importProgressLabel(0, rows.length) + ' · Righe lette: ' + rows.length);
         importLog('info', 'Righe lette: ' + rows.length);
@@ -1441,7 +1610,7 @@
     function ensureSharedModals() {
         if (!document.getElementById('property-editor-modal')) {
             var editorModal = document.createElement('div');
-            editorModal.innerHTML = '<div class="modal fade" id="property-editor-modal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Modifica marker</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button></div><div class="modal-body"><div id="property-editor-meta" class="small text-muted mb-3"></div><div id="property-editor-error" class="alert alert-danger py-2 px-3 small d-none mb-3"></div><div id="editor-owners-block" class="mb-3"><label id="editor-owners-label" class="form-label small mb-1">Intestatari e telefoni</label><div id="editor-owners-content"></div></div><div class="row g-2"><div class="col-md-6"><label class="form-label small mb-1">Stato</label><select id="editor-state" class="form-select form-select-sm"></select></div><div class="col-md-6"><label class="form-label small mb-1">Colore marker</label><div class="d-flex align-items-center gap-2"><span id="editor-color-preview" class="color-dot" style="width:18px;height:18px;"></span><select id="editor-color" class="form-select form-select-sm"></select></div></div><div class="col-12"><label class="form-label small mb-1">Stato personalizzato</label><input id="editor-custom-state" class="form-control form-control-sm" placeholder="Stato personalizzato"></div><div class="col-12"><label class="form-label small mb-1">Assegnazioni</label><div id="editor-assignments-summary" class="small"></div></div><div class="col-12"><button type="button" class="btn btn-outline-secondary btn-sm d-none" id="editor-assignments-open"><i class="bi bi-person-plus me-1"></i>Gestisci assegnazioni</button></div><div class="col-12"><label class="form-label small mb-1">Nota</label><textarea id="editor-note" class="form-control form-control-sm" rows="3" placeholder="Aggiungi nota"></textarea></div></div></div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Annulla</button><button type="button" class="btn btn-primary btn-sm" id="editor-save-btn">Salva</button></div></div></div></div>';
+            editorModal.innerHTML = '<div class="modal fade" id="property-editor-modal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Modifica marker</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button></div><div class="modal-body"><div id="property-editor-meta" class="small text-muted mb-3"></div><div id="property-editor-error" class="alert alert-danger py-2 px-3 small d-none mb-3"></div><div id="editor-owners-block" class="mb-3"><label id="editor-owners-label" class="form-label small mb-1">Intestatari e telefoni</label><div id="editor-owners-content"></div></div><div class="row g-2"><div class="col-md-6"><label class="form-label small mb-1">Stato</label><select id="editor-state" class="form-select form-select-sm"></select></div><div class="col-md-6"><label class="form-label small mb-1">Colore marker</label><div class="d-flex align-items-center gap-2"><span id="editor-color-preview" class="color-dot" style="width:18px;height:18px;"></span><select id="editor-color" class="form-select form-select-sm"></select></div></div><div class="col-12"><label class="form-label small mb-1">Stato personalizzato</label><input id="editor-custom-state" class="form-control form-control-sm" placeholder="Stato personalizzato"></div><div class="col-12"><label class="form-label small mb-1">Assegnazioni</label><div id="editor-assignments-summary" class="small"></div></div><div class="col-12"><button type="button" class="btn btn-outline-secondary btn-sm d-none" id="editor-assignments-open"><i class="bi bi-person-plus me-1"></i>Gestisci assegnazioni</button></div><div class="col-12"><label class="form-label small mb-1">Note (log)</label><div id="editor-note-log" class="border rounded p-2 bg-light-subtle small mb-2" style="max-height:170px;overflow:auto;"></div><input id="editor-note" class="form-control form-control-sm" placeholder="Scrivi una nota (una riga)"></div></div></div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Annulla</button><button type="button" class="btn btn-primary btn-sm" id="editor-save-btn">Salva</button></div></div></div></div>';
             document.body.appendChild(editorModal.firstElementChild);
         }
         if (!document.getElementById('assignment-picker-modal')) {
@@ -1507,6 +1676,12 @@
         if (label) {
             label.textContent = propertyCanViewPhone(property) ? 'Intestatari e telefoni' : 'Intestatari';
         }
+    }
+
+    function renderEditorNotesLog(property) {
+        var container = document.getElementById('editor-note-log');
+        if (!container) return;
+        container.innerHTML = propertyNotesHtml(property);
     }
 
     function toggleOwnerPhoneAddControls(container, showInput) {
@@ -1601,7 +1776,7 @@
                         (payload.comuni || []).forEach(function (row) {
                             var key = normalizeComuneKey(row.comune || '');
                             if (key) state.findAreaComuneMap[key] = row.belfiore || '';
-                            options.push('<option value="' + escapeHtml(row.comune || '') + '" label="' + escapeHtml((row.comune || '') + (row.belfiore ? ' [' + row.belfiore + ']' : '')) + '"></option>');
+                            options.push('<option value="' + escapeHtml(row.comune || '') + '"></option>');
                         });
                         list.innerHTML = options.join('');
                     })
@@ -1618,6 +1793,9 @@
             var comune = comuneInput.value.trim();
             var foglio = foglioInput.value.trim();
             var particella = particellaInput ? particellaInput.value.trim() : '';
+            if (!comuneInput.dataset.belfiore) {
+                comuneInput.dataset.belfiore = state.findAreaComuneMap[normalizeComuneKey(comune)] || '';
+            }
             if (!comune || !foglio) {
                 feedback.className = 'small text-danger mt-1';
                 feedback.textContent = 'Inserisci comune e foglio.';
@@ -1642,6 +1820,14 @@
                     feedback.textContent = error.message || 'Area non trovata.';
                 })
                 .finally(function () { button.disabled = false; });
+        });
+        [comuneInput, foglioInput, particellaInput].forEach(function (field) {
+            if (!field) return;
+            field.addEventListener('keydown', function (event) {
+                if (event.key !== 'Enter') return;
+                event.preventDefault();
+                button.click();
+            });
         });
     }
 
@@ -1717,6 +1903,7 @@
         noteEl.value = '';
         saveBtn.dataset.propertyId = String(property.id);
         renderEditorOwners(property);
+        renderEditorNotesLog(property);
         refreshEditorAssignmentSummary(property);
         if (assignmentBtn) { assignmentBtn.classList.toggle('d-none', state.role === 'subuser'); assignmentBtn.dataset.propertyId = String(property.id); }
         bootstrap.Modal.getOrCreateInstance(modalEl).show();

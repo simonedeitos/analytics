@@ -870,9 +870,10 @@ function analyticspro_gml_lookup_foglio_bounds(
 }
 
 /**
+ * @param array<string,array>|null $catalogOverride
  * @return array<int,array{comune:string,belfiore:string}>
  */
-function analyticspro_gml_search_comuni(string $query, int $limit = 12): array
+function analyticspro_gml_search_comuni(string $query, int $limit = 12, ?array $catalogOverride = null): array
 {
     $query = trim($query);
     if ($query === '') {
@@ -885,7 +886,7 @@ function analyticspro_gml_search_comuni(string $query, int $limit = 12): array
         return [];
     }
 
-    $catalog = analyticspro_gml_build_catalog();
+    $catalog = is_array($catalogOverride) ? $catalogOverride : analyticspro_gml_build_catalog();
     $matches = [];
     foreach ($catalog as $belfiore => $entry) {
         $comune = trim((string) ($entry['nome'] ?? ''));

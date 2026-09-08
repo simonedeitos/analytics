@@ -206,6 +206,7 @@ function analyticspro_state_options(): array
         'interessato' => 'Interessato',
         'contattato' => 'Contattato',
         'da_contattare' => 'Da Contattare',
+        'non_raggiungibile' => 'Non Raggiungibile',
         'in_vendita_noi' => 'In Vendita NOI',
         'in_vendita_altri' => 'In Vendita ALTRI',
         'altro' => 'Altro',
@@ -219,6 +220,7 @@ function analyticspro_state_colors(): array
         'interessato' => '#198754',
         'contattato' => '#0dcaf0',
         'da_contattare' => '#0d6efd',
+        'non_raggiungibile' => '#6c757d',
         'in_vendita_noi' => '#fd7e14',
         'in_vendita_altri' => '#ffc107',
         'altro' => '#6f42c1',
@@ -248,6 +250,34 @@ function analyticspro_default_color_for_state(string $state): string
 {
     $colors = analyticspro_state_colors();
     return $colors[$state] ?? '#0d6efd';
+}
+
+function analyticspro_note_log_timestamp(?DateTimeInterface $dateTime = null): string
+{
+    if ($dateTime === null) {
+        $dateTime = new DateTimeImmutable('now');
+    }
+    return $dateTime->format('d/m/Y H:i');
+}
+
+function analyticspro_note_log_line(string $label, string $message, ?DateTimeInterface $dateTime = null): string
+{
+    $label = trim($label);
+    $message = trim($message);
+    if ($label === '' || $message === '') {
+        return '';
+    }
+    return '[' . analyticspro_note_log_timestamp($dateTime) . '] - ' . $label . ': ' . $message;
+}
+
+function analyticspro_note_log_state_change(string $stateLabel, ?DateTimeInterface $dateTime = null): string
+{
+    return analyticspro_note_log_line('Cambio stato', $stateLabel, $dateTime);
+}
+
+function analyticspro_note_log_manual_note(string $note, ?DateTimeInterface $dateTime = null): string
+{
+    return analyticspro_note_log_line('Nota', $note, $dateTime);
 }
 
 function analyticspro_full_name(array $user): string

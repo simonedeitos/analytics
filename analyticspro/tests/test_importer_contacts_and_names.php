@@ -103,6 +103,25 @@ if (($birthAliasPayload['owner']['luogo_nascita'] ?? '') !== 'BRESCIA (BS)') {
     $errors[] = 'Alias "Luogo Nascita" non riconosciuto: ' . json_encode($birthAliasPayload['owner']['luogo_nascita'] ?? null);
 }
 
+$reorderedPayload = analyticspro_extract_row_payload([
+    'Quota' => '1/2',
+    'Data Nascita' => '1980-02-26',
+    'Comune' => 'Calcinato',
+    'Provincia' => 'BS',
+    'Codice Catastale' => 'B394',
+    'Foglio' => '34',
+    'Particella' => '351',
+    'Nato A' => 'DESENZANO DEL GARDA (BS)',
+]);
+if (($reorderedPayload['property']['quota'] ?? '') !== '1/2') {
+    $pass = false;
+    $errors[] = 'Mapping quota con colonne riordinate non corretto: ' . json_encode($reorderedPayload['property']['quota'] ?? null);
+}
+if (($reorderedPayload['owner']['data_nascita'] ?? null) !== '1980-02-26') {
+    $pass = false;
+    $errors[] = 'Mapping data nascita con colonne riordinate non corretto: ' . json_encode($reorderedPayload['owner']['data_nascita'] ?? null);
+}
+
 if ($pass) {
     echo "PASS: contatti multipli e nomi multipli OK\n";
     exit(0);

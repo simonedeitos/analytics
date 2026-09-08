@@ -146,9 +146,11 @@ try {
         ]);
     }
 
-    $newState = (string) ($input['stato'] ?? $property['stato']);
+    $currentState = isset($property['stato']) && $property['stato'] !== '' ? (string) $property['stato'] : null;
+    $incomingStateRaw = trim((string) ($input['stato'] ?? ($currentState ?? '')));
+    $newState = $incomingStateRaw !== '' ? $incomingStateRaw : null;
     $allowedStates = array_keys(analyticspro_state_options());
-    if (!in_array($newState, $allowedStates, true)) {
+    if ($newState !== null && !in_array($newState, $allowedStates, true)) {
         throw new RuntimeException('Stato non valido.');
     }
 
@@ -158,7 +160,7 @@ try {
         throw new RuntimeException('Colore non consentito.');
     }
     if ($newColor === '') {
-        $newColor = $property['stato'] !== $newState ? analyticspro_default_color_for_state($newState) : (string) $property['colore_marker'];
+        $newColor = $currentState !== $newState ? analyticspro_default_color_for_state((string) ($newState ?? '')) : (string) $property['colore_marker'];
     }
 
     $pdo = analyticspro_db();
@@ -171,17 +173,29 @@ try {
             'id' => $propertyId,
         ]);
 
-    if ((string) $property['stato'] !== $newState) {
+    $stateOptions = analyticspro_state_options();
+    if ($currentState !== $newState) {
         $pdo->prepare('INSERT INTO property_status_history (property_id, changed_by, stato_precedente, stato_nuovo) VALUES (:property_id, :changed_by, :stato_precedente, :stato_nuovo)')
             ->execute([
                 'property_id' => $propertyId,
                 'changed_by' => $user['id'],
-                'stato_precedente' => $property['stato'],
-                'stato_nuovo' => $newState,
+                'stato_precedente' => $currentState,
+                'stato_nuovo' => $newState ?? '',
             ]);
+        $stateLabel = $newState !== null ? ($stateOptions[$newState] ?? $newState) : 'Non impostato';
+        $stateNote = analyticspro_note_log_state_change($stateLabel);
+        if ($stateNote !== '') {
+            $pdo->prepare('INSERT INTO property_notes (property_id, author_id, author_name_snapshot, testo) VALUES (:property_id, :author_id, :author_name_snapshot, :testo)')
+                ->execute([
+                    'property_id' => $propertyId,
+                    'author_id' => $user['id'],
+                    'author_name_snapshot' => analyticspro_full_name($user),
+                    'testo' => $stateNote,
+                ]);
+        }
     }
 
-    $note = trim((string) ($input['note'] ?? ''));
+    $note = analyticspro_note_log_manual_note((string) ($input['note'] ?? ''));
     if ($note !== '') {
         $pdo->prepare('INSERT INTO property_notes (property_id, author_id, author_name_snapshot, testo) VALUES (:property_id, :author_id, :author_name_snapshot, :testo)')
             ->execute([
