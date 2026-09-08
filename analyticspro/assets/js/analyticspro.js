@@ -631,11 +631,13 @@
             var p = properties[i];
             var provincia  = String(p.provincia  || '').trim().toUpperCase();
             var comune     = String(p.comune     || '').trim().toUpperCase();
+            var codCatastale = String(p.cod_catastale || '').trim().toUpperCase();
             var sezione    = String(p.sezione    || '').trim().toUpperCase();
             var foglio     = String(p.foglio     || '').trim().toUpperCase();
             var particella = String(p.particella || '').trim().toUpperCase();
             var subalterno = String(p.subalterno || '').trim().toUpperCase();
-            var unitKey    = provincia + '|' + comune + '|' + sezione + '|' + foglio + '|' + particella + '|' + subalterno + '|' + String(p.user_id || '');
+            var comuneKey  = codCatastale !== '' ? ('COD:' + codCatastale) : ('COM:' + comune);
+            var unitKey    = provincia + '|' + comuneKey + '|' + comune + '|' + sezione + '|' + foglio + '|' + particella + '|' + subalterno + '|' + String(p.user_id || '');
 
             if (!groups[unitKey]) {
                 // Prima property del gruppo: diventa la "principale"
@@ -1245,11 +1247,149 @@
         }
     }
 
+    function parseCsvRows(text, delimiter) {
+        var rows = [];
+        var row = [];
+        var value = '';
+        var inQuotes = false;
+        var i = 0;
+        var len = text.length;
+
+        while (i < len) {
+            var ch = text[i];
+            if (inQuotes) {
+                if (ch === '"') {
+                    if (i + 1 < len && text[i + 1] === '"') {
+                        value += '"';
+                        i += 2;
+                        continue;
+                    }
+                    inQuotes = false;
+                } else {
+                    value += ch;
+                }
+                i++;
+                continue;
+            }
+
+            if (ch === '"') {
+                inQuotes = true;
+                i++;
+                continue;
+            }
+            if (ch === delimiter) {
+                row.push(value);
+                value = '';
+                i++;
+                continue;
+            }
+            if (ch === '\n' || ch === '\r') {
+                row.push(value);
+                value = '';
+                rows.push(row);
+                row = [];
+                if (ch === '\r' && i + 1 < len && text[i + 1] === '\n') i++;
+                i++;
+                continue;
+            }
+
+            value += ch;
+            i++;
+        }
+
+        row.push(value);
+        rows.push(row);
+        return rows;
+    }
+
+    function detectCsvDelimiter(text) {
+        var candidates = ['\t', ';', ','];
+        var best = { delimiter: ',', columns: 0, mismatches: Number.MAX_SAFE_INTEGER };
+        for (var ci = 0; ci < candidates.length; ci++) {
+            var candidate = candidates[ci];
+            var parsed = parseCsvRows(text, candidate);
+            var firstNonEmptyIndex = -1;
+            for (var pi = 0; pi < parsed.length; pi++) {
+                if (parsed[pi].some(function (cell) { return String(cell || '').trim() !== ''; })) {
+                    firstNonEmptyIndex = pi;
+                    break;
+                }
+            }
+            if (firstNonEmptyIndex < 0) continue;
+            var headerLen = parsed[firstNonEmptyIndex].length;
+            if (headerLen <= 1) continue;
+            var mismatches = 0;
+            for (var ri = firstNonEmptyIndex + 1; ri < parsed.length; ri++) {
+                var row = parsed[ri];
+                var hasContent = row.some(function (cell) { return String(cell || '').trim() !== ''; });
+                if (!hasContent) continue;
+                if (row.length !== headerLen) mismatches++;
+            }
+            if (headerLen > best.columns || (headerLen === best.columns && mismatches < best.mismatches)) {
+                best = { delimiter: candidate, columns: headerLen, mismatches: mismatches };
+            }
+        }
+        return best.delimiter;
+    }
+
+    function parseCsvFile(text, fileName) {
+        var parsedRows = [];
+        var warnings = [];
+        var delimiter = detectCsvDelimiter(text);
+        var rows = parseCsvRows(text, delimiter);
+        if (!rows.length) return { rows: parsedRows, warnings: warnings };
+        var headerRowIndex = -1;
+        for (var i = 0; i < rows.length; i++) {
+            if (rows[i].some(function (cell) { return String(cell || '').trim() !== ''; })) {
+                headerRowIndex = i;
+                break;
+            }
+        }
+        if (headerRowIndex < 0) return { rows: parsedRows, warnings: warnings };
+
+        var headerCounts = {};
+        var headers = rows[headerRowIndex].map(function (v, index) {
+            var header = String(v || '').trim();
+            if (!header) header = 'ColonnaVuota ' + (index + 1);
+            if (headerCounts[header]) {
+                headerCounts[header]++;
+                return header + ' DUP ' + headerCounts[header];
+            }
+            headerCounts[header] = 1;
+            return header;
+        });
+
+        for (var ri = headerRowIndex + 1; ri < rows.length; ri++) {
+            var current = rows[ri];
+            var hasContent = current.some(function (cell) { return String(cell || '').trim() !== ''; });
+            if (!hasContent) continue;
+            if (current.length !== headers.length) {
+                warnings.push('File "' + fileName + '", riga ' + (ri + 1) + ': colonne disallineate (attese ' + headers.length + ', trovate ' + current.length + '). Riga ignorata.');
+                continue;
+            }
+            var rowPayload = {};
+            headers.forEach(function (header, ci) { rowPayload[header] = current[ci] !== undefined ? String(current[ci]).trim() : ''; });
+            parsedRows.push(rowPayload);
+        }
+
+        return { rows: parsedRows, warnings: warnings };
+    }
+
     async function parseFiles(files) {
         var parsedRows = [];
+        var warnings = [];
         for (var fi = 0; fi < files.length; fi++) {
             var file   = files[fi];
             var buffer = await file.arrayBuffer();
+            var fileName = String(file.name || '');
+            var isCsv = fileName.toLowerCase().endsWith('.csv');
+            if (isCsv) {
+                var csvText = new TextDecoder('utf-8').decode(buffer);
+                var csvResult = parseCsvFile(csvText, fileName);
+                parsedRows = parsedRows.concat(csvResult.rows);
+                warnings = warnings.concat(csvResult.warnings);
+                continue;
+            }
             var workbook = XLSX.read(buffer, { type: 'array', raw: false, dateNF: 'yyyy-mm-dd' });
             var sheet = workbook.Sheets[workbook.SheetNames[0]];
             var rows  = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', blankrows: false, raw: false });
@@ -1272,7 +1412,7 @@
                 parsedRows.push(rowPayload);
             }
         }
-        return parsedRows;
+        return { rows: parsedRows, warnings: warnings };
     }
 
     function importLoggerReset() {
@@ -1311,7 +1451,11 @@
     async function runImport(files) {
         importLoggerReset();
         importLog('info', 'Fase Lettura file avviata');
-        var rows = await parseFiles(files);
+        var parseResult = await parseFiles(files);
+        var rows = parseResult.rows || [];
+        (parseResult.warnings || []).forEach(function (warningMessage) {
+            importLog('warning', warningMessage);
+        });
         if (!rows.length) { setImportPhase('Completato', 100, 'Nessuna riga valida trovata'); importLog('warning', 'Nessuna riga valida trovata.'); return; }
         setImportPhase('Lettura file', 10, importProgressLabel(0, rows.length) + ' · Righe lette: ' + rows.length);
         importLog('info', 'Righe lette: ' + rows.length);
@@ -1601,7 +1745,7 @@
                         (payload.comuni || []).forEach(function (row) {
                             var key = normalizeComuneKey(row.comune || '');
                             if (key) state.findAreaComuneMap[key] = row.belfiore || '';
-                            options.push('<option value="' + escapeHtml(row.comune || '') + '" label="' + escapeHtml((row.comune || '') + (row.belfiore ? ' [' + row.belfiore + ']' : '')) + '"></option>');
+                            options.push('<option value="' + escapeHtml(row.comune || '') + '"></option>');
                         });
                         list.innerHTML = options.join('');
                     })
@@ -1618,6 +1762,9 @@
             var comune = comuneInput.value.trim();
             var foglio = foglioInput.value.trim();
             var particella = particellaInput ? particellaInput.value.trim() : '';
+            if (!comuneInput.dataset.belfiore) {
+                comuneInput.dataset.belfiore = state.findAreaComuneMap[normalizeComuneKey(comune)] || '';
+            }
             if (!comune || !foglio) {
                 feedback.className = 'small text-danger mt-1';
                 feedback.textContent = 'Inserisci comune e foglio.';
@@ -1642,6 +1789,14 @@
                     feedback.textContent = error.message || 'Area non trovata.';
                 })
                 .finally(function () { button.disabled = false; });
+        });
+        [comuneInput, foglioInput, particellaInput].forEach(function (field) {
+            if (!field) return;
+            field.addEventListener('keydown', function (event) {
+                if (event.key !== 'Enter') return;
+                event.preventDefault();
+                button.click();
+            });
         });
     }
 

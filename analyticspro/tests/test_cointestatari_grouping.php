@@ -16,8 +16,13 @@ function group_by_unit(array $owners): array
 {
     $groups = [];
     foreach ($owners as $owner) {
+        $codCatastale = strtoupper(trim($owner['cod_catastale'] ?? ''));
+        $comune = strtoupper(trim($owner['comune'] ?? ''));
+        $comuneKey = $codCatastale !== '' ? ('COD:' . $codCatastale) : ('COM:' . $comune);
         $key = implode('|', [
-            strtoupper(trim($owner['comune'] ?? '')),
+            strtoupper(trim($owner['provincia'] ?? '')),
+            $comuneKey,
+            $comune,
             strtoupper(trim($owner['sezione'] ?? '')),
             strtoupper(trim($owner['foglio'] ?? '')),
             strtoupper(trim($owner['particella'] ?? '')),
@@ -29,10 +34,10 @@ function group_by_unit(array $owners): array
 }
 
 $owners = [
-    ['comune' => 'Milano', 'sezione' => '', 'foglio' => '10', 'particella' => '200', 'subalterno' => 'A', 'nome' => 'Mario'],
-    ['comune' => 'Milano', 'sezione' => '', 'foglio' => '10', 'particella' => '200', 'subalterno' => 'A', 'nome' => 'Lucia'],
-    ['comune' => 'Milano', 'sezione' => '', 'foglio' => '10', 'particella' => '200', 'subalterno' => 'B', 'nome' => 'Paolo'],
-    ['comune' => 'Brescia', 'sezione' => '', 'foglio' => '10', 'particella' => '200', 'subalterno' => 'A', 'nome' => 'Gianni'],
+    ['provincia' => 'MI', 'cod_catastale' => 'F205', 'comune' => 'Milano', 'sezione' => '', 'foglio' => '10', 'particella' => '200', 'subalterno' => 'A', 'nome' => 'Mario'],
+    ['provincia' => 'MI', 'cod_catastale' => 'F205', 'comune' => 'MILANO', 'sezione' => '', 'foglio' => '10', 'particella' => '200', 'subalterno' => 'A', 'nome' => 'Lucia'],
+    ['provincia' => 'MI', 'cod_catastale' => 'F205', 'comune' => 'Milano', 'sezione' => '', 'foglio' => '10', 'particella' => '200', 'subalterno' => 'B', 'nome' => 'Paolo'],
+    ['provincia' => 'BS', 'cod_catastale' => 'B157', 'comune' => 'Brescia', 'sezione' => '', 'foglio' => '10', 'particella' => '200', 'subalterno' => 'A', 'nome' => 'Gianni'],
 ];
 
 $groups = group_by_unit($owners);
