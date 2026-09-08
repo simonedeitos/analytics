@@ -243,16 +243,16 @@ body {
     left: 1rem;
     right: 1rem;
 }
-.analyticspro-map-overlay-left {
-    top: 6.5rem;
-    left: 1rem;
-    width: min(430px, calc(100% - 2rem));
-    max-height: calc(100% - 8rem);
-    overflow-y: auto;
-}
 .analyticspro-map-card {
     background: rgba(255,255,255,.96);
     backdrop-filter: blur(2px);
+}
+.analyticspro-map-toolbar .dropdown-menu.analyticspro-map-dropdown {
+    min-width: 360px;
+    max-width: min(92vw, 560px);
+}
+.analyticspro-find-area-dropdown {
+    min-width: min(92vw, 420px);
 }
 .analyticspro-map-filter-list {
     font-size: .78rem;
@@ -521,18 +521,15 @@ body {
     .analyticspro-map-shell {
         height: calc(100vh - var(--ap-topbar-h));
     }
-    .analyticspro-map-overlay-top,
-    .analyticspro-map-overlay-left {
+    .analyticspro-map-overlay-top {
         left: .75rem;
         right: .75rem;
-        width: auto;
-    }
-    .analyticspro-map-overlay-left {
-        top: 7.75rem;
-        max-height: calc(100% - 9rem);
     }
     .analyticspro-map-hint {
-        top: 8rem;
+        top: 9.25rem;
+    }
+    .analyticspro-map-toolbar .dropdown-menu.analyticspro-map-dropdown {
+        min-width: min(92vw, 520px);
     }
 }
 
@@ -540,11 +537,11 @@ body {
     .analyticspro-map-overlay-top {
         top: .5rem;
     }
-    .analyticspro-map-overlay-left {
-        top: 9.75rem;
-        max-height: calc(100% - 11rem);
-    }
     .analyticspro-map-card .card-body {
         padding: .75rem !important;
+    }
+    .analyticspro-map-toolbar .dropdown-menu.analyticspro-map-dropdown,
+    .analyticspro-find-area-dropdown {
+        min-width: min(92vw, 360px);
     }
 }

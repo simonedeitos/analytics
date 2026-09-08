@@ -1894,13 +1894,13 @@
 
     function createCadastralLayer() {
         if (!state.map) return null;
-        ensureLeafletEpsg4258();
         return L.tileLayer.wms(cadastralLayerBaseUrl(), {
             layers: 'province,CP.CadastralZoning,CP.CadastralParcel,fabbricati,strade,vestizioni,acque',
             format: 'image/png',
             transparent: true,
             version: '1.1.1',
-            crs: L.CRS.EPSG4258 || L.CRS.EPSG4326,
+            crs: L.CRS.EPSG3857,
+            uppercase: true,
             minZoom: 10,
             maxZoom: 22,
         });
@@ -1927,6 +1927,12 @@
         if (state.cadastralLayerEnabled) {
             if (!state.cadastralLayer) {
                 state.cadastralLayer = createCadastralLayer();
+                if (state.cadastralLayer) {
+                    state.cadastralLayer.on('tileerror', function (event) {
+                        var status = event && event.error && event.error.status ? ' (' + event.error.status + ')' : '';
+                        showMapFeedback('Layer catastale non disponibile' + status + '.', 'warning', 2600);
+                    });
+                }
             }
             if (state.cadastralLayer && state.map && !state.map.hasLayer(state.cadastralLayer)) {
                 state.cadastralLayer.addTo(state.map);
@@ -1994,6 +2000,9 @@
         try {
             details = await tryDirectCadastralLookup(event.latlng);
         } catch (error) {
+            if (window.console && typeof window.console.warn === 'function') {
+                window.console.warn('[analyticspro] lookup catastale diretto non disponibile, uso fallback', error);
+            }
         }
         if (!details) {
             try {
@@ -2024,7 +2033,9 @@
 
     async function findAreaComuni(query) {
         if (!state.findAreaComuniEndpoint) return [];
-        return api(state.findAreaComuniEndpoint + '?q=' + encodeURIComponent(query || ''));
+        var normalized = String(query || '').trim();
+        if (normalized.length < 3) return { comuni: [] };
+        return api(state.findAreaComuniEndpoint + '?q=' + encodeURIComponent(normalized));
     }
 
     function hideFindAreaAutocomplete() {
@@ -2126,7 +2137,12 @@
                         });
                         renderFindAreaAutocomplete(rows);
                     })
-                    .catch(function () { hideFindAreaAutocomplete(); });
+                    .catch(function (error) {
+                        hideFindAreaAutocomplete();
+                        if (window.console && typeof window.console.warn === 'function') {
+                            window.console.warn('[analyticspro] Autocomplete comuni non disponibile', error);
+                        }
+                    });
             }, 300);
         });
 
