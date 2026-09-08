@@ -343,10 +343,84 @@ function analyticspro_cadastral_extract_reverse_location(array $payload): ?array
     ];
 }
 
+function analyticspro_cadastral_has_meaningful_fields(array $fields): bool
+{
+    foreach (['comune', 'provincia', 'cod_catastale', 'foglio', 'particella', 'sezione', 'subalterno', 'indirizzo'] as $key) {
+        if (trim((string) ($fields[$key] ?? '')) !== '') {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function analyticspro_cadastral_reverse_geocode_cache_dir(): string
+{
+    $dir = rtrim(sys_get_temp_dir(), DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'analyticspro-reverse-geocode-cache';
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0775, true);
+    }
+    return $dir;
+}
+
+function analyticspro_cadastral_reverse_geocode_cache_path(float $lat, float $lng): string
+{
+    $key = number_format($lat, 6, '.', '') . ',' . number_format($lng, 6, '.', '');
+    return analyticspro_cadastral_reverse_geocode_cache_dir() . DIRECTORY_SEPARATOR . sha1($key) . '.json';
+}
+
+function analyticspro_cadastral_reverse_geocode_read_cache(float $lat, float $lng, int $maxAge = 604800): ?array
+{
+    $cachePath = analyticspro_cadastral_reverse_geocode_cache_path($lat, $lng);
+    if (!is_file($cachePath)) {
+        return null;
+    }
+
+    $decoded = json_decode((string) @file_get_contents($cachePath), true);
+    if (!is_array($decoded) || (($decoded['cached_at'] ?? 0) + $maxAge) < time()) {
+        return null;
+    }
+
+    $payload = is_array($decoded['payload'] ?? null) ? $decoded['payload'] : null;
+    return is_array($payload) ? analyticspro_cadastral_extract_reverse_location(['address' => $payload]) : null;
+}
+
+function analyticspro_cadastral_reverse_geocode_write_cache(float $lat, float $lng, array $payload): void
+{
+    $address = is_array($payload['address'] ?? null) ? $payload['address'] : [];
+    if ($address === []) {
+        return;
+    }
+
+    $encoded = json_encode([
+        'cached_at' => time(),
+        'payload' => $address,
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if (!is_string($encoded) || $encoded === '') {
+        return;
+    }
+
+    $tmpFile = tempnam(analyticspro_cadastral_reverse_geocode_cache_dir(), 'rev');
+    if ($tmpFile === false) {
+        return;
+    }
+    if (@file_put_contents($tmpFile, $encoded, LOCK_EX) === false) {
+        @unlink($tmpFile);
+        return;
+    }
+    @chmod($tmpFile, 0664);
+    @rename($tmpFile, analyticspro_cadastral_reverse_geocode_cache_path($lat, $lng));
+}
+
 function analyticspro_cadastral_reverse_geocode(float $lat, float $lng): ?array
 {
     if (!$lat || !$lng) {
         return null;
+    }
+
+    $cached = analyticspro_cadastral_reverse_geocode_read_cache($lat, $lng);
+    if ($cached !== null) {
+        return $cached;
     }
 
     $url = 'https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&zoom=18'
@@ -356,8 +430,8 @@ function analyticspro_cadastral_reverse_geocode(float $lat, float $lng): ?array
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_FOLLOWLOCATION => true,
-        CURLOPT_CONNECTTIMEOUT => 8,
-        CURLOPT_TIMEOUT => 12,
+        CURLOPT_CONNECTTIMEOUT => 4,
+        CURLOPT_TIMEOUT => 6,
         CURLOPT_SSL_VERIFYPEER => true,
         CURLOPT_USERAGENT => 'AnalyticsPRO/1.0 (reverse geocoder)',
         CURLOPT_HTTPHEADER => [
@@ -374,12 +448,28 @@ function analyticspro_cadastral_reverse_geocode(float $lat, float $lng): ?array
     }
 
     $decoded = json_decode((string) $body, true);
-    return is_array($decoded) ? analyticspro_cadastral_extract_reverse_location($decoded) : null;
+    if (!is_array($decoded)) {
+        return null;
+    }
+
+    analyticspro_cadastral_reverse_geocode_write_cache($lat, $lng, $decoded);
+    return analyticspro_cadastral_extract_reverse_location($decoded);
 }
 
 function analyticspro_cadastral_complete_fields(array $fields, float $lat = 0.0, float $lng = 0.0, ?callable $reverseGeocoder = null): array
 {
-    $completed = $fields;
+    $completed = $fields + [
+        'comune' => '',
+        'provincia' => '',
+        'cod_catastale' => '',
+        'sezione' => '',
+        'foglio' => '',
+        'particella' => '',
+        'subalterno' => '',
+        'categoria' => '',
+        'indirizzo' => '',
+        'civico' => '',
+    ];
     $completed['comune'] = trim((string) ($completed['comune'] ?? ''));
     $completed['provincia'] = trim((string) ($completed['provincia'] ?? ''));
     $completed['cod_catastale'] = strtoupper(trim((string) ($completed['cod_catastale'] ?? '')));
@@ -440,6 +530,11 @@ function analyticspro_cadastral_complete_fields(array $fields, float $lat = 0.0,
 
 function analyticspro_cadastral_wms_build_target_url(?string $baseUrl, array $queryParams): string
 {
+    return analyticspro_cadastral_wms_build_target_url_with_raw_query($baseUrl, $queryParams, null);
+}
+
+function analyticspro_cadastral_wms_build_target_url_with_raw_query(?string $baseUrl, array $queryParams, ?string $rawQueryString): string
+{
     $resolvedBaseUrl = trim((string) ($baseUrl ?? analyticspro_cadastral_default_wms_base_url()));
     if ($resolvedBaseUrl === '') {
         throw new RuntimeException('Parametro url mancante.');
@@ -451,16 +546,48 @@ function analyticspro_cadastral_wms_build_target_url(?string $baseUrl, array $qu
         throw new RuntimeException('Host WMS non consentito.');
     }
 
-    $baseQuery = [];
-    parse_str((string) ($parsedBase['query'] ?? ''), $baseQuery);
-    unset($queryParams['url']);
-    $forwardParams = array_merge($baseQuery, $queryParams);
-    if (!isset($forwardParams['language']) || trim((string) $forwardParams['language']) === '') {
-        $forwardParams['language'] = 'ita';
-    }
     $basePath = ($parsedBase['path'] ?? '') !== '' ? (string) $parsedBase['path'] : '/inspire/wms/ows01.php';
+    $queryParts = [];
+    $baseQueryString = trim((string) ($parsedBase['query'] ?? ''));
+    $hasLanguage = str_contains(strtolower($baseQueryString), 'language=');
+    if ($baseQueryString !== '') {
+        $queryParts[] = $baseQueryString;
+    }
 
-    return 'https://' . $allowedHost . $basePath . '?' . http_build_query($forwardParams, '', '&', PHP_QUERY_RFC3986);
+    if ($rawQueryString !== null && trim($rawQueryString) !== '') {
+        foreach (explode('&', $rawQueryString) as $part) {
+            $part = trim($part);
+            if ($part === '') {
+                continue;
+            }
+            $key = urldecode((string) strtok($part, '='));
+            if (strcasecmp($key, 'url') === 0) {
+                continue;
+            }
+            if (strcasecmp($key, 'language') === 0) {
+                $hasLanguage = true;
+            }
+            $queryParts[] = $part;
+        }
+    } else {
+        unset($queryParams['url']);
+        if (!isset($queryParams['language']) || trim((string) $queryParams['language']) === '') {
+            $queryParams['language'] = 'ita';
+        }
+        if (isset($queryParams['language']) && trim((string) $queryParams['language']) !== '') {
+            $hasLanguage = true;
+        }
+        $forwardQuery = http_build_query($queryParams, '', '&', PHP_QUERY_RFC3986);
+        if ($forwardQuery !== '') {
+            $queryParts[] = $forwardQuery;
+        }
+    }
+
+    if (!$hasLanguage) {
+        $queryParts[] = 'language=ita';
+    }
+
+    return 'https://' . $allowedHost . $basePath . '?' . implode('&', $queryParts);
 }
 
 function analyticspro_cadastral_wms_cache_dir(): string

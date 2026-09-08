@@ -262,6 +262,16 @@ body {
     width: .85rem;
     height: .85rem;
 }
+.analyticspro-cadastral-opacity-control {
+    padding: .2rem .55rem;
+    border: 1px solid rgba(108,117,125,.2);
+    border-radius: 999px;
+    background: rgba(248,249,250,.94);
+}
+.analyticspro-cadastral-opacity-control .form-range {
+    width: 140px;
+    margin-bottom: 0;
+}
 .analyticspro-map-hint,
 .analyticspro-map-feedback {
     position: absolute;
@@ -434,6 +444,12 @@ body {
     color: #495057;
     cursor: not-allowed;
     box-shadow: none;
+}
+.manual-record-autofill-hint {
+    padding: .45rem .65rem;
+    border: 1px dashed #c9d5ea;
+    border-radius: .5rem;
+    background: #f8fbff;
 }
 .manual-record-lockable.readonly:focus {
     background-color: #eef3fb;
