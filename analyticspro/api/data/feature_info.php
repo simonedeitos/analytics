@@ -9,14 +9,40 @@ require_once ANALYTICSPRO_ROOT . '/includes/cadastral_map.php';
 analyticspro_api_guard();
 analyticspro_api_require_auth();
 
-function analyticspro_feature_info_request(string $url, string $accept): array
+function analyticspro_feature_info_empty_fields(): array
 {
+    return [
+        'comune' => '',
+        'provincia' => '',
+        'cod_catastale' => '',
+        'sezione' => '',
+        'foglio' => '',
+        'particella' => '',
+        'subalterno' => '',
+        'categoria' => '',
+        'indirizzo' => '',
+        'civico' => '',
+    ];
+}
+
+function analyticspro_feature_info_log_step(string $step, int $durationMs, array $meta = []): void
+{
+    $parts = ['[feature_info]', 'step=' . $step, 'duration_ms=' . $durationMs];
+    foreach ($meta as $key => $value) {
+        $parts[] = $key . '=' . str_replace(' ', '_', trim((string) $value));
+    }
+    error_log(implode(' ', $parts));
+}
+
+function analyticspro_feature_info_request(string $url, string $accept, array $options = []): array
+{
+    $startedAt = microtime(true);
     $ch = curl_init($url);
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_FOLLOWLOCATION => true,
-        CURLOPT_CONNECTTIMEOUT => 8,
-        CURLOPT_TIMEOUT => 20,
+        CURLOPT_CONNECTTIMEOUT => max(1, (int) ($options['connect_timeout'] ?? 2)),
+        CURLOPT_TIMEOUT => max(1, (int) ($options['timeout'] ?? 4)),
         CURLOPT_SSL_VERIFYPEER => true,
         CURLOPT_ENCODING => '',
         CURLOPT_USERAGENT => 'AnalyticsPRO/1.0',
@@ -33,31 +59,41 @@ function analyticspro_feature_info_request(string $url, string $accept): array
     curl_close($ch);
 
     if ($body === false || $error !== '') {
-        throw new RuntimeException($error !== '' ? $error : 'Risposta non disponibile.');
+        $message = $error !== '' ? $error : 'Risposta non disponibile.';
+        if (stripos($message, 'timed out') !== false) {
+            $message = 'Timeout upstream del servizio catastale AdE.';
+        }
+        throw new RuntimeException($message);
     }
 
-    return ['status' => $status, 'content_type' => $contentType, 'body' => (string) $body];
+    return [
+        'status' => $status,
+        'content_type' => $contentType,
+        'body' => (string) $body,
+        'duration_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+    ];
 }
 
-function analyticspro_feature_info_complete_fields(array $fields, float $lat, float $lng): ?array
+function analyticspro_feature_info_complete_fields(
+    array $fields,
+    float $lat,
+    float $lng,
+    bool $resolveLocation = false,
+    ?callable $trace = null
+): ?array
 {
     $normalized = analyticspro_feature_info_normalize($fields);
-    if ($normalized === null) {
-        $normalized = [
-            'comune' => '',
-            'provincia' => '',
-            'cod_catastale' => '',
-            'sezione' => '',
-            'foglio' => '',
-            'particella' => '',
-            'subalterno' => '',
-            'categoria' => '',
-            'indirizzo' => '',
-            'civico' => '',
-        ];
+    if (!$resolveLocation) {
+        return $normalized !== null && analyticspro_cadastral_has_meaningful_fields($normalized) ? $normalized : null;
     }
 
-    $completed = analyticspro_cadastral_complete_fields($normalized, $lat, $lng);
+    $completed = analyticspro_cadastral_complete_fields(
+        $normalized ?? analyticspro_feature_info_empty_fields(),
+        $lat,
+        $lng,
+        null,
+        $trace
+    );
     return analyticspro_cadastral_has_meaningful_fields($completed) ? $completed : null;
 }
 
@@ -147,7 +183,7 @@ function analyticspro_feature_info_normalize(array $fields): ?array
         }
     }
 
-    if ($base['comune'] === '' && $base['foglio'] === '' && $base['particella'] === '') {
+    if (!analyticspro_cadastral_has_meaningful_fields($base)) {
         return null;
     }
 
@@ -237,30 +273,47 @@ try {
     $lat = (float) ($_GET['lat'] ?? 0);
     $lng = (float) ($_GET['lng'] ?? 0);
     $zoom = (int) ($_GET['zoom'] ?? 0);
+    $resolveLocation = ((int) ($_GET['resolve_location'] ?? 0)) === 1;
     if (!$lat || !$lng) {
         throw new RuntimeException('Coordinate non valide.');
     }
 
+    $trace = static function (string $step, int $durationMs, array $meta = []) use ($lat, $lng, $resolveLocation): void {
+        analyticspro_feature_info_log_step($step, $durationMs, $meta + [
+            'lat' => number_format($lat, 6, '.', ''),
+            'lng' => number_format($lng, 6, '.', ''),
+            'resolve_location' => $resolveLocation ? '1' : '0',
+        ]);
+    };
+
     $ajaxUrl = 'https://wms.cartografia.agenziaentrate.gov.it/inspire/ajax/ajax.php?op=getDatiOggetto&lon='
         . rawurlencode((string) $lng) . '&lat=' . rawurlencode((string) $lat);
+    $ajaxStartedAt = microtime(true);
     try {
-        $ajaxResponse = analyticspro_feature_info_request($ajaxUrl, 'application/json');
+        $ajaxResponse = analyticspro_feature_info_request($ajaxUrl, 'application/json', [
+            'connect_timeout' => 2,
+            'timeout' => 4,
+        ]);
+        $trace('ajax_getDatiOggetto', (int) ($ajaxResponse['duration_ms'] ?? 0), ['status' => $ajaxResponse['status'] ?? 0]);
         if ($ajaxResponse['status'] < 400) {
             $ajaxFields = analyticspro_feature_info_complete_fields(
                 analyticspro_feature_info_from_json($ajaxResponse['body']) ?? [],
                 $lat,
-                $lng
+                $lng,
+                $resolveLocation,
+                $trace
             );
             if ($ajaxFields !== null) {
                 analyticspro_json(['ok' => true, 'found' => true] + $ajaxFields + [
                     'source' => 'ajax',
                     'parcel_found' => analyticspro_feature_info_has_parcel($ajaxFields),
+                    'resolve_location' => $resolveLocation,
                 ]);
             }
         }
-        error_log('[feature_info] ajax empty response at lat=' . $lat . ' lng=' . $lng);
-    } catch (Throwable) {
-        error_log('[feature_info] ajax lookup failed at lat=' . $lat . ' lng=' . $lng);
+        $trace('ajax_no_match', (int) round((microtime(true) - $ajaxStartedAt) * 1000));
+    } catch (Throwable $exception) {
+        $trace('ajax_error', (int) round((microtime(true) - $ajaxStartedAt) * 1000), ['error' => $exception->getMessage()]);
     }
 
     $radius = 0.00035;
@@ -290,43 +343,73 @@ try {
         'text/html' => 'analyticspro_feature_info_from_html',
         'application/vnd.ogc.gml' => 'analyticspro_feature_info_from_gml',
         'text/plain' => 'analyticspro_feature_info_from_plain',
-        'application/json' => 'analyticspro_feature_info_from_json',
     ];
 
     foreach ($formats as $format => $parser) {
         $url = 'https://wms.cartografia.agenziaentrate.gov.it/inspire/wms/ows01.php?' . http_build_query($baseParams + ['INFO_FORMAT' => $format], '', '&', PHP_QUERY_RFC3986);
+        $requestStartedAt = microtime(true);
         try {
-            $response = analyticspro_feature_info_request($url, $format . ',*/*;q=0.8');
-        } catch (Throwable) {
-            error_log('[feature_info] GetFeatureInfo request failed format=' . $format . ' lat=' . $lat . ' lng=' . $lng);
+            $response = analyticspro_feature_info_request($url, $format . ',*/*;q=0.8', [
+                'connect_timeout' => 2,
+                'timeout' => 2,
+            ]);
+            $trace('getfeatureinfo_request', (int) ($response['duration_ms'] ?? 0), [
+                'format' => $format,
+                'status' => $response['status'] ?? 0,
+            ]);
+        } catch (Throwable $exception) {
+            $trace('getfeatureinfo_error', (int) round((microtime(true) - $requestStartedAt) * 1000), [
+                'format' => $format,
+                'error' => $exception->getMessage(),
+            ]);
             continue;
         }
         if ($response['status'] >= 400) {
-            error_log('[feature_info] GetFeatureInfo status=' . $response['status'] . ' format=' . $format . ' lat=' . $lat . ' lng=' . $lng);
             continue;
         }
-        $fields = analyticspro_feature_info_complete_fields($parser($response['body']) ?? [], $lat, $lng);
+        $fields = analyticspro_feature_info_complete_fields(
+            $parser($response['body']) ?? [],
+            $lat,
+            $lng,
+            $resolveLocation,
+            $trace
+        );
         if ($fields !== null) {
             analyticspro_json(['ok' => true, 'found' => true] + $fields + [
                 'source' => 'feature_info',
                 'info_format' => $format,
                 'zoom' => $zoom,
                 'parcel_found' => analyticspro_feature_info_has_parcel($fields),
+                'resolve_location' => $resolveLocation,
             ]);
         }
     }
 
-    $reverseFields = analyticspro_feature_info_complete_fields([], $lat, $lng);
-    if ($reverseFields !== null) {
-        analyticspro_json(['ok' => true, 'found' => true] + $reverseFields + [
-            'source' => 'reverse',
-            'zoom' => $zoom,
-            'parcel_found' => false,
+    if ($resolveLocation) {
+        $resolveOnlyStartedAt = microtime(true);
+        $reverseFields = analyticspro_feature_info_complete_fields([], $lat, $lng, true, $trace);
+        $trace('resolve_location_only', (int) round((microtime(true) - $resolveOnlyStartedAt) * 1000), [
+            'found' => $reverseFields !== null ? '1' : '0',
         ]);
+        if ($reverseFields !== null) {
+            analyticspro_json(['ok' => true, 'found' => true] + $reverseFields + [
+                'source' => 'resolve_location',
+                'zoom' => $zoom,
+                'parcel_found' => analyticspro_feature_info_has_parcel($reverseFields),
+                'resolve_location' => true,
+            ]);
+        }
     }
 
-    error_log('[feature_info] no cadastral data at lat=' . $lat . ' lng=' . $lng);
-    analyticspro_json(['ok' => true, 'found' => false, 'message' => 'Nessun dato catastale disponibile.']);
+    $trace('no_match', 0);
+    analyticspro_json([
+        'ok' => true,
+        'found' => false,
+        'message' => $resolveLocation
+            ? 'Comune/provincia non rilevati automaticamente.'
+            : 'Nessun dato catastale disponibile.',
+        'resolve_location' => $resolveLocation,
+    ]);
 } catch (Throwable $exception) {
     error_log('[feature_info] error: ' . $exception->getMessage());
     analyticspro_json(['ok' => false, 'error' => $exception->getMessage()], 422);

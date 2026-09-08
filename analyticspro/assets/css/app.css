@@ -12,6 +12,7 @@
     --ap-bg:          #f4f7fb;
     --ap-sidebar-w:   260px;
     --ap-topbar-h:    56px;
+    --ap-topbar-offset: 56px;
     --ap-text:        #1a1a2e;
     --ap-muted:       #6c757d;
     --ap-border:      #dee2e6;
@@ -176,18 +177,23 @@ body {
     font-weight: 600;
     font-size: 1rem;
     color: var(--ap-blue);
-    flex: 1;
 }
 
 .ap-topbar-user {
     font-size: .82rem;
     color: var(--ap-muted);
 }
+.map-page .ap-topbar {
+    height: auto;
+    min-height: var(--ap-topbar-h);
+    padding-top: .5rem;
+    padding-bottom: .5rem;
+}
 
 /* ----- Main Content -------------------------------------------------- */
 .ap-main {
     margin-left: var(--ap-sidebar-w);
-    padding-top: var(--ap-topbar-h);
+    padding-top: var(--ap-topbar-offset, var(--ap-topbar-h));
     min-height: 100vh;
 }
 .ap-content {
@@ -216,12 +222,12 @@ body {
 }
 .map-page .ap-content {
     padding: 0;
-    height: calc(100vh - var(--ap-topbar-h));
+    height: calc(100vh - var(--ap-topbar-offset, var(--ap-topbar-h)));
     overflow: hidden;
 }
 .analyticspro-map-shell {
     position: relative;
-    height: calc(100vh - var(--ap-topbar-h));
+    height: calc(100vh - var(--ap-topbar-offset, var(--ap-topbar-h)));
     min-height: 560px;
     background: #e9ecef;
 }
@@ -229,23 +235,6 @@ body {
     position: absolute;
     inset: 0;
     z-index: 1;
-}
-.analyticspro-map-overlay {
-    position: absolute;
-    z-index: 500;
-    pointer-events: none;
-}
-.analyticspro-map-overlay > * {
-    pointer-events: auto;
-}
-.analyticspro-map-overlay-top {
-    top: 1rem;
-    left: 1rem;
-    right: 1rem;
-}
-.analyticspro-map-card {
-    background: rgba(255,255,255,.96);
-    backdrop-filter: blur(2px);
 }
 .analyticspro-map-toolbar .dropdown-menu.analyticspro-map-dropdown {
     min-width: 360px;
@@ -282,7 +271,7 @@ body {
     pointer-events: none;
 }
 .analyticspro-map-hint {
-    top: 6.75rem;
+    top: 1rem;
 }
 .analyticspro-map-feedback {
     bottom: 1rem;
@@ -543,17 +532,10 @@ body {
     }
     .map-page .ap-content {
         height: auto;
-        min-height: calc(100vh - var(--ap-topbar-h));
+        min-height: calc(100vh - var(--ap-topbar-offset, var(--ap-topbar-h)));
     }
     .analyticspro-map-shell {
-        height: calc(100vh - var(--ap-topbar-h));
-    }
-    .analyticspro-map-overlay-top {
-        left: .75rem;
-        right: .75rem;
-    }
-    .analyticspro-map-hint {
-        top: 9.25rem;
+        height: calc(100vh - var(--ap-topbar-offset, var(--ap-topbar-h)));
     }
     .analyticspro-map-toolbar .dropdown-menu.analyticspro-map-dropdown {
         min-width: min(92vw, 520px);
@@ -561,12 +543,6 @@ body {
 }
 
 @media (max-width: 575.98px) {
-    .analyticspro-map-overlay-top {
-        top: .5rem;
-    }
-    .analyticspro-map-card .card-body {
-        padding: .75rem !important;
-    }
     .analyticspro-map-toolbar .dropdown-menu.analyticspro-map-dropdown,
     .analyticspro-find-area-dropdown {
         min-width: min(92vw, 360px);

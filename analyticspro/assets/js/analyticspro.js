@@ -31,7 +31,8 @@
     const CATASTRAL_OPACITY_STORAGE_KEY = 'cadastral-layer-opacity';
     const DEFAULT_CATASTRAL_OPACITY = 0.5;
     const CATASTRAL_MIN_ZOOM = 10;
-    const CATASTRAL_LOOKUP_TIMEOUT_MS = 12000;
+    const CATASTRAL_LOOKUP_TIMEOUT_MS = 10000;
+    const CATASTRAL_RESOLVE_LOCATION_TIMEOUT_MS = 15000;
     const CATASTRAL_TILE_RETRY_LIMIT = 2;
     const CATASTRAL_TILE_RETRY_DELAY_MS = 900;
     const CATASTRAL_ERROR_TILE_URL = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
@@ -88,21 +89,77 @@
     state.mapCategoriaFilter = null;
     state.cadastralLayerEnabled = readLocalFlag('cadastral-layer-enabled');
 
+    function resolveManualRecordLockedFields(values, candidateFields) {
+        return (candidateFields || []).filter(function (fieldName) {
+            return String(values && values[fieldName] !== undefined && values[fieldName] !== null ? values[fieldName] : '').trim() !== '';
+        });
+    }
+
     function getStatiFilter() {
         if (state.mapStatiFilter && Array.isArray(state.mapStatiFilter) && state.mapStatiFilter.length > 0) {
             return state.mapStatiFilter;
-        }
-
-        function resolveManualRecordLockedFields(values, candidateFields) {
-            return (candidateFields || []).filter(function (fieldName) {
-                return String(values && values[fieldName] !== undefined && values[fieldName] !== null ? values[fieldName] : '').trim() !== '';
-            });
         }
         return Object.keys(STATE_OPTIONS).slice();
     }
 
     function getCategorieFilter() {
         return Array.isArray(state.mapCategoriaFilter) ? state.mapCategoriaFilter : null;
+    }
+
+    function cadastralButtonValues(button) {
+        return {
+            'Provincia': button.dataset.provincia || '',
+            'Comune': button.dataset.comune || '',
+            'Codice Catastale': button.dataset.codCatastale || '',
+            'Sezione': button.dataset.sezione || '',
+            'Foglio': button.dataset.foglio || '',
+            'Particella': button.dataset.particella || '',
+            'Subalterno': button.dataset.subalterno || '',
+            'Categoria': button.dataset.categoria || '',
+            'Indirizzo': button.dataset.indirizzo || '',
+            'Civico': button.dataset.civico || '',
+            'Quota': '',
+            'Latitudine': button.dataset.lat || '',
+            'Longitudine': button.dataset.lng || '',
+        };
+    }
+
+    function mergeCadastralManualRecordValues(baseValues, details) {
+        var merged = Object.assign({}, baseValues);
+        if (!details || typeof details !== 'object') {
+            return merged;
+        }
+        [['Provincia', details.provincia], ['Comune', details.comune], ['Codice Catastale', details.cod_catastale], ['Sezione', details.sezione], ['Foglio', details.foglio], ['Particella', details.particella], ['Subalterno', details.subalterno], ['Categoria', details.categoria], ['Indirizzo', details.indirizzo], ['Civico', details.civico]].forEach(function (entry) {
+            if (String(entry[1] || '').trim() !== '') {
+                merged[entry[0]] = String(entry[1]);
+            }
+        });
+        return merged;
+    }
+
+    function openCadastralManualRecord(values, lockResolvedLocation, noticeMessage) {
+        var candidateFields = ['Codice Catastale', 'Sezione', 'Foglio', 'Particella', 'Subalterno', 'Categoria', 'Indirizzo', 'Civico'];
+        if (lockResolvedLocation) {
+            candidateFields = ['Provincia', 'Comune'].concat(candidateFields);
+        }
+        openManualRecordModal(values, resolveManualRecordLockedFields(values, candidateFields));
+        setManualRecordFeedback(noticeMessage || '', noticeMessage ? 'warning' : 'warning');
+    }
+
+    function setCadastralAddButtonLoading(button, loading) {
+        if (!button) return;
+        if (loading) {
+            if (!button.dataset.originalHtml) {
+                button.dataset.originalHtml = button.innerHTML;
+            }
+            button.disabled = true;
+            button.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>Ricerca comune e provincia…';
+            return;
+        }
+        button.disabled = false;
+        if (button.dataset.originalHtml) {
+            button.innerHTML = button.dataset.originalHtml;
+        }
     }
 
     function propertyCanViewPhone(property) {
@@ -961,6 +1018,12 @@
         setTimeout(function () { if (state.map) state.map.invalidateSize(); }, 600);
     }
 
+    window.addEventListener('analyticspro:topbar-resize', function () {
+        window.setTimeout(function () {
+            if (state.map) state.map.invalidateSize();
+        }, 80);
+    });
+
     // ─────────────────────────────────────────────────────────────────────────
     // Righe intestatari per il popup
     // ─────────────────────────────────────────────────────────────────────────
@@ -1367,6 +1430,18 @@
         prefillManualRecordForm(values || {}, lockedFields || []);
         state.manualRecordModal = bootstrap.Modal.getOrCreateInstance(modalEl);
         state.manualRecordModal.show();
+    }
+
+    function setManualRecordFeedback(message, type) {
+        var feedback = document.getElementById('manual-record-feedback');
+        if (!feedback) return;
+        if (!message) {
+            feedback.className = 'alert d-none py-2';
+            feedback.textContent = '';
+            return;
+        }
+        feedback.className = 'alert alert-' + (type || 'warning') + ' py-2';
+        feedback.textContent = message;
     }
 
     function initManualRecordModal() {
@@ -2047,7 +2122,7 @@
                     + ' data-categoria="' + escapeHtml(details.categoria || '') + '"'
                     + ' data-indirizzo="' + escapeHtml(details.indirizzo || '') + '"'
                     + ' data-civico="' + escapeHtml(details.civico || '') + '">'
-                    + '<i class="bi bi-plus-circle me-1"></i>Aggiungi Marker</button></div>'
+                    + '<i class="bi bi-plus-circle me-1"></i>Crea nuovo marker</button></div>'
                 : '')
             + '</div></div></div>';
     }
@@ -2252,21 +2327,37 @@
         return requestCadastralFeatureInfo(latlng);
     }
 
-    async function requestCadastralFeatureInfo(latlng) {
+    async function requestCadastralFeatureInfo(latlng, options) {
         if (!state.featureInfoEndpoint) {
             throw new Error('Endpoint catastale non configurato.');
         }
+        options = options || {};
+        var resolveLocation = !!options.resolveLocation;
+        var timeoutMs = resolveLocation ? CATASTRAL_RESOLVE_LOCATION_TIMEOUT_MS : CATASTRAL_LOOKUP_TIMEOUT_MS;
         var zoom = state.map ? state.map.getZoom() : '';
         var query = '?lat=' + encodeURIComponent(String(latlng.lat))
             + '&lng=' + encodeURIComponent(String(latlng.lng))
             + '&zoom=' + encodeURIComponent(String(zoom));
-        var response = await fetch(state.featureInfoEndpoint + query, {
-            method: 'GET',
-            headers: { 'Accept': 'application/json' },
-            signal: window.AbortSignal && typeof window.AbortSignal.timeout === 'function'
-                ? window.AbortSignal.timeout(CATASTRAL_LOOKUP_TIMEOUT_MS)
-                : undefined,
-        });
+        if (resolveLocation) {
+            query += '&resolve_location=1';
+        }
+        var response;
+        try {
+            response = await fetch(state.featureInfoEndpoint + query, {
+                method: 'GET',
+                headers: { 'Accept': 'application/json' },
+                signal: window.AbortSignal && typeof window.AbortSignal.timeout === 'function'
+                    ? window.AbortSignal.timeout(timeoutMs)
+                    : undefined,
+            });
+        } catch (error) {
+            if (error && (error.name === 'AbortError' || error.name === 'TimeoutError' || /timed out|timeout/i.test(String(error.message || '')))) {
+                throw new Error(resolveLocation
+                    ? 'Ricerca comune e provincia scaduta. Apri il marker e compila i campi manualmente.'
+                    : 'Timeout nel recupero dei dati catastali AdE. Riprova tra poco.');
+            }
+            throw error;
+        }
         var payload = await response.json();
         if (!response.ok || payload.ok === false) {
             if (response.status === 404 || payload.found === false) {
@@ -2893,25 +2984,37 @@
         var cadastralAddBtn = t.closest('.add-cadastral-marker-btn');
         if (cadastralAddBtn) {
             event.preventDefault();
-            var autoFillValues = {
-                'Provincia': cadastralAddBtn.dataset.provincia || '',
-                'Comune': cadastralAddBtn.dataset.comune || '',
-                'Codice Catastale': cadastralAddBtn.dataset.codCatastale || '',
-                'Sezione': cadastralAddBtn.dataset.sezione || '',
-                'Foglio': cadastralAddBtn.dataset.foglio || '',
-                'Particella': cadastralAddBtn.dataset.particella || '',
-                'Subalterno': cadastralAddBtn.dataset.subalterno || '',
-                'Categoria': cadastralAddBtn.dataset.categoria || '',
-                'Indirizzo': cadastralAddBtn.dataset.indirizzo || '',
-                'Civico': cadastralAddBtn.dataset.civico || '',
-                'Quota': '',
-                'Latitudine': cadastralAddBtn.dataset.lat || '',
-                'Longitudine': cadastralAddBtn.dataset.lng || '',
-            };
-            openManualRecordModal(
-                autoFillValues,
-                resolveManualRecordLockedFields(autoFillValues, ['Provincia', 'Comune', 'Codice Catastale', 'Sezione', 'Foglio', 'Particella', 'Subalterno', 'Categoria', 'Indirizzo', 'Civico'])
-            );
+            var autoFillValues = cadastralButtonValues(cadastralAddBtn);
+            if (String(autoFillValues['Provincia'] || '').trim() !== '' && String(autoFillValues['Comune'] || '').trim() !== '') {
+                openCadastralManualRecord(autoFillValues, true, '');
+                return;
+            }
+            setCadastralAddButtonLoading(cadastralAddBtn, true);
+            requestCadastralFeatureInfo({
+                lat: Number(cadastralAddBtn.dataset.lat || 0),
+                lng: Number(cadastralAddBtn.dataset.lng || 0),
+            }, {
+                resolveLocation: true,
+            })
+                .then(function (payload) {
+                    var resolvedValues = mergeCadastralManualRecordValues(autoFillValues, payload || {});
+                    var hasResolvedLocation = String(resolvedValues['Provincia'] || '').trim() !== '' && String(resolvedValues['Comune'] || '').trim() !== '';
+                    openCadastralManualRecord(
+                        resolvedValues,
+                        hasResolvedLocation,
+                        hasResolvedLocation ? '' : 'Comune/provincia non rilevati automaticamente, compilali manualmente.'
+                    );
+                })
+                .catch(function (error) {
+                    openCadastralManualRecord(
+                        autoFillValues,
+                        false,
+                        error && error.message ? error.message : 'Comune/provincia non rilevati automaticamente, compilali manualmente.'
+                    );
+                })
+                .finally(function () {
+                    setCadastralAddButtonLoading(cadastralAddBtn, false);
+                });
             return;
         }
         if (t.closest('.close-map-popup'))    { event.preventDefault(); if (state.map) state.map.closePopup(); return; }
