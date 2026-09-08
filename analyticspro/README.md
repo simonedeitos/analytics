@@ -99,13 +99,14 @@ Richiede **MySQL 8.0+** o **MariaDB 10.5+** per il supporto a `GEOMETRY` con SRI
 ### Mappa catastale AdE in `mappa.php`
 
 La pagina `analyticspro/mappa.php` usa un flusso mappa catastale allineato al progetto
-gemello **CataMap** e mostra i controlli direttamente nella topbar bianca standard
+gemello **CataMap** e mostra i controlli nella topbar bianca standard
 (`analyticspro_render_header()` / `includes/layout.php`): titolo pagina a sinistra,
 gruppo controlli a destra con componenti `btn-sm` / `form-select-sm` / `form-control-sm`
-coerenti, wrap ordinato su schermi stretti e selettore vista admin sulla seconda riga
-quando serve. Il layout `body.map-page` usa `display:flex`, `flex-direction:column` e
-`height:100dvh`; la topbar cresce in altezza secondo il contenuto e la mappa occupa
-sempre l’altezza residua senza valori hardcoded.
+coerenti, wrap ordinato su schermi stretti, dropdown toolbar sopra la mappa e
+selettore vista admin sulla seconda riga quando serve. Il layout `body.map-page`
+usa `display:flex`, `flex-direction:column` e `height:100dvh`; la topbar cresce in
+altezza secondo il contenuto e la mappa occupa sempre l’altezza residua fino al
+bordo inferiore del viewport senza fascia bianca né valori hardcoded.
 
 - `assets/js/analyticspro.js` crea il layer Leaflet WMS con `VERSION=1.3.0`,
   `LAYERS=province,CP.CadastralZoning,CP.CadastralParcel,fabbricati,strade,vestizioni,acque`,
@@ -117,8 +118,11 @@ sempre l’altezza residua senza valori hardcoded.
   risposte XML/non-image per facilitare il debug;
 - in caso di `tileerror`, il client effettua retry e fallback all’URL WMS diretto non proxato,
   così da aggirare rapidamente eventuali errori intermedi del proxy;
-- il toggle mostra il layer solo a zoom ≥ `10` e lo slider `#cadastral-opacity-slider`
-  applica in tempo reale l’opacità, aggiorna la percentuale e salva il valore in `localStorage`;
+- il toggle mostra il layer solo a zoom ≥ `10`; lo slider `#cadastral-opacity-slider`
+  appare come overlay compatto in basso a sinistra della mappa solo quando il layer
+  catastale è attivo, aggiorna la percentuale, salva il valore in `localStorage` e
+  regola l’opacità della basemap (OSM / Satellite) lasciando pienamente visibile il
+  layer catastale AdE;
 - gli unici overlay sopra la mappa sono `#map-cadastral-zoom-hint` e
   `#map-cadastral-feedback`; `assets/js/analyticspro.js` richiama `map.invalidateSize()`
   dopo il render e su `resize` / `analyticspro:topbar-resize` con debounce per evitare

@@ -20,8 +20,8 @@ ob_start();
 ?>
 <div class="analyticspro-map-toolbar">
     <div class="analyticspro-map-toolbar-primary">
-        <div class="dropdown">
-            <button class="btn btn-outline-primary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+        <div class="dropdown analyticspro-map-toolbar-dropdown">
+            <button class="btn btn-outline-primary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" data-bs-boundary="viewport" aria-expanded="false">
                 <i class="bi bi-search me-1"></i>Trova area
             </button>
             <div class="dropdown-menu p-3 shadow analyticspro-map-dropdown analyticspro-find-area-dropdown">
@@ -51,8 +51,8 @@ ob_start();
                 </div>
             </div>
         </div>
-        <div class="dropdown">
-            <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+        <div class="dropdown analyticspro-map-toolbar-dropdown">
+            <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" data-bs-boundary="viewport" aria-expanded="false">
                 <i class="bi bi-funnel me-1"></i>Filtri mappa
             </button>
             <div class="dropdown-menu p-3 shadow analyticspro-map-dropdown" id="map-filter-panel">
@@ -108,20 +108,6 @@ ob_start();
             <input class="form-check-input" type="checkbox" role="switch" id="cadastral-layer-toggle">
             <label class="form-check-label small fw-semibold" for="cadastral-layer-toggle">Mostra layer catastale</label>
         </div>
-        <div id="cadastral-opacity-control" class="d-none d-flex align-items-center gap-2 analyticspro-cadastral-opacity-control">
-            <i class="bi bi-layers-half text-muted" aria-hidden="true"></i>
-            <span class="small text-muted fw-semibold">Trasparenza</span>
-            <input type="range"
-                   id="cadastral-opacity-slider"
-                   class="form-range mb-0"
-                   min="0"
-                   max="100"
-                   step="1"
-                   value="50"
-                   aria-label="Trasparenza layer catastale"
-                   style="width: 140px;">
-            <span id="cadastral-opacity-value" class="small text-muted">50%</span>
-        </div>
         <button class="btn btn-outline-primary btn-sm" id="refresh-map">
             <i class="bi bi-arrow-clockwise me-1"></i>Aggiorna dati
         </button>
@@ -168,6 +154,18 @@ analyticspro_render_header('Mappa', [
 
     <div id="analyticspro-map-shell" class="analyticspro-map-shell">
         <div id="map-fullpage"></div>
+        <div id="cadastral-opacity-control" class="d-none analyticspro-cadastral-opacity-control">
+            <i class="bi bi-layers-half text-muted" aria-hidden="true"></i>
+            <input type="range"
+                   id="cadastral-opacity-slider"
+                   class="form-range"
+                   min="0"
+                   max="100"
+                   step="1"
+                   value="50"
+                   aria-label="Trasparenza mappa base">
+            <span id="cadastral-opacity-value" class="small text-muted">50%</span>
+        </div>
 
         <div id="map-cadastral-zoom-hint" class="alert alert-warning shadow-sm d-none analyticspro-map-hint" role="status">
             <i class="bi bi-zoom-in me-1"></i>Ingrandisci la mappa almeno al livello 10 per vedere il layer catastale.
