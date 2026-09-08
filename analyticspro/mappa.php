@@ -82,6 +82,10 @@ analyticspro_render_header('Mappa', ['app_assets' => true]);
                     <label class="form-check-label" for="filter-stato-da-contattare">Da Contattare</label>
                 </div>
                 <div class="form-check form-check-inline me-0">
+                    <input class="form-check-input map-stato-filter" type="checkbox" value="non_raggiungibile" id="filter-stato-non-raggiungibile" checked style="width:0.75rem;height:0.75rem;">
+                    <label class="form-check-label" for="filter-stato-non-raggiungibile">Non Raggiungibile</label>
+                </div>
+                <div class="form-check form-check-inline me-0">
                     <input class="form-check-input map-stato-filter" type="checkbox" value="in_vendita_noi" id="filter-stato-in-vendita-noi" checked style="width:0.75rem;height:0.75rem;">
                     <label class="form-check-label" for="filter-stato-in-vendita-noi">In Vendita NOI</label>
                 </div>

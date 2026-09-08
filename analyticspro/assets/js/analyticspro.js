@@ -11,6 +11,7 @@
         interessato: 'Interessato',
         contattato: 'Contattato',
         da_contattare: 'Da Contattare',
+        non_raggiungibile: 'Non Raggiungibile',
         in_vendita_noi: 'In Vendita NOI',
         in_vendita_altri: 'In Vendita ALTRI',
         altro: 'Altro',
@@ -128,11 +129,33 @@
             interessato: '#198754',
             contattato: '#0dcaf0',
             da_contattare: '#0d6efd',
+            non_raggiungibile: '#6c757d',
             in_vendita_noi: '#fd7e14',
             in_vendita_altri: '#ffc107',
             altro: '#6f42c1',
         };
         return map[stateKey] || '#0d6efd';
+    }
+
+    function formatNoteTimestamp(raw) {
+        var value = String(raw || '').trim();
+        var match = value.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
+        if (match) {
+            return match[3] + '/' + match[2] + '/' + match[1] + ' ' + match[4] + ':' + match[5];
+        }
+        return '';
+    }
+
+    function noteLogLine(note) {
+        var text = String((note && note.testo) || '').trim();
+        if (/^\[\d{2}\/\d{2}\/\d{4}\s\d{2}:\d{2}\]\s-\s/u.test(text)) {
+            return text;
+        }
+        if (text !== '') {
+            var fallbackTs = formatNoteTimestamp(note && note.created_at);
+            return fallbackTs ? ('[' + fallbackTs + '] - Nota: ' + text) : text;
+        }
+        return '';
     }
 
     function clampPercent(value) {
@@ -890,7 +913,9 @@
         var notes = property.notes || [];
         if (!notes.length) return '<span class="text-muted small">Nessuna nota</span>';
         return notes.map(function (note) {
-            return '<div class="small mb-1"><strong>' + escapeHtml(note.author_name_snapshot || '') + '</strong> &middot; ' + escapeHtml(note.created_at || '') + '<br>' + escapeHtml(note.testo || '') + '</div>';
+            return noteLogLine(note);
+        }).filter(Boolean).map(function (line) {
+            return '<div class="small mb-1">' + escapeHtml(line) + '</div>';
         }).join('');
     }
 
@@ -1585,7 +1610,7 @@
     function ensureSharedModals() {
         if (!document.getElementById('property-editor-modal')) {
             var editorModal = document.createElement('div');
-            editorModal.innerHTML = '<div class="modal fade" id="property-editor-modal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Modifica marker</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button></div><div class="modal-body"><div id="property-editor-meta" class="small text-muted mb-3"></div><div id="property-editor-error" class="alert alert-danger py-2 px-3 small d-none mb-3"></div><div id="editor-owners-block" class="mb-3"><label id="editor-owners-label" class="form-label small mb-1">Intestatari e telefoni</label><div id="editor-owners-content"></div></div><div class="row g-2"><div class="col-md-6"><label class="form-label small mb-1">Stato</label><select id="editor-state" class="form-select form-select-sm"></select></div><div class="col-md-6"><label class="form-label small mb-1">Colore marker</label><div class="d-flex align-items-center gap-2"><span id="editor-color-preview" class="color-dot" style="width:18px;height:18px;"></span><select id="editor-color" class="form-select form-select-sm"></select></div></div><div class="col-12"><label class="form-label small mb-1">Stato personalizzato</label><input id="editor-custom-state" class="form-control form-control-sm" placeholder="Stato personalizzato"></div><div class="col-12"><label class="form-label small mb-1">Assegnazioni</label><div id="editor-assignments-summary" class="small"></div></div><div class="col-12"><button type="button" class="btn btn-outline-secondary btn-sm d-none" id="editor-assignments-open"><i class="bi bi-person-plus me-1"></i>Gestisci assegnazioni</button></div><div class="col-12"><label class="form-label small mb-1">Nota</label><textarea id="editor-note" class="form-control form-control-sm" rows="3" placeholder="Aggiungi nota"></textarea></div></div></div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Annulla</button><button type="button" class="btn btn-primary btn-sm" id="editor-save-btn">Salva</button></div></div></div></div>';
+            editorModal.innerHTML = '<div class="modal fade" id="property-editor-modal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Modifica marker</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button></div><div class="modal-body"><div id="property-editor-meta" class="small text-muted mb-3"></div><div id="property-editor-error" class="alert alert-danger py-2 px-3 small d-none mb-3"></div><div id="editor-owners-block" class="mb-3"><label id="editor-owners-label" class="form-label small mb-1">Intestatari e telefoni</label><div id="editor-owners-content"></div></div><div class="row g-2"><div class="col-md-6"><label class="form-label small mb-1">Stato</label><select id="editor-state" class="form-select form-select-sm"></select></div><div class="col-md-6"><label class="form-label small mb-1">Colore marker</label><div class="d-flex align-items-center gap-2"><span id="editor-color-preview" class="color-dot" style="width:18px;height:18px;"></span><select id="editor-color" class="form-select form-select-sm"></select></div></div><div class="col-12"><label class="form-label small mb-1">Stato personalizzato</label><input id="editor-custom-state" class="form-control form-control-sm" placeholder="Stato personalizzato"></div><div class="col-12"><label class="form-label small mb-1">Assegnazioni</label><div id="editor-assignments-summary" class="small"></div></div><div class="col-12"><button type="button" class="btn btn-outline-secondary btn-sm d-none" id="editor-assignments-open"><i class="bi bi-person-plus me-1"></i>Gestisci assegnazioni</button></div><div class="col-12"><label class="form-label small mb-1">Note (log)</label><div id="editor-note-log" class="border rounded p-2 bg-light-subtle small mb-2" style="max-height:170px;overflow:auto;"></div><input id="editor-note" class="form-control form-control-sm" placeholder="Scrivi una nota (una riga)"></div></div></div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Annulla</button><button type="button" class="btn btn-primary btn-sm" id="editor-save-btn">Salva</button></div></div></div></div>';
             document.body.appendChild(editorModal.firstElementChild);
         }
         if (!document.getElementById('assignment-picker-modal')) {
@@ -1651,6 +1676,12 @@
         if (label) {
             label.textContent = propertyCanViewPhone(property) ? 'Intestatari e telefoni' : 'Intestatari';
         }
+    }
+
+    function renderEditorNotesLog(property) {
+        var container = document.getElementById('editor-note-log');
+        if (!container) return;
+        container.innerHTML = propertyNotesHtml(property);
     }
 
     function toggleOwnerPhoneAddControls(container, showInput) {
@@ -1872,6 +1903,7 @@
         noteEl.value = '';
         saveBtn.dataset.propertyId = String(property.id);
         renderEditorOwners(property);
+        renderEditorNotesLog(property);
         refreshEditorAssignmentSummary(property);
         if (assignmentBtn) { assignmentBtn.classList.toggle('d-none', state.role === 'subuser'); assignmentBtn.dataset.propertyId = String(property.id); }
         bootstrap.Modal.getOrCreateInstance(modalEl).show();
