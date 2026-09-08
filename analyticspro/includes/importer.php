@@ -266,6 +266,7 @@ function analyticspro_extract_row_payload(array $row): array
             'indirizzo' => analyticspro_extract_row_value($row, ['Indirizzo Proprietario', 'Indirizzo']),
             'email' => $email,
             'data_nascita' => analyticspro_parse_birth_date(analyticspro_extract_row_value($row, ['Data Nascita'])),
+            'luogo_nascita' => analyticspro_extract_row_value($row, ['Nato A', 'Luogo Nascita', 'Luogo di Nascita', 'Comune Nascita']),
             'genere' => analyticspro_guess_gender($cf),
         ],
         'note' => analyticspro_extract_row_value($row, ['Note', 'note']),
@@ -796,7 +797,7 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
     );
     $selectCurrentOwner = $pdo->prepare('SELECT * FROM property_owners WHERE property_id = :property_id AND is_current = 1 LIMIT 1');
     $closeOwners = $pdo->prepare('UPDATE property_owners SET is_current = 0, valid_to = NOW() WHERE property_id = :property_id AND is_current = 1');
-    $insertOwner = $pdo->prepare('INSERT INTO property_owners (property_id, tipo, nome_enc, cognome_enc, codice_fiscale_enc, telefono_enc, indirizzo_enc, email_enc, nome_hash, cognome_hash, codice_fiscale_hash, telefono_hash, data_nascita, genere, is_current, valid_from) VALUES (:property_id, :tipo, :nome_enc, :cognome_enc, :codice_fiscale_enc, :telefono_enc, :indirizzo_enc, :email_enc, :nome_hash, :cognome_hash, :codice_fiscale_hash, :telefono_hash, :data_nascita, :genere, 1, NOW())');
+    $insertOwner = $pdo->prepare('INSERT INTO property_owners (property_id, tipo, nome_enc, cognome_enc, codice_fiscale_enc, telefono_enc, indirizzo_enc, email_enc, nome_hash, cognome_hash, codice_fiscale_hash, telefono_hash, data_nascita, luogo_nascita_enc, genere, is_current, valid_from) VALUES (:property_id, :tipo, :nome_enc, :cognome_enc, :codice_fiscale_enc, :telefono_enc, :indirizzo_enc, :email_enc, :nome_hash, :cognome_hash, :codice_fiscale_hash, :telefono_hash, :data_nascita, :luogo_nascita_enc, :genere, 1, NOW())');
     $insertConflict = $pdo->prepare('INSERT INTO import_duplicate_conflicts (import_batch_id, property_id, action_taken, resolved_by, resolved_at) VALUES (:import_batch_id, :property_id, :action_taken, :resolved_by, NOW())');
     $insertNote = $pdo->prepare('INSERT INTO property_notes (property_id, author_id, author_name_snapshot, testo) VALUES (:property_id, :author_id, :author_name_snapshot, :testo)');
     $updateBatch = $pdo->prepare('UPDATE import_batches SET processed_rows = :processed_rows WHERE id = :id');
@@ -877,6 +878,7 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
                             'codice_fiscale_hash' => analyticspro_hash($entry['owner']['codice_fiscale']),
                             'telefono_hash' => analyticspro_hash($entry['owner']['telefono']),
                             'data_nascita' => $entry['owner']['data_nascita'],
+                            'luogo_nascita_enc' => analyticspro_encrypt($entry['owner']['luogo_nascita'] ?? ''),
                             'genere' => $entry['owner']['genere'],
                         ]);
                     }
@@ -921,6 +923,7 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
                     'codice_fiscale_hash' => analyticspro_hash($entry['owner']['codice_fiscale']),
                     'telefono_hash' => analyticspro_hash($entry['owner']['telefono']),
                     'data_nascita' => $entry['owner']['data_nascita'],
+                    'luogo_nascita_enc' => analyticspro_encrypt($entry['owner']['luogo_nascita'] ?? ''),
                     'genere' => $entry['owner']['genere'],
                 ]);
             }

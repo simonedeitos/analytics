@@ -35,6 +35,61 @@ try {
     }
 
     $action = trim((string) ($input['action'] ?? ''));
+    if ($action === 'add_owner_phone') {
+        $ownerId = (int) ($input['owner_id'] ?? 0);
+        $phoneToAdd = trim((string) ($input['phone'] ?? ''));
+        if ($ownerId <= 0 || $phoneToAdd === '') {
+            throw new RuntimeException('Dati telefono non validi.');
+        }
+        if (preg_match('/^[0-9+\-\s]+$/', $phoneToAdd) !== 1) {
+            throw new RuntimeException('Formato numero non valido.');
+        }
+
+        $showPhone = analyticspro_is_admin() || analyticspro_tenant_phone_visibility((int) $property['user_id']);
+        if (!$showPhone) {
+            throw new RuntimeException('Visibilità telefono non abilitata.');
+        }
+
+        $pdo = analyticspro_db();
+        $pdo->beginTransaction();
+        try {
+            $ownerStmt = $pdo->prepare('SELECT po.id, po.telefono_enc FROM property_owners po INNER JOIN properties p ON p.id = po.property_id WHERE po.id = :id AND po.property_id = :property_id AND po.is_current = 1 AND p.user_id = :tenant_owner_id LIMIT 1 FOR UPDATE');
+            $ownerStmt->execute([
+                'id' => $ownerId,
+                'property_id' => $propertyId,
+                'tenant_owner_id' => (int) $property['user_id'],
+            ]);
+            $owner = $ownerStmt->fetch();
+            if (!$owner) {
+                throw new RuntimeException('Intestatario non trovato.');
+            }
+
+            $currentPhone = analyticspro_decrypt($owner['telefono_enc']);
+            $updatedPhone = analyticspro_add_phone_value($currentPhone, $phoneToAdd);
+
+            $updateStmt = $pdo->prepare('UPDATE property_owners po INNER JOIN properties p ON p.id = po.property_id SET po.telefono_enc = :telefono_enc, po.telefono_hash = :telefono_hash WHERE po.id = :id AND po.property_id = :property_id AND po.is_current = 1 AND p.user_id = :tenant_owner_id');
+            $updateStmt->execute([
+                'telefono_enc' => analyticspro_encrypt($updatedPhone),
+                'telefono_hash' => analyticspro_hash($updatedPhone),
+                'id' => $ownerId,
+                'property_id' => $propertyId,
+                'tenant_owner_id' => (int) $property['user_id'],
+            ]);
+            $pdo->commit();
+        } catch (Throwable $exception) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $exception;
+        }
+
+        analyticspro_json([
+            'ok' => true,
+            'owner_id' => $ownerId,
+            'telefono' => $updatedPhone,
+        ]);
+    }
+
     if ($action === 'remove_owner_phone') {
         $ownerId = (int) ($input['owner_id'] ?? 0);
         $phoneToRemove = trim((string) ($input['phone'] ?? ''));

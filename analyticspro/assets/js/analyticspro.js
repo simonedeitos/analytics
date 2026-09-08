@@ -45,6 +45,8 @@
         adeJobsEndpoint: root.dataset.adeJobsEndpoint || '',
         adeManualFilesEndpoint: root.dataset.adeManualFilesEndpoint || '',
         propertyDeleteEndpoint: root.dataset.propertyDeleteEndpoint || '',
+        findAreaEndpoint: root.dataset.findAreaEndpoint || '',
+        findAreaComuniEndpoint: root.dataset.findAreaComuniEndpoint || '',
         properties: [],
         subusers: [],
         map: null,
@@ -57,6 +59,10 @@
         mapCategoriaFilter: null,
         currentImportStats: null,
         phoneConfirmPending: false,
+        pendingMapView: null,
+        findAreaComuneMap: {},
+        findAreaMarker: null,
+        findAreaBoundsLayer: null,
     };
 
     state.mapStatiFilter = Object.keys(STATE_OPTIONS).slice();
@@ -194,10 +200,8 @@
 
     function buildEditablePhoneChips(raw, propertyId, ownerId, canDelete) {
         var phones = splitPhoneNumbers(raw);
-        if (!phones.length) {
-            return '<span class="text-muted small">Nessun telefono</span>';
-        }
-        return '<div class="d-flex flex-wrap gap-1 mt-1">' + phones.map(function (phone) {
+        var chipsHtml = phones.length
+            ? '<div class="d-flex flex-wrap gap-1 mt-1">' + phones.map(function (phone) {
             var removeBtn = canDelete
                 ? '<button type="button" class="btn btn-outline-danger btn-sm remove-owner-phone-btn"'
                     + ' data-property-id="' + escapeHtml(String(propertyId)) + '"'
@@ -209,7 +213,17 @@
                 + '<button type="button" class="btn btn-outline-primary btn-sm copy-phone-btn" data-phone="' + escapeHtml(phone) + '" data-default-label="' + escapeHtml(phone) + '">' + escapeHtml(phone) + '</button>'
                 + removeBtn
                 + '</span>';
-        }).join('') + '</div>';
+        }).join('') + '</div>'
+            : '<span class="text-muted small">Nessun telefono</span>';
+        var addControls = canDelete
+            ? '<div class="d-inline-flex align-items-center gap-1 mt-1 owner-phone-add-controls" data-property-id="' + escapeHtml(String(propertyId)) + '" data-owner-id="' + escapeHtml(String(ownerId)) + '">'
+                + '<button type="button" class="btn btn-outline-success btn-sm add-owner-phone-toggle-btn" title="Aggiungi numero">[+]</button>'
+                + '<input type="text" class="form-control form-control-sm d-none add-owner-phone-input" style="max-width:180px;" placeholder="Nuovo numero">'
+                + '<button type="button" class="btn btn-success btn-sm d-none add-owner-phone-save-btn">Aggiungi</button>'
+                + '<button type="button" class="btn btn-outline-secondary btn-sm d-none add-owner-phone-cancel-btn">Annulla</button>'
+                + '</div>'
+            : '';
+        return chipsHtml + addControls;
     }
 
     function copyTextToClipboard(text) {
@@ -303,7 +317,13 @@
         return url + (url.indexOf('?') !== -1 ? '&' : '?') + 'tenant_id=' + encodeURIComponent(state.selectedTenant);
     }
 
-    async function loadProperties() {
+    async function loadProperties(options) {
+        options = options || {};
+        if (options.preserveMapView) {
+            state.pendingMapView = captureMapView();
+        } else {
+            state.pendingMapView = null;
+        }
         var results = await Promise.all([
             api(withTenant(state.propertiesEndpoint + '?mode=all')),
             api(withTenant(state.propertiesEndpoint + '?mode=assigned' + (state.role !== 'subuser' ? '&subuser_id=' : ''))),
@@ -318,6 +338,17 @@
         if (state.canViewAnalytics || state.role !== 'subuser') renderCharts();
         populateAssignedSubuserFilter();
         refreshMapCategoryFilters();
+    }
+
+    function captureMapView() {
+        if (!state.map) return null;
+        var center = state.map.getCenter();
+        var zoom = state.map.getZoom();
+        if (!center || !Number.isFinite(zoom)) return null;
+        return {
+            center: [Number(center.lat), Number(center.lng)],
+            zoom: Number(zoom),
+        };
     }
 
     function updateKpis() {
@@ -361,7 +392,13 @@
         if (!owners.length) return '<span class="text-muted small">Nessun intestatario</span>';
         return owners.map(function (owner) {
             var fullName = ((owner.cognome || '') + ' ' + (owner.nome || '')).trim() || 'Intestatario';
-            return '<div class="mb-1"><div>' + escapeHtml(fullName) + '</div>' + (propertyCanViewPhone(property) ? buildPhoneChips(owner.telefono) : '') + '</div>';
+            var bornParts = [];
+            if (owner.luogo_nascita) bornParts.push('Nato a: ' + owner.luogo_nascita);
+            if (owner.data_nascita) bornParts.push('Nato il: ' + formatDobWithAge(owner.data_nascita));
+            return '<div class="mb-1"><div>' + escapeHtml(fullName) + '</div>'
+                + (bornParts.length ? '<div class="small text-muted">' + escapeHtml(bornParts.join(' · ')) + '</div>' : '')
+                + (propertyCanViewPhone(property) ? buildPhoneChips(owner.telefono) : '')
+                + '</div>';
         }).join('');
     }
 
@@ -592,10 +629,13 @@
 
         for (var i = 0; i < properties.length; i++) {
             var p = properties[i];
-            var foglio     = String(p.foglio     || '');
-            var particella = String(p.particella || '');
-            var subalterno = String(p.subalterno || '');
-            var unitKey    = foglio + '|' + particella + '|' + subalterno + '|' + String(p.user_id || '');
+            var provincia  = String(p.provincia  || '').trim().toUpperCase();
+            var comune     = String(p.comune     || '').trim().toUpperCase();
+            var sezione    = String(p.sezione    || '').trim().toUpperCase();
+            var foglio     = String(p.foglio     || '').trim().toUpperCase();
+            var particella = String(p.particella || '').trim().toUpperCase();
+            var subalterno = String(p.subalterno || '').trim().toUpperCase();
+            var unitKey    = provincia + '|' + comune + '|' + sezione + '|' + foglio + '|' + particella + '|' + subalterno + '|' + String(p.user_id || '');
 
             if (!groups[unitKey]) {
                 // Prima property del gruppo: diventa la "principale"
@@ -766,6 +806,8 @@
 
         var statiFilter = getStatiFilter();
         var categorieFilter = getCategorieFilter();
+        var pendingView = state.pendingMapView;
+        state.pendingMapView = null;
         state.markers.clearLayers();
         var points = [];
 
@@ -797,7 +839,11 @@
             points.push(property);
         }
 
-        if (points.length) state.map.fitBounds(state.markers.getBounds().pad(0.2));
+        if (pendingView && pendingView.center && Number.isFinite(pendingView.zoom)) {
+            state.map.setView(pendingView.center, pendingView.zoom, { animate: false });
+        } else if (points.length) {
+            state.map.fitBounds(state.markers.getBounds().pad(0.2));
+        }
         setTimeout(function () { if (state.map) state.map.invalidateSize(); }, 150);
         setTimeout(function () { if (state.map) state.map.invalidateSize(); }, 600);
     }
@@ -815,6 +861,7 @@
             if (owner.email)          identityParts.push('\u2709 ' + owner.email);
             if (owner.indirizzo)      identityParts.push('\uD83D\uDCCD ' + owner.indirizzo);
             var profileParts = [];
+            if (owner.luogo_nascita)                 profileParts.push('Nato a: ' + owner.luogo_nascita);
             if (owner.data_nascita)                   profileParts.push('Nato il: ' + formatDobWithAge(owner.data_nascita));
             if (owner.genere)                         profileParts.push('Genere: ' + owner.genere);
             var quota      = property.quota      ? ' (' + escapeHtml(property.quota)      + ')' : '';
@@ -993,7 +1040,7 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(Object.assign({ csrf_token: state.csrfToken }, payload)),
         });
-        await loadProperties();
+        await loadProperties({ preserveMapView: true });
     }
 
     async function removeOwnerPhone(propertyId, ownerId, phone) {
@@ -1003,6 +1050,20 @@
             body: JSON.stringify({
                 csrf_token: state.csrfToken,
                 action: 'remove_owner_phone',
+                property_id: propertyId,
+                owner_id: ownerId,
+                phone: phone
+            }),
+        });
+    }
+
+    async function addOwnerPhone(propertyId, ownerId, phone) {
+        return api(state.propertyUpdateEndpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                csrf_token: state.csrfToken,
+                action: 'add_owner_phone',
                 property_id: propertyId,
                 owner_id: ownerId,
                 phone: phone
@@ -1448,6 +1509,142 @@
         }
     }
 
+    function toggleOwnerPhoneAddControls(container, showInput) {
+        if (!container) return;
+        var toggleBtn = container.querySelector('.add-owner-phone-toggle-btn');
+        var input = container.querySelector('.add-owner-phone-input');
+        var saveBtn = container.querySelector('.add-owner-phone-save-btn');
+        var cancelBtn = container.querySelector('.add-owner-phone-cancel-btn');
+        if (!toggleBtn || !input || !saveBtn || !cancelBtn) return;
+        if (showInput) {
+            toggleBtn.classList.add('d-none');
+            input.classList.remove('d-none');
+            saveBtn.classList.remove('d-none');
+            cancelBtn.classList.remove('d-none');
+            input.focus();
+            return;
+        }
+        input.value = '';
+        input.classList.add('d-none');
+        saveBtn.classList.add('d-none');
+        cancelBtn.classList.add('d-none');
+        toggleBtn.classList.remove('d-none');
+    }
+
+    function normalizeComuneKey(value) {
+        return String(value || '').trim().toUpperCase();
+    }
+
+    async function findAreaComuni(query) {
+        if (!state.findAreaComuniEndpoint) return [];
+        return api(state.findAreaComuniEndpoint + '?q=' + encodeURIComponent(query || ''));
+    }
+
+    function showFindAreaOnMap(payload) {
+        if (!state.map) return;
+        if (state.findAreaMarker && state.map.hasLayer(state.findAreaMarker)) {
+            state.map.removeLayer(state.findAreaMarker);
+        }
+        if (state.findAreaBoundsLayer && state.map.hasLayer(state.findAreaBoundsLayer)) {
+            state.map.removeLayer(state.findAreaBoundsLayer);
+        }
+
+        var bounds = payload && payload.bounds ? payload.bounds : null;
+        if (bounds && Number.isFinite(Number(bounds.min_lat)) && Number.isFinite(Number(bounds.min_lng)) && Number.isFinite(Number(bounds.max_lat)) && Number.isFinite(Number(bounds.max_lng))) {
+            state.findAreaBoundsLayer = L.rectangle([[Number(bounds.min_lat), Number(bounds.min_lng)], [Number(bounds.max_lat), Number(bounds.max_lng)]], {
+                color: '#0d6efd',
+                weight: 2,
+                fillOpacity: 0.05,
+            }).addTo(state.map);
+            state.map.fitBounds(state.findAreaBoundsLayer.getBounds().pad(0.2));
+        } else if (Number.isFinite(Number(payload.lat)) && Number.isFinite(Number(payload.lng))) {
+            var zoom = Number(payload.zoom || 17);
+            state.map.setView([Number(payload.lat), Number(payload.lng)], Number.isFinite(zoom) ? zoom : 17);
+        }
+
+        if (Number.isFinite(Number(payload.lat)) && Number.isFinite(Number(payload.lng))) {
+            state.findAreaMarker = L.circleMarker([Number(payload.lat), Number(payload.lng)], {
+                radius: 8,
+                color: '#0d6efd',
+                fillColor: '#0d6efd',
+                fillOpacity: 0.2,
+                weight: 2,
+            }).addTo(state.map);
+            setTimeout(function () {
+                if (!state.map || !state.findAreaMarker) return;
+                if (state.map.hasLayer(state.findAreaMarker)) state.map.removeLayer(state.findAreaMarker);
+                state.findAreaMarker = null;
+            }, 10000);
+        }
+    }
+
+    function initFindArea() {
+        var comuneInput = document.getElementById('find-area-comune');
+        var foglioInput = document.getElementById('find-area-foglio');
+        var particellaInput = document.getElementById('find-area-particella');
+        var feedback = document.getElementById('find-area-feedback');
+        var button = document.getElementById('find-area-submit');
+        var list = document.getElementById('find-area-comune-list');
+        if (!comuneInput || !foglioInput || !button || !feedback || !state.findAreaEndpoint) return;
+
+        var comuneTimer = null;
+        comuneInput.addEventListener('input', function () {
+            var query = comuneInput.value.trim();
+            comuneInput.dataset.belfiore = '';
+            if (comuneTimer) window.clearTimeout(comuneTimer);
+            if (query.length < 2 || !state.findAreaComuniEndpoint || !list) return;
+            comuneTimer = window.setTimeout(function () {
+                findAreaComuni(query)
+                    .then(function (payload) {
+                        state.findAreaComuneMap = {};
+                        var options = [];
+                        (payload.comuni || []).forEach(function (row) {
+                            var key = normalizeComuneKey(row.comune || '');
+                            if (key) state.findAreaComuneMap[key] = row.belfiore || '';
+                            options.push('<option value="' + escapeHtml(row.comune || '') + '" label="' + escapeHtml((row.comune || '') + (row.belfiore ? ' [' + row.belfiore + ']' : '')) + '"></option>');
+                        });
+                        list.innerHTML = options.join('');
+                    })
+                    .catch(function () {});
+            }, 220);
+        });
+
+        comuneInput.addEventListener('change', function () {
+            comuneInput.dataset.belfiore = state.findAreaComuneMap[normalizeComuneKey(comuneInput.value)] || '';
+        });
+
+        button.addEventListener('click', function () {
+            if (!state.map) return;
+            var comune = comuneInput.value.trim();
+            var foglio = foglioInput.value.trim();
+            var particella = particellaInput ? particellaInput.value.trim() : '';
+            if (!comune || !foglio) {
+                feedback.className = 'small text-danger mt-1';
+                feedback.textContent = 'Inserisci comune e foglio.';
+                return;
+            }
+            button.disabled = true;
+            feedback.className = 'small text-muted mt-1';
+            feedback.textContent = 'Ricerca in corso…';
+
+            var qs = '?comune=' + encodeURIComponent(comune)
+                + '&foglio=' + encodeURIComponent(foglio)
+                + '&particella=' + encodeURIComponent(particella)
+                + '&belfiore=' + encodeURIComponent(comuneInput.dataset.belfiore || '');
+            api(state.findAreaEndpoint + qs)
+                .then(function (payload) {
+                    showFindAreaOnMap(payload);
+                    feedback.className = 'small text-success mt-1';
+                    feedback.textContent = payload.message || 'Area trovata.';
+                })
+                .catch(function (error) {
+                    feedback.className = 'small text-danger mt-1';
+                    feedback.textContent = error.message || 'Area non trovata.';
+                })
+                .finally(function () { button.disabled = false; });
+        });
+    }
+
     function confirmOwnerPhoneRemoval(phone) {
         ensureSharedModals();
         if (state.phoneConfirmPending) {
@@ -1764,6 +1961,48 @@
             });
             return;
         }
+        var addPhoneToggleBtn = t.closest('.add-owner-phone-toggle-btn');
+        if (addPhoneToggleBtn) {
+            event.preventDefault();
+            toggleOwnerPhoneAddControls(addPhoneToggleBtn.closest('.owner-phone-add-controls'), true);
+            return;
+        }
+        var addPhoneCancelBtn = t.closest('.add-owner-phone-cancel-btn');
+        if (addPhoneCancelBtn) {
+            event.preventDefault();
+            toggleOwnerPhoneAddControls(addPhoneCancelBtn.closest('.owner-phone-add-controls'), false);
+            return;
+        }
+        var addPhoneSaveBtn = t.closest('.add-owner-phone-save-btn');
+        if (addPhoneSaveBtn) {
+            event.preventDefault();
+            var addWrap = addPhoneSaveBtn.closest('.owner-phone-add-controls');
+            if (!addWrap) return;
+            var inputPhone = addWrap.querySelector('.add-owner-phone-input');
+            var newPhone = String((inputPhone && inputPhone.value) || '').trim();
+            var addPropertyId = Number(addWrap.dataset.propertyId || 0);
+            var addOwnerId = Number(addWrap.dataset.ownerId || 0);
+            if (!newPhone) {
+                window.alert('Inserisci un numero di telefono.');
+                return;
+            }
+            if (!/^[0-9+\-\s]+$/.test(newPhone)) {
+                window.alert('Formato numero non valido. Usa solo cifre, spazi, + e -.');
+                return;
+            }
+            var propertyForAdd = findPropertyById(addPropertyId);
+            if (!propertyForAdd || !propertyCanViewPhone(propertyForAdd) || !propertyForAdd.can_edit || !addOwnerId) return;
+            addPhoneSaveBtn.disabled = true;
+            addOwnerPhone(addPropertyId, addOwnerId, newPhone)
+                .then(function (payload) {
+                    applyOwnerPhoneUpdate(addPropertyId, addOwnerId, payload.telefono || '');
+                    var property = findPropertyById(addPropertyId);
+                    if (property) renderEditorOwners(property);
+                })
+                .catch(function (error) { window.alert(error.message); })
+                .finally(function () { addPhoneSaveBtn.disabled = false; });
+            return;
+        }
         if (t.closest('.close-map-popup'))    { event.preventDefault(); if (state.map) state.map.closePopup(); return; }
         if (t.closest('.close-detail-modal')) { event.preventDefault(); var dm = bootstrap.Modal.getInstance(document.getElementById('property-detail-modal')); if (dm) dm.hide(); return; }
         var detailBtn = t.closest('.open-detail-modal');   if (detailBtn)     { event.preventDefault(); openDetailModal(Number(detailBtn.dataset.propertyId || 0)); return; }
@@ -1851,6 +2090,7 @@
 
     ensureSharedModals();
     initManualRecordModal();
+    initFindArea();
 
     if (state.propertiesEndpoint) {
         loadProperties().catch(function (error) { alert(error.message); });

@@ -49,6 +49,7 @@ $payload = analyticspro_extract_row_payload([
     'Foglio' => '10',
     'Particella' => '25',
     'Piano' => '2',
+    'Nato A' => 'MONTICHIARI (BS)',
     'Contatti' => '3386882344,3387124334 - ,,0309900026',
     'Note' => 'Nota importata',
 ]);
@@ -63,6 +64,10 @@ if (($payload['property']['piano'] ?? '') !== '2') {
 if (($payload['note'] ?? '') !== 'Nota importata') {
     $pass = false;
     $errors[] = 'Mapping note non corretto: ' . json_encode($payload['note'] ?? null);
+}
+if (($payload['owner']['luogo_nascita'] ?? '') !== 'MONTICHIARI (BS)') {
+    $pass = false;
+    $errors[] = 'Mapping campo Nato A non corretto: ' . json_encode($payload['owner']['luogo_nascita'] ?? null);
 }
 
 $aliasPayload = analyticspro_extract_row_payload([
@@ -83,6 +88,19 @@ if (($aliasPayload['owner']['telefono'] ?? '') !== '3330001111;3399998888') {
 if (($aliasPayload['owner']['email'] ?? '') !== 'mario@example.it') {
     $pass = false;
     $errors[] = 'Normalizzazione alias email non corretta: ' . json_encode($aliasPayload['owner']['email'] ?? null);
+}
+
+$birthAliasPayload = analyticspro_extract_row_payload([
+    'Provincia' => 'BS',
+    'Comune' => 'Brescia',
+    'Codice Catastale' => 'B157',
+    'Foglio' => '11',
+    'Particella' => '26',
+    'Luogo Nascita' => 'BRESCIA (BS)',
+]);
+if (($birthAliasPayload['owner']['luogo_nascita'] ?? '') !== 'BRESCIA (BS)') {
+    $pass = false;
+    $errors[] = 'Alias "Luogo Nascita" non riconosciuto: ' . json_encode($birthAliasPayload['owner']['luogo_nascita'] ?? null);
 }
 
 if ($pass) {

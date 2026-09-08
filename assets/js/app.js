@@ -615,6 +615,7 @@
         { key: 'Nome',            label: 'Cognome' },
         { key: 'Nome1',           label: 'Nome' },
         { key: 'Codice Fiscale',  label: 'CF / P.IVA' },
+        { key: 'Nato A',          label: 'Nato A' },
         { key: 'Data Nascita',    label: 'Data Nascita' },
         { key: '_age',            label: 'Età', render: v => v === null ? '' : v },
         { key: '_gender',         label: 'Sesso', render: renderGender },

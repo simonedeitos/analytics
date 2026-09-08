@@ -112,6 +112,7 @@ CREATE TABLE property_owners (
     codice_fiscale_hash CHAR(64) NULL,
     telefono_hash CHAR(64) NULL,
     data_nascita DATE NULL,
+    luogo_nascita_enc VARBINARY(512) NULL,
     genere CHAR(1) NULL,
     is_current TINYINT(1) NOT NULL DEFAULT 1,
     valid_from DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,

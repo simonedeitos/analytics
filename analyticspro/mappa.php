@@ -30,7 +30,9 @@ analyticspro_render_header('Mappa', ['app_assets' => true]);
      data-can-edit-all-markers="<?= !analyticspro_is_subuser() || !empty($subuserPermissions['can_edit_all_markers']) ? '1' : '0' ?>"
      data-properties-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/properties.php')) ?>"
      data-property-update-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/update_property.php')) ?>"
-     data-property-delete-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/delete_property.php')) ?>">
+     data-property-delete-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/delete_property.php')) ?>"
+     data-find-area-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/find_area.php')) ?>"
+     data-find-area-comuni-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/find_area_comuni.php')) ?>">
 
     <div class="d-flex justify-content-between align-items-center mb-3 gap-3 flex-wrap">
         <div>
@@ -95,6 +97,32 @@ analyticspro_render_header('Mappa', ['app_assets' => true]);
 <button id="btn-apply-filter" class="btn btn-xs btn-primary" style="font-size:0.7rem;padding:0.1rem 0.4rem;">Applica</button>
             </div>
             <div id="map-category-filter-panel" class="d-flex flex-wrap align-items-center gap-1 mt-2 small"></div>
+        </div>
+    </div>
+
+    <div class="card mb-2">
+        <div class="card-body py-2 px-3">
+            <div class="row g-2 align-items-end">
+                <div class="col-12 col-md-4">
+                    <label for="find-area-comune" class="form-label small mb-1">Trova area · Comune</label>
+                    <input id="find-area-comune" class="form-control form-control-sm" list="find-area-comune-list" placeholder="Digita comune">
+                    <datalist id="find-area-comune-list"></datalist>
+                </div>
+                <div class="col-6 col-md-2">
+                    <label for="find-area-foglio" class="form-label small mb-1">Foglio</label>
+                    <input id="find-area-foglio" class="form-control form-control-sm" placeholder="Es. 34">
+                </div>
+                <div class="col-6 col-md-2">
+                    <label for="find-area-particella" class="form-label small mb-1">Particella (opz.)</label>
+                    <input id="find-area-particella" class="form-control form-control-sm" placeholder="Es. 351">
+                </div>
+                <div class="col-12 col-md-2">
+                    <button id="find-area-submit" type="button" class="btn btn-primary btn-sm w-100">Cerca</button>
+                </div>
+                <div class="col-12 col-md-2">
+                    <div id="find-area-feedback" class="small text-muted mt-1">Cerca comune + foglio (+ particella opzionale).</div>
+                </div>
+            </div>
         </div>
     </div>
 
