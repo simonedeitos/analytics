@@ -183,11 +183,25 @@ body {
     font-size: .82rem;
     color: var(--ap-muted);
 }
+.map-page {
+    min-height: 100dvh;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+}
 .map-page .ap-topbar {
+    position: relative;
+    left: auto;
+    right: auto;
+    width: calc(100% - var(--ap-sidebar-w));
+    margin-left: var(--ap-sidebar-w);
+    flex: 0 0 auto;
     height: auto;
     min-height: var(--ap-topbar-h);
-    padding-top: .5rem;
-    padding-bottom: .5rem;
+    padding-top: .75rem;
+    padding-bottom: .75rem;
+    align-items: stretch;
+    overflow: visible;
 }
 
 /* ----- Main Content -------------------------------------------------- */
@@ -221,20 +235,77 @@ body {
     background: #e9ecef;
 }
 .map-page .ap-content {
+    display: flex;
+    flex-direction: column;
     padding: 0;
-    height: calc(100vh - var(--ap-topbar-offset, var(--ap-topbar-h)));
+    flex: 1 1 auto;
+    min-height: 0;
     overflow: hidden;
 }
 .analyticspro-map-shell {
     position: relative;
-    height: calc(100vh - var(--ap-topbar-offset, var(--ap-topbar-h)));
-    min-height: 560px;
+    flex: 1 1 auto;
+    min-height: 0;
+    height: auto;
     background: #e9ecef;
 }
 .analyticspro-map-shell #map-fullpage {
     position: absolute;
     inset: 0;
     z-index: 1;
+}
+.map-page .ap-main {
+    flex: 1 1 auto;
+    min-height: 0;
+    padding-top: 0;
+    display: flex;
+    flex-direction: column;
+}
+.map-page .ap-topbar > .d-flex {
+    align-items: center;
+    gap: .75rem 1rem;
+}
+.map-page .ap-topbar .ap-topbar-title {
+    font-size: 1.05rem;
+    white-space: nowrap;
+}
+.analyticspro-map-toolbar {
+    display: flex;
+    flex: 1 1 720px;
+    min-width: 0;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: .5rem 1rem;
+}
+.analyticspro-map-toolbar-primary,
+.analyticspro-map-toolbar-secondary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: .5rem .75rem;
+}
+.analyticspro-map-toolbar-primary {
+    flex: 1 1 520px;
+    min-width: 0;
+}
+.analyticspro-map-toolbar-secondary {
+    flex: 0 0 auto;
+}
+.analyticspro-map-toolbar-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: .5rem;
+    min-height: 31px;
+    padding-left: 0;
+}
+.analyticspro-map-toolbar-switch .form-check-input {
+    float: none;
+    margin: 0;
+}
+.analyticspro-map-toolbar-secondary .form-select {
+    min-width: 210px;
 }
 .analyticspro-map-toolbar .dropdown-menu.analyticspro-map-dropdown {
     min-width: 360px;
@@ -252,6 +323,7 @@ body {
     height: .85rem;
 }
 .analyticspro-cadastral-opacity-control {
+    min-height: 31px;
     padding: .2rem .55rem;
     border: 1px solid rgba(108,117,125,.2);
     border-radius: 999px;
@@ -531,11 +603,25 @@ body {
         display: block;
     }
     .map-page .ap-content {
-        height: auto;
-        min-height: calc(100vh - var(--ap-topbar-offset, var(--ap-topbar-h)));
+        min-height: 0;
     }
     .analyticspro-map-shell {
-        height: calc(100vh - var(--ap-topbar-offset, var(--ap-topbar-h)));
+        min-height: 0;
+    }
+    .map-page .ap-topbar {
+        width: 100%;
+        margin-left: 0;
+    }
+    .analyticspro-map-toolbar {
+        flex-basis: 100%;
+        justify-content: flex-start;
+    }
+    .analyticspro-map-toolbar-primary,
+    .analyticspro-map-toolbar-secondary {
+        justify-content: flex-start;
+    }
+    .analyticspro-map-toolbar-secondary {
+        flex-basis: 100%;
     }
     .analyticspro-map-toolbar .dropdown-menu.analyticspro-map-dropdown {
         min-width: min(92vw, 520px);
@@ -543,6 +629,24 @@ body {
 }
 
 @media (max-width: 575.98px) {
+    .map-page .ap-topbar {
+        padding-left: .85rem;
+        padding-right: .85rem;
+    }
+    .map-page .ap-topbar > .d-flex {
+        align-items: flex-start;
+    }
+    .analyticspro-map-toolbar {
+        gap: .5rem;
+    }
+    .analyticspro-map-toolbar-primary,
+    .analyticspro-map-toolbar-secondary {
+        width: 100%;
+    }
+    .analyticspro-map-toolbar-secondary .form-select {
+        min-width: 0;
+        width: 100%;
+    }
     .analyticspro-map-toolbar .dropdown-menu.analyticspro-map-dropdown,
     .analyticspro-find-area-dropdown {
         min-width: min(92vw, 360px);
