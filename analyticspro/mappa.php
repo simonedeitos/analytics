@@ -65,6 +65,19 @@ analyticspro_render_header('Mappa', ['app_assets' => true, 'body_class' => 'map-
                             <input class="form-check-input" type="checkbox" role="switch" id="cadastral-layer-toggle">
                             <label class="form-check-label small fw-semibold" for="cadastral-layer-toggle">Mostra layer catastale</label>
                         </div>
+                        <div id="cadastral-opacity-control" class="d-none d-flex align-items-center gap-2">
+                            <i class="bi bi-layers-half text-muted" aria-hidden="true"></i>
+                            <input type="range"
+                                   id="cadastral-opacity-slider"
+                                   class="form-range mb-0"
+                                   min="0"
+                                   max="100"
+                                   step="1"
+                                   value="50"
+                                   aria-label="Trasparenza layer catastale"
+                                   style="width: 140px;">
+                            <span id="cadastral-opacity-value" class="small text-muted">50%</span>
+                        </div>
                         <div class="dropdown">
                             <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
                                 <i class="bi bi-funnel me-1"></i>Filtri mappa

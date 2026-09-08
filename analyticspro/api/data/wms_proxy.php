@@ -8,28 +8,31 @@ require_once ANALYTICSPRO_ROOT . '/includes/api_bootstrap.php';
 analyticspro_api_guard();
 analyticspro_api_require_auth();
 
-$baseUrl = 'https://wms.cartografia.agenziaentrate.gov.it/inspire/wms/ows01.php';
-$parsedBase = parse_url($baseUrl);
-if (($parsedBase['host'] ?? '') !== 'wms.cartografia.agenziaentrate.gov.it') {
-    http_response_code(500);
-    exit('Host proxy non valido.');
-}
+$defaultBaseUrl = 'https://wms.cartografia.agenziaentrate.gov.it/inspire/wms/ows01.php?language=ita';
+$allowedHost = 'wms.cartografia.agenziaentrate.gov.it';
 
 try {
-    $queryParams = $_GET;
-    unset($queryParams['url']);
-    if (!isset($queryParams['language']) || trim((string) $queryParams['language']) === '') {
-        $queryParams['language'] = 'ita';
+    $baseUrl = trim((string) ($_GET['url'] ?? $defaultBaseUrl));
+    if ($baseUrl === '') {
+        throw new RuntimeException('Parametro url mancante.');
     }
 
-    $targetUrl = $baseUrl . '?' . http_build_query($queryParams, '', '&', PHP_QUERY_RFC3986);
-    $parsedTarget = parse_url($targetUrl);
-    if (($parsedTarget['host'] ?? '') !== 'wms.cartografia.agenziaentrate.gov.it') {
+    $parsedBase = parse_url($baseUrl);
+    if (($parsedBase['scheme'] ?? '') !== 'https' || ($parsedBase['host'] ?? '') !== $allowedHost) {
         throw new RuntimeException('Host WMS non consentito.');
     }
-    if (empty($queryParams['REQUEST']) && empty($queryParams['request'])) {
-        error_log('[wms_proxy] richiesta senza REQUEST: ' . $targetUrl);
+
+    $baseQuery = [];
+    parse_str((string) ($parsedBase['query'] ?? ''), $baseQuery);
+
+    $queryParams = $_GET;
+    unset($queryParams['url']);
+    $forwardParams = array_merge($baseQuery, $queryParams);
+    if (!isset($forwardParams['language']) || trim((string) $forwardParams['language']) === '') {
+        $forwardParams['language'] = 'ita';
     }
+    $basePath = ($parsedBase['path'] ?? '') !== '' ? (string) $parsedBase['path'] : '/inspire/wms/ows01.php';
+    $targetUrl = 'https://' . $allowedHost . $basePath . '?' . http_build_query($forwardParams, '', '&', PHP_QUERY_RFC3986);
 
     $ch = curl_init($targetUrl);
     curl_setopt_array($ch, [

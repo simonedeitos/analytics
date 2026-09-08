@@ -10,20 +10,24 @@ $errors = [];
 
 $catalog = [
     'B157' => ['nome' => 'Brescia'],
-    'B394' => ['nome' => 'Calcinato'],
+    'B394' => ['nome' => 'CALCINATO'],
     'D284' => ['nome' => 'Desenzano Del Garda'],
 ];
 
 $matches = analyticspro_gml_search_comuni('cal', 12, $catalog);
-if (count($matches) !== 1 || ($matches[0]['comune'] ?? '') !== 'Calcinato' || ($matches[0]['belfiore'] ?? '') !== 'B394') {
+if (count($matches) !== 1 || ($matches[0]['comune'] ?? '') !== 'CALCINATO' || ($matches[0]['belfiore'] ?? '') !== 'B394') {
     $pass = false;
     $errors[] = 'Autocomplete comuni: match "cal" non corretto: ' . json_encode($matches);
 }
 
 $matchesUpper = analyticspro_gml_search_comuni('CAL', 10, $catalog);
-if ($matchesUpper === [] || ($matchesUpper[0]['comune'] ?? '') !== 'Calcinato') {
+if ($matchesUpper === [] || ($matchesUpper[0]['comune'] ?? '') !== 'CALCINATO') {
     $pass = false;
     $errors[] = 'Autocomplete comuni: match "CAL" non corretto: ' . json_encode($matchesUpper);
+}
+if (($matchesUpper[0]['belfiore'] ?? '') !== ($matches[0]['belfiore'] ?? '')) {
+    $pass = false;
+    $errors[] = 'Autocomplete comuni: risultati "CAL" e "cal" non coerenti.';
 }
 
 $matchesNoSpaces = analyticspro_gml_search_comuni('desenzanodel', 12, $catalog);

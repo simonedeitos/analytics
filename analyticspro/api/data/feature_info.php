@@ -202,6 +202,7 @@ function analyticspro_feature_info_from_gml(string $body): ?array
 try {
     $lat = (float) ($_GET['lat'] ?? 0);
     $lng = (float) ($_GET['lng'] ?? 0);
+    $zoom = (int) ($_GET['zoom'] ?? 0);
     if (!$lat || !$lng) {
         throw new RuntimeException('Coordinate non valide.');
     }
@@ -213,7 +214,7 @@ try {
         if ($ajaxResponse['status'] < 400) {
             $ajaxFields = analyticspro_feature_info_from_json($ajaxResponse['body']);
             if ($ajaxFields !== null) {
-                analyticspro_json(['ok' => true] + $ajaxFields + ['source' => 'ajax']);
+                analyticspro_json(['ok' => true, 'found' => true] + $ajaxFields + ['source' => 'ajax']);
             }
         }
         error_log('[feature_info] ajax empty response at lat=' . $lat . ' lng=' . $lng);
@@ -265,12 +266,12 @@ try {
         }
         $fields = $parser($response['body']);
         if ($fields !== null) {
-            analyticspro_json(['ok' => true] + $fields + ['source' => 'feature_info', 'info_format' => $format]);
+            analyticspro_json(['ok' => true, 'found' => true] + $fields + ['source' => 'feature_info', 'info_format' => $format, 'zoom' => $zoom]);
         }
     }
 
     error_log('[feature_info] no cadastral data at lat=' . $lat . ' lng=' . $lng);
-    analyticspro_json(['ok' => false, 'error' => 'Nessun dato catastale disponibile.'], 404);
+    analyticspro_json(['ok' => true, 'found' => false, 'message' => 'Nessun dato catastale disponibile.']);
 } catch (Throwable $exception) {
     error_log('[feature_info] error: ' . $exception->getMessage());
     analyticspro_json(['ok' => false, 'error' => $exception->getMessage()], 422);
