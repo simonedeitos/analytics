@@ -456,8 +456,20 @@ function analyticspro_cadastral_reverse_geocode(float $lat, float $lng): ?array
     return analyticspro_cadastral_extract_reverse_location($decoded);
 }
 
-function analyticspro_cadastral_complete_fields(array $fields, float $lat = 0.0, float $lng = 0.0, ?callable $reverseGeocoder = null): array
+function analyticspro_cadastral_complete_fields(
+    array $fields,
+    float $lat = 0.0,
+    float $lng = 0.0,
+    ?callable $reverseGeocoder = null,
+    ?callable $trace = null
+): array
 {
+    $emitTrace = static function (string $step, float $startedAt, array $meta = []) use ($trace): void {
+        if ($trace === null) {
+            return;
+        }
+        $trace($step, (int) round((microtime(true) - $startedAt) * 1000), $meta);
+    };
     $completed = $fields + [
         'comune' => '',
         'provincia' => '',
@@ -474,7 +486,9 @@ function analyticspro_cadastral_complete_fields(array $fields, float $lat = 0.0,
     $completed['provincia'] = trim((string) ($completed['provincia'] ?? ''));
     $completed['cod_catastale'] = strtoupper(trim((string) ($completed['cod_catastale'] ?? '')));
 
+    $stepStartedAt = microtime(true);
     $locationByCode = analyticspro_cadastral_find_location_by_code($completed['cod_catastale']);
+    $emitTrace('lookup_by_code_initial', $stepStartedAt, ['hit' => $locationByCode !== null ? '1' : '0']);
     if ($locationByCode !== null) {
         if ($completed['comune'] === '') {
             $completed['comune'] = $locationByCode['comune'];
@@ -484,9 +498,13 @@ function analyticspro_cadastral_complete_fields(array $fields, float $lat = 0.0,
         }
     }
 
+    $stepStartedAt = microtime(true);
     $locationByComune = analyticspro_cadastral_find_location_by_comune($completed['comune'], $completed['provincia']);
+    $emitTrace('lookup_by_comune_initial', $stepStartedAt, ['hit' => $locationByComune !== null ? '1' : '0']);
     if ($locationByComune === null && ($completed['comune'] === '' || $completed['provincia'] === '') && $lat && $lng) {
+        $stepStartedAt = microtime(true);
         $reverseLocation = $reverseGeocoder !== null ? $reverseGeocoder($lat, $lng) : analyticspro_cadastral_reverse_geocode($lat, $lng);
+        $emitTrace('reverse_geocode', $stepStartedAt, ['hit' => is_array($reverseLocation) ? '1' : '0']);
         if (is_array($reverseLocation)) {
             if ($completed['comune'] === '') {
                 $completed['comune'] = trim((string) ($reverseLocation['comune'] ?? ''));
@@ -494,7 +512,9 @@ function analyticspro_cadastral_complete_fields(array $fields, float $lat = 0.0,
             if ($completed['provincia'] === '') {
                 $completed['provincia'] = trim((string) ($reverseLocation['provincia'] ?? ''));
             }
+            $stepStartedAt = microtime(true);
             $locationByComune = analyticspro_cadastral_find_location_by_comune($completed['comune'], $completed['provincia']);
+            $emitTrace('lookup_by_comune_after_reverse', $stepStartedAt, ['hit' => $locationByComune !== null ? '1' : '0']);
         }
     }
 
@@ -507,13 +527,17 @@ function analyticspro_cadastral_complete_fields(array $fields, float $lat = 0.0,
     }
 
     if ($completed['cod_catastale'] === '' && $completed['comune'] !== '' && $completed['provincia'] !== '') {
+        $stepStartedAt = microtime(true);
         $resolved = analyticspro_resolve_cod_catastale('', $completed['comune'], $completed['provincia']);
+        $emitTrace('resolve_cod_catastale', $stepStartedAt, ['hit' => !empty($resolved['cod']) ? '1' : '0']);
         if (!empty($resolved['cod']) && is_string($resolved['cod'])) {
             $completed['cod_catastale'] = strtoupper($resolved['cod']);
         }
     }
 
+    $stepStartedAt = microtime(true);
     $locationByCode = analyticspro_cadastral_find_location_by_code($completed['cod_catastale']);
+    $emitTrace('lookup_by_code_final', $stepStartedAt, ['hit' => $locationByCode !== null ? '1' : '0']);
     if ($locationByCode !== null) {
         if ($completed['comune'] === '') {
             $completed['comune'] = $locationByCode['comune'];

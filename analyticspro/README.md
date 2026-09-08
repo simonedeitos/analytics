@@ -99,7 +99,11 @@ Richiede **MySQL 8.0+** o **MariaDB 10.5+** per il supporto a `GEOMETRY` con SRI
 ### Mappa catastale AdE in `mappa.php`
 
 La pagina `analyticspro/mappa.php` usa un flusso mappa catastale allineato al progetto
-gemello **CataMap**:
+gemello **CataMap** e mostra i controlli direttamente nella topbar bianca standard
+(`analyticspro_render_header()` / `includes/layout.php`): titolo pagina a sinistra,
+selettore vista admin, toggle layer, slider trasparenza, filtri mappa, trova area e
+aggiorna dati a destra con wrap Bootstrap su schermi stretti. La mappa resta sotto
+la topbar e occupa tutta l’altezza residua del viewport.
 
 - `assets/js/analyticspro.js` crea il layer Leaflet WMS con `VERSION=1.3.0`,
   `LAYERS=province,CP.CadastralZoning,CP.CadastralParcel,fabbricati,strade,vestizioni,acque`,
@@ -112,19 +116,30 @@ gemello **CataMap**:
 - in caso di `tileerror`, il client effettua retry e fallback all’URL WMS diretto non proxato,
   così da aggirare rapidamente eventuali errori intermedi del proxy;
 - il toggle mostra il layer solo a zoom ≥ `10` e lo slider `#cadastral-opacity-slider`
-  applica in tempo reale l’opacità, aggiorna la percentuale e salva il valore in `localStorage`.
+  applica in tempo reale l’opacità, aggiorna la percentuale e salva il valore in `localStorage`;
+- gli unici overlay sopra la mappa sono `#map-cadastral-zoom-hint` e
+  `#map-cadastral-feedback`; quando la topbar cambia altezza il layout aggiorna la
+  variabile CSS dell’offset e `assets/js/analyticspro.js` richiama `invalidateSize()`
+  su Leaflet per evitare tile grigie dopo il reflow.
 
-Il click sulla mappa usa `api/data/feature_info.php`, che tenta in sequenza:
+Il click sulla mappa usa `api/data/feature_info.php` con un flusso a **due fasi**:
 
-1. dati AdE da endpoint AJAX/GetFeatureInfo;
-2. completamento comune/provincia/codice catastale tramite `data/comuni_catastali.json`
-   e/o tabella `cadastral_comuni` (lookup Belfiore/codice catastale);
-3. fallback di reverse geocoding server-side via Nominatim (con `User-Agent`, timeout breve e cache locale).
+1. **Fase A (rapida, default)**: senza parametro `resolve_location`, l’endpoint restituisce
+   solo i dati catastali AdE (endpoint AJAX / GetFeatureInfo) e non chiama mai Nominatim;
+   il popup della particella compare subito dopo il click.
+2. **Fase B (deferred)**: quando nel popup si clicca “Crea nuovo marker”, il client richiama
+   `api/data/feature_info.php?resolve_location=1`; solo allora il server completa
+   comune/provincia/codice catastale con lookup Belfiore su `data/comuni_catastali.json`
+   / tabella `cadastral_comuni` e, se serve, fallback di reverse geocoding server-side via
+   Nominatim (con cache file locale tramite
+   `analyticspro_cadastral_reverse_geocode_read_cache()` /
+   `analyticspro_cadastral_reverse_geocode_write_cache()`).
 
 La provincia viene sempre normalizzata in sigla a 2 lettere; se il click non restituisce la
 particella ma consente comunque di risolvere comune/provincia dalla coordinata, il popup permette
 lo stesso la creazione del marker e il form blocca in sola lettura solo i campi effettivamente
-autocompilati dalla mappa.
+autocompilati dalla mappa. Se la risoluzione differita va in timeout o fallisce, il modale si
+apre comunque con avviso non bloccante e con i campi `Comune` / `Provincia` lasciati editabili.
 
 ### Lookup coordinate
 

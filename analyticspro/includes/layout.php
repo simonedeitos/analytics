@@ -38,6 +38,8 @@ function analyticspro_render_header(string $title, array $options = []): void
     $user            = analyticspro_current_user();
     $includeAppAssets = $options['app_assets'] ?? false;
     $bodyClass       = $options['body_class'] ?? '';
+    $topbarContent   = (string) ($options['topbar_content'] ?? '');
+    $topbarClass     = trim((string) ($options['topbar_class'] ?? ''));
     $flash           = analyticspro_take_flash();
     $isAuth          = $options['auth_page'] ?? false;   // login/register – no sidebar
     analyticspro_layout_set_auth_page($isAuth);
@@ -195,19 +197,30 @@ function analyticspro_render_header(string $title, array $options = []): void
         <div class="ap-sidebar-overlay" id="apOverlay"></div>
 
         <!-- ===== TOP NAVBAR ===== -->
-        <header class="ap-topbar">
-            <button class="ap-hamburger" id="apHamburger" aria-label="Apri menu">
-                <i class="bi bi-list"></i>
-            </button>
-            <span class="ap-topbar-title"><?= analyticspro_h($title) ?></span>
-            <?php if ($user): ?>
-                <span class="ap-topbar-user d-none d-md-inline">
-                    <?= analyticspro_h(analyticspro_full_name($user)) ?>
-                    <span class="badge ms-1" style="background:var(--ap-blue);font-size:.7rem;">
-                        <?= analyticspro_h($user['role']) ?>
-                    </span>
-                </span>
-            <?php endif; ?>
+        <header class="ap-topbar<?= $topbarClass !== '' ? ' ' . analyticspro_h($topbarClass) : '' ?>">
+            <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 w-100">
+                <div class="d-flex align-items-center gap-2 flex-shrink-0 mw-100">
+                    <button class="ap-hamburger" id="apHamburger" aria-label="Apri menu">
+                        <i class="bi bi-list"></i>
+                    </button>
+                    <span class="ap-topbar-title"><?= analyticspro_h($title) ?></span>
+                </div>
+                <?php if ($topbarContent !== '' || $user): ?>
+                    <div class="d-flex align-items-center justify-content-end gap-2 flex-wrap flex-grow-1">
+                        <?php if ($topbarContent !== ''): ?>
+                            <?= $topbarContent ?>
+                        <?php endif; ?>
+                        <?php if ($user): ?>
+                            <span class="ap-topbar-user d-none d-md-inline">
+                                <?= analyticspro_h(analyticspro_full_name($user)) ?>
+                                <span class="badge ms-1" style="background:var(--ap-blue);font-size:.7rem;">
+                                    <?= analyticspro_h($user['role']) ?>
+                                </span>
+                            </span>
+                        <?php endif; ?>
+                    </div>
+                <?php endif; ?>
+            </div>
         </header>
 
         <!-- ===== MAIN CONTENT ===== -->
@@ -262,6 +275,29 @@ function analyticspro_render_footer(bool $includeAppAssets = false): void
         function close() { sidebar.classList.remove('open'); overlay.classList.remove('show'); }
         btn.addEventListener('click', function() { sidebar.classList.contains('open') ? close() : open(); });
         overlay.addEventListener('click', close);
+    })();
+
+    (function () {
+        var topbar = document.querySelector('.ap-topbar');
+        if (!topbar) return;
+        var lastHeight = 0;
+        function syncTopbarOffset() {
+            var nextHeight = Math.max(0, Math.ceil(topbar.getBoundingClientRect().height || 0));
+            if (!nextHeight) return;
+            document.documentElement.style.setProperty('--ap-topbar-offset', nextHeight + 'px');
+            if (nextHeight !== lastHeight) {
+                lastHeight = nextHeight;
+                window.dispatchEvent(new CustomEvent('analyticspro:topbar-resize', {
+                    detail: { height: nextHeight }
+                }));
+            }
+        }
+        syncTopbarOffset();
+        window.addEventListener('load', syncTopbarOffset);
+        window.addEventListener('resize', syncTopbarOffset);
+        if (document.fonts && document.fonts.ready && typeof document.fonts.ready.then === 'function') {
+            document.fonts.ready.then(syncTopbarOffset).catch(function () {});
+        }
     })();
     </script>
     <?php endif; ?>
