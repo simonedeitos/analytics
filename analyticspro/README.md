@@ -101,9 +101,11 @@ Richiede **MySQL 8.0+** o **MariaDB 10.5+** per il supporto a `GEOMETRY` con SRI
 La pagina `analyticspro/mappa.php` usa un flusso mappa catastale allineato al progetto
 gemello **CataMap** e mostra i controlli direttamente nella topbar bianca standard
 (`analyticspro_render_header()` / `includes/layout.php`): titolo pagina a sinistra,
-selettore vista admin, toggle layer, slider trasparenza, filtri mappa, trova area e
-aggiorna dati a destra con wrap Bootstrap su schermi stretti. La mappa resta sotto
-la topbar e occupa tutta l’altezza residua del viewport.
+gruppo controlli a destra con componenti `btn-sm` / `form-select-sm` / `form-control-sm`
+coerenti, wrap ordinato su schermi stretti e selettore vista admin sulla seconda riga
+quando serve. Il layout `body.map-page` usa `display:flex`, `flex-direction:column` e
+`height:100dvh`; la topbar cresce in altezza secondo il contenuto e la mappa occupa
+sempre l’altezza residua senza valori hardcoded.
 
 - `assets/js/analyticspro.js` crea il layer Leaflet WMS con `VERSION=1.3.0`,
   `LAYERS=province,CP.CadastralZoning,CP.CadastralParcel,fabbricati,strade,vestizioni,acque`,
@@ -118,15 +120,20 @@ la topbar e occupa tutta l’altezza residua del viewport.
 - il toggle mostra il layer solo a zoom ≥ `10` e lo slider `#cadastral-opacity-slider`
   applica in tempo reale l’opacità, aggiorna la percentuale e salva il valore in `localStorage`;
 - gli unici overlay sopra la mappa sono `#map-cadastral-zoom-hint` e
-  `#map-cadastral-feedback`; quando la topbar cambia altezza il layout aggiorna la
-  variabile CSS dell’offset e `assets/js/analyticspro.js` richiama `invalidateSize()`
-  su Leaflet per evitare tile grigie dopo il reflow.
+  `#map-cadastral-feedback`; `assets/js/analyticspro.js` richiama `map.invalidateSize()`
+  dopo il render e su `resize` / `analyticspro:topbar-resize` con debounce per evitare
+  tile grigie dopo il reflow;
+- timeout definitivi del click catastale: client `CATASTRAL_LOOKUP_TIMEOUT_MS = 30000`,
+  client deferred `CATASTRAL_RESOLVE_LOCATION_TIMEOUT_MS = 40000`, server-side
+  `connect_timeout = 5s` e `timeout = 12s` sia per `ajax.php?op=getDatiOggetto` sia
+  per ciascun fallback `GetFeatureInfo`.
 
 Il click sulla mappa usa `api/data/feature_info.php` con un flusso a **due fasi**:
 
 1. **Fase A (rapida, default)**: senza parametro `resolve_location`, l’endpoint restituisce
-   solo i dati catastali AdE (endpoint AJAX / GetFeatureInfo) e non chiama mai Nominatim;
-   il popup della particella compare subito dopo il click.
+   solo i dati catastali AdE (endpoint AJAX / `GetFeatureInfo` in ordine `text/html` →
+   `application/vnd.ogc.gml` → `text/plain`) e non chiama mai Nominatim; il popup della
+   particella compare subito dopo il click.
 2. **Fase B (deferred)**: quando nel popup si clicca “Crea nuovo marker”, il client richiama
    `api/data/feature_info.php?resolve_location=1`; solo allora il server completa
    comune/provincia/codice catastale con lookup Belfiore su `data/comuni_catastali.json`
@@ -135,11 +142,11 @@ Il click sulla mappa usa `api/data/feature_info.php` con un flusso a **due fasi*
    `analyticspro_cadastral_reverse_geocode_read_cache()` /
    `analyticspro_cadastral_reverse_geocode_write_cache()`).
 
-La provincia viene sempre normalizzata in sigla a 2 lettere; se il click non restituisce la
-particella ma consente comunque di risolvere comune/provincia dalla coordinata, il popup permette
-lo stesso la creazione del marker e il form blocca in sola lettura solo i campi effettivamente
-autocompilati dalla mappa. Se la risoluzione differita va in timeout o fallisce, il modale si
-apre comunque con avviso non bloccante e con i campi `Comune` / `Provincia` lasciati editabili.
+La provincia viene sempre normalizzata in sigla a 2 lettere; il click sulla mappa non esegue mai
+reverse geocoding. Se la risoluzione differita va in timeout o fallisce, il modale si apre comunque
+con avviso non bloccante e con i campi `Comune` / `Provincia` lasciati editabili; quando la
+risoluzione riesce, quei campi vengono precompilati e bloccati insieme agli altri valori
+catastali recuperati dal popup.
 
 ### Lookup coordinate
 

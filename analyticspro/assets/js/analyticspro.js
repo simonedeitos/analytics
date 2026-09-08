@@ -31,8 +31,8 @@
     const CATASTRAL_OPACITY_STORAGE_KEY = 'cadastral-layer-opacity';
     const DEFAULT_CATASTRAL_OPACITY = 0.5;
     const CATASTRAL_MIN_ZOOM = 10;
-    const CATASTRAL_LOOKUP_TIMEOUT_MS = 10000;
-    const CATASTRAL_RESOLVE_LOCATION_TIMEOUT_MS = 15000;
+    const CATASTRAL_LOOKUP_TIMEOUT_MS = 30000;
+    const CATASTRAL_RESOLVE_LOCATION_TIMEOUT_MS = 40000;
     const CATASTRAL_TILE_RETRY_LIMIT = 2;
     const CATASTRAL_TILE_RETRY_DELAY_MS = 900;
     const CATASTRAL_ERROR_TILE_URL = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
@@ -83,6 +83,7 @@
         cadastralPopup: null,
         manualRecordModal: null,
         cadastralTileWarningShown: false,
+        mapInvalidateTimer: 0,
     };
 
     state.mapStatiFilter = Object.keys(STATE_OPTIONS).slice();
@@ -208,6 +209,15 @@
         } catch (error) {
             return DEFAULT_CATASTRAL_OPACITY;
         }
+    }
+
+    function scheduleMapInvalidateSize(delayMs) {
+        window.clearTimeout(state.mapInvalidateTimer || 0);
+        state.mapInvalidateTimer = window.setTimeout(function () {
+            if (state.map) {
+                state.map.invalidateSize();
+            }
+        }, Number.isFinite(delayMs) ? delayMs : 120);
     }
 
     function setStoredCadastralOpacity(value) {
@@ -1014,14 +1024,14 @@
             state.map.fitBounds(state.markers.getBounds().pad(0.2));
         }
         updateCadastralZoomHint();
-        setTimeout(function () { if (state.map) state.map.invalidateSize(); }, 150);
-        setTimeout(function () { if (state.map) state.map.invalidateSize(); }, 600);
+        scheduleMapInvalidateSize(120);
     }
 
     window.addEventListener('analyticspro:topbar-resize', function () {
-        window.setTimeout(function () {
-            if (state.map) state.map.invalidateSize();
-        }, 80);
+        scheduleMapInvalidateSize(120);
+    });
+    window.addEventListener('resize', function () {
+        scheduleMapInvalidateSize(180);
     });
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -2366,6 +2376,9 @@
             throw new Error(payload.error || 'Impossibile recuperare i dati catastali.');
         }
         if (payload.found === false) {
+            if (payload.status === 'upstream_timeout' || payload.status === 'upstream_error') {
+                throw new Error(payload.message || 'Il servizio catastale AdE non ha risposto correttamente.');
+            }
             return null;
         }
         return payload;
