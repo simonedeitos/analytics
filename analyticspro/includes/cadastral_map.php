@@ -117,6 +117,7 @@ function analyticspro_cadastral_province_aliases(): array
         'MILANO' => 'MI',
         'MODENA' => 'MO',
         'MONZA E BRIANZA' => 'MB',
+        'MONZA E DELLA BRIANZA' => 'MB',
         'NAPOLI' => 'NA',
         'NOVARA' => 'NO',
         'NUORO' => 'NU',
@@ -166,6 +167,10 @@ function analyticspro_cadastral_province_aliases(): array
         'VIBO VALENTIA' => 'VV',
         'VICENZA' => 'VI',
         'VITERBO' => 'VT',
+        'VALLE DAOSTA' => 'AO',
+        'VALLE D AOSTA' => 'AO',
+        'SUDTIROL' => 'BZ',
+        'BOLZANO BOZEN' => 'BZ',
         'CITTA METROPOLITANA DI ROMA CAPITALE' => 'RM',
         'CITTA METROPOLITANA DI MILANO' => 'MI',
         'CITTA METROPOLITANA DI NAPOLI' => 'NA',
@@ -208,6 +213,68 @@ function analyticspro_cadastral_normalize_provincia(string $provincia): string
 
     $aliases = analyticspro_cadastral_province_aliases();
     return $aliases[$normalized] ?? ($aliases[$compact] ?? '');
+}
+
+function analyticspro_cadastral_valid_province_sigla_map(): array
+{
+    static $valid = null;
+    if (is_array($valid)) {
+        return $valid;
+    }
+
+    $valid = [];
+    foreach (analyticspro_cadastral_province_aliases() as $sigla) {
+        $sigla = strtoupper(trim((string) $sigla));
+        if (strlen($sigla) === 2) {
+            $valid[$sigla] = true;
+        }
+    }
+
+    return $valid;
+}
+
+function analyticspro_cadastral_is_valid_provincia_sigla(string $provincia): bool
+{
+    $normalized = strtoupper(trim((string) $provincia));
+    if (strlen($normalized) !== 2 || preg_match('/^[A-Z]{2}$/', $normalized) !== 1) {
+        return false;
+    }
+
+    $valid = analyticspro_cadastral_valid_province_sigla_map();
+    return isset($valid[$normalized]);
+}
+
+/**
+ * @return array{sigla:string,source:string,raw:string}
+ */
+function analyticspro_normalize_provincia_sigla(string $provincia, string $codCatastale = '', string $comune = ''): array
+{
+    $raw = trim($provincia);
+    $sigla = analyticspro_cadastral_normalize_provincia($raw);
+    if ($sigla !== '' && analyticspro_cadastral_is_valid_provincia_sigla($sigla)) {
+        return ['sigla' => $sigla, 'source' => 'input', 'raw' => $raw];
+    }
+
+    $locationByCode = analyticspro_cadastral_find_location_by_code($codCatastale);
+    if (is_array($locationByCode)) {
+        $fromCode = analyticspro_cadastral_normalize_provincia((string) ($locationByCode['provincia'] ?? ''));
+        if ($fromCode !== '' && analyticspro_cadastral_is_valid_provincia_sigla($fromCode)) {
+            return ['sigla' => $fromCode, 'source' => 'cod_catastale', 'raw' => $raw];
+        }
+    }
+
+    $locationByComune = analyticspro_cadastral_find_location_by_comune($comune, $raw);
+    if ($locationByComune === null) {
+        $locationByComune = analyticspro_cadastral_find_location_by_comune($comune, '');
+    }
+    if (is_array($locationByComune)) {
+        $fromComune = analyticspro_cadastral_normalize_provincia((string) ($locationByComune['provincia'] ?? ''));
+        if ($fromComune !== '' && analyticspro_cadastral_is_valid_provincia_sigla($fromComune)) {
+            return ['sigla' => $fromComune, 'source' => 'comune', 'raw' => $raw];
+        }
+    }
+
+    return ['sigla' => '', 'source' => 'unresolved', 'raw' => $raw];
 }
 
 function analyticspro_cadastral_comuni_candidates(): array

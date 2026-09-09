@@ -224,6 +224,11 @@ function analyticspro_feature_info_normalize(array $fields): ?array
         }
     }
 
+    $provinciaNormalized = analyticspro_normalize_provincia_sigla($base['provincia'], $base['cod_catastale'], $base['comune']);
+    if (($provinciaNormalized['sigla'] ?? '') !== '') {
+        $base['provincia'] = (string) $provinciaNormalized['sigla'];
+    }
+
     if (!analyticspro_cadastral_has_meaningful_fields($base)) {
         return null;
     }
