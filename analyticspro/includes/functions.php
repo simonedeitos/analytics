@@ -451,3 +451,24 @@ function analyticspro_count_pending_registrations(): int
         return 0;
     }
 }
+
+function analyticspro_table_exists(PDO $pdo, string $table): bool
+{
+    try {
+        $driver = strtolower((string) $pdo->getAttribute(PDO::ATTR_DRIVER_NAME));
+        if ($driver === 'sqlite') {
+            $stmt = $pdo->prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = :table LIMIT 1");
+            $stmt->execute(['table' => $table]);
+            return (bool) $stmt->fetchColumn();
+        }
+
+        $stmt = $pdo->prepare(
+            'SELECT 1 FROM INFORMATION_SCHEMA.TABLES
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table LIMIT 1'
+        );
+        $stmt->execute(['table' => $table]);
+        return (bool) $stmt->fetchColumn();
+    } catch (Throwable) {
+        return false;
+    }
+}
