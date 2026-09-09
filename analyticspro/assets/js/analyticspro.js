@@ -38,6 +38,12 @@
     const CATASTRAL_TILE_RETRY_DELAY_MS = 900;
     const CATASTRAL_ERROR_TILE_URL = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
     const MANUAL_RECORD_AUTOFILL_TITLE = 'Compilato automaticamente dalla mappa';
+    const IMPORT_PHASE_WEIGHTS = {
+        read: { start: 0, end: 10, label: 'Lettura file' },
+        analyze: { start: 10, end: 20, label: 'Analisi duplicati' },
+        save: { start: 20, end: 45, label: 'Salvataggio dati' },
+        enrich: { start: 45, end: 100, label: 'Geolocalizzazione' }
+    };
 
     var state = {
         csrfToken: document.querySelector('meta[name="csrf-token"]') ? document.querySelector('meta[name="csrf-token"]').content : '',
@@ -54,6 +60,7 @@
         importEndpoint: root.dataset.importEndpoint || '',
         importProgressEndpoint: root.dataset.importProgressEndpoint || '',
         enrichChunkEndpoint: root.dataset.enrichChunkEndpoint || '',
+        missingCoordinatesStatsEndpoint: root.dataset.missingCoordinatesStatsEndpoint || '',
         adeJobsEndpoint: root.dataset.adeJobsEndpoint || '',
         adeManualFilesEndpoint: root.dataset.adeManualFilesEndpoint || '',
         dashboardStatsEndpoint: root.dataset.dashboardStatsEndpoint || '',
@@ -96,6 +103,11 @@
         mapInvalidateTimer: 0,
         dashboardMiniMap: null,
         dashboardMiniMarkers: null,
+        importUiFinalized: false,
+        importLogSnapshots: {
+            attempt_failures: {},
+            failure_codes: {}
+        }
     };
 
     state.mapStatiFilter = Object.keys(STATE_OPTIONS).slice();
@@ -604,6 +616,43 @@
         }
         populateAssignedSubuserFilter();
         refreshMapCategoryFilters();
+        if (state.missingCoordinatesStatsEndpoint && document.getElementById('missing-coordinates-summary')) {
+            await loadMissingCoordinatesStats();
+        }
+    }
+
+    async function loadMissingCoordinatesStats() {
+        if (!state.missingCoordinatesStatsEndpoint) return;
+        var payload = await api(state.missingCoordinatesStatsEndpoint);
+        var stats = payload.stats || {};
+        var totalBadge = document.getElementById('missing-coordinates-total-badge');
+        var recoverableBadge = document.getElementById('missing-coordinates-recoverable-badge');
+        var exhaustedBadge = document.getElementById('missing-coordinates-exhausted-badge');
+        var summary = document.getElementById('missing-coordinates-summary');
+        var adminBody = document.getElementById('missing-coordinates-admin-body');
+        if (totalBadge) totalBadge.textContent = 'Totale: ' + Number(stats.total || 0);
+        if (recoverableBadge) recoverableBadge.textContent = 'Recuperabili: ' + Number(stats.recoverable || 0);
+        if (exhaustedBadge) exhaustedBadge.textContent = 'Esauriti: ' + Number(stats.exhausted || 0);
+        if (summary) {
+            summary.textContent = payload.scope === 'admin'
+                ? 'Panoramica globale degli immobili senza coordinate sulla mappa.'
+                : 'Immobili del tuo tenant ancora senza coordinate sulla mappa.';
+        }
+        if (adminBody) {
+            var tenants = Array.isArray(payload.tenants) ? payload.tenants : [];
+            adminBody.innerHTML = tenants.length
+                ? tenants.map(function (tenant) {
+                    var label = escapeHtml(String(tenant.tenant_name || ('Tenant #' + tenant.tenant_id)));
+                    var email = tenant.tenant_email ? '<div class="text-muted small">' + escapeHtml(String(tenant.tenant_email)) + '</div>' : '';
+                    return '<tr>'
+                        + '<td>' + label + email + '</td>'
+                        + '<td class="text-end">' + escapeHtml(String(tenant.total || 0)) + '</td>'
+                        + '<td class="text-end">' + escapeHtml(String(tenant.recoverable || 0)) + '</td>'
+                        + '<td class="text-end">' + escapeHtml(String(tenant.exhausted || 0)) + '</td>'
+                        + '</tr>';
+                }).join('')
+                : '<tr><td colspan="4" class="text-center text-muted py-3 small">Nessun tenant con coordinate mancanti.</td></tr>';
+        }
     }
 
     function captureMapView() {
@@ -2199,6 +2248,9 @@
         if (log)    log.textContent    = '';
         if (reportEl) { reportEl.className = 'small d-none'; reportEl.innerHTML = ''; }
         state.currentImportStats = null;
+        state.importUiFinalized = false;
+        state.importLogSnapshots = { attempt_failures: {}, failure_codes: {} };
+        resetImportUiClasses();
     }
 
     function importLog(level, message) {
@@ -2218,135 +2270,315 @@
         if (text && statusText) text.textContent = statusText;
     }
 
+    function resetImportUiClasses() {
+        var phase = document.getElementById('import-phase');
+        var bar   = document.getElementById('import-progress-bar');
+        var text  = document.getElementById('import-progress-text');
+        if (phase) {
+            phase.classList.remove('bg-success', 'bg-warning', 'bg-danger', 'bg-secondary');
+            phase.classList.add('bg-primary');
+        }
+        if (bar) {
+            bar.classList.remove('bg-success', 'bg-warning', 'bg-danger');
+            bar.classList.add('bg-primary', 'progress-bar-striped', 'progress-bar-animated');
+        }
+        if (text) {
+            text.classList.remove('text-danger', 'text-warning');
+            text.classList.add('text-muted');
+        }
+    }
+
+    function setWeightedImportPhase(phaseKey, ratio, statusText) {
+        var phaseConfig = IMPORT_PHASE_WEIGHTS[phaseKey];
+        if (!phaseConfig) return;
+        var bounded = Math.max(0, Math.min(1, Number(ratio) || 0));
+        var percent = phaseConfig.start + ((phaseConfig.end - phaseConfig.start) * bounded);
+        setImportPhase(phaseConfig.label, percent, statusText);
+    }
+
+    function summarizeReconciliation(payload) {
+        payload = payload || {};
+        var total = Number(payload.total_rows || payload.totalRows || (state.currentImportStats ? state.currentImportStats.totalRows : 0) || 0);
+        var geolocated = Number(payload.geolocated_rows || payload.geolocatedRows || 0);
+        var missing = Number(payload.missing_rows || payload.missingRows || Math.max(0, total - geolocated));
+        return {
+            total: total,
+            geolocated: geolocated,
+            missing: missing,
+            text: 'Completato: ' + geolocated + '/' + total + ' immobili geolocalizzati, ' + missing + ' senza coordinate'
+        };
+    }
+
+    function finalizeImportUi(kind, message) {
+        var container = document.getElementById('enrichment-status-container');
+        var phase = document.getElementById('import-phase');
+        var bar   = document.getElementById('import-progress-bar');
+        var text  = document.getElementById('import-progress-text');
+        var barClass = kind === 'success' ? 'bg-success' : (kind === 'warning' ? 'bg-warning' : 'bg-danger');
+        var phaseLabel = kind === 'success' ? 'Completato' : (kind === 'warning' ? 'Completato con avvisi' : 'Errore');
+        if (container) container.style.display = '';
+        if (phase) {
+            phase.textContent = phaseLabel;
+            phase.classList.remove('bg-primary', 'bg-success', 'bg-warning', 'bg-danger', 'bg-secondary');
+            phase.classList.add(barClass);
+        }
+        if (bar) {
+            bar.classList.remove('bg-primary', 'bg-success', 'bg-warning', 'bg-danger', 'progress-bar-striped', 'progress-bar-animated');
+            bar.classList.add(barClass);
+            bar.style.width = '100%';
+        }
+        if (text) {
+            text.textContent = message || phaseLabel;
+            text.classList.remove('text-muted', 'text-danger', 'text-warning');
+            text.classList.add(kind === 'danger' ? 'text-danger' : (kind === 'warning' ? 'text-warning' : 'text-muted'));
+        }
+        state.importUiFinalized = true;
+    }
+
+    function updateEnrichmentPhase(payload) {
+        payload = payload || {};
+        var processed = Number(payload.processed || 0);
+        var total = Number(payload.total || 0);
+        var ratio = total > 0 ? (processed / total) : (payload.done ? 1 : 0);
+        var importPrefix = state.currentImportStats
+            ? importProgressLabel(state.currentImportStats.savedRows, state.currentImportStats.totalRows) + ' · '
+            : '';
+        setWeightedImportPhase('enrich', ratio, importPrefix + 'Geolocalizzazione: ' + processed + '/' + total + ' (' + clampPercent(Math.round(ratio * 100)) + '%)');
+    }
+
+    function syncEnrichmentReportLog(report) {
+        report = report || {};
+        ['attempt_failures', 'failure_codes'].forEach(function (bucket) {
+            var current = report[bucket] || {};
+            var previous = state.importLogSnapshots[bucket] || {};
+            Object.keys(current).forEach(function (code) {
+                var nextValue = Number(current[code] || 0);
+                var prevValue = Number(previous[code] || 0);
+                if (nextValue <= prevValue) return;
+                var delta = nextValue - prevValue;
+                importLog(bucket === 'attempt_failures' ? 'debug' : 'warning', (bucket === 'attempt_failures' ? 'Tentativi provider falliti' : 'Particelle non risolte') + ' [' + code + ']: +' + delta);
+            });
+            state.importLogSnapshots[bucket] = Object.assign({}, current);
+        });
+    }
+
     async function runImport(files) {
         importLoggerReset();
         importLog('info', 'Fase Lettura file avviata');
-        var parseResult = await parseFiles(files);
-        var rows = parseResult.rows || [];
-        (parseResult.warnings || []).forEach(function (warningMessage) {
-            importLog('warning', warningMessage);
-        });
-        if (!rows.length) { setImportPhase('Completato', 100, 'Nessuna riga valida trovata'); importLog('warning', 'Nessuna riga valida trovata.'); return; }
-        setImportPhase('Lettura file', 10, importProgressLabel(0, rows.length) + ' · Righe lette: ' + rows.length);
-        importLog('info', 'Righe lette: ' + rows.length);
-        setImportPhase('Analisi duplicati', 20, importProgressLabel(0, rows.length) + ' · Analisi duplicati in corso...');
-        var analysis = await api(state.importEndpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ csrf_token: state.csrfToken, mode: 'analyze', rows: rows }) });
-        importLog('info', 'Duplicati rilevati: ' + (analysis.conflicts || []).length);
-        var decisions = {};
-        for (var ci = 0; ci < (analysis.conflicts || []).length; ci++) {
-            var conflict = analysis.conflicts[ci];
-            var confirmUpdate = window.confirm('Duplicato per ' + conflict.comune + ' F.' + conflict.foglio + ' P.' + conflict.particella + (conflict.subalterno ? '/' + conflict.subalterno : '') + '.\nNuovo intestatario: ' + (conflict.incoming_owner || conflict.new_owner || 'N/D') + '.\nSostituire?');
-            decisions[conflict.row_index] = confirmUpdate ? 'updated' : 'kept_old';
-        }
-        setImportPhase('Salvataggio dati', 45, importProgressLabel(0, rows.length) + ' · Salvataggio dati in corso...');
-        importLog('info', 'Fase Salvataggio dati avviata');
-        var processPayload = await api(state.importEndpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ csrf_token: state.csrfToken, mode: 'process', filename: Array.from(files).map(function(f){return f.name;}).join(', '), decisions: decisions, rows: rows }) });
-        state.currentImportStats = {
-            savedRows: Number(processPayload.saved_rows || 0),
-            totalRows: Number(processPayload.total_rows || rows.length)
-        };
-        setImportPhase('Geolocalizzazione', 80, importProgressLabel(state.currentImportStats.savedRows, state.currentImportStats.totalRows) + ' · Geolocalizzazione particelle in corso...');
-        importLog('info', 'Righe salvate: ' + (processPayload.saved_rows !== undefined ? processPayload.saved_rows : rows.length));
-        if (processPayload.skipped_rows) {
-            importLog('warning', 'Righe saltate: ' + processPayload.skipped_rows);
-        }
-        Object.keys(processPayload.skipped_reasons || {}).forEach(function (reasonKey) {
-            var reasonCount = Number(processPayload.skipped_reasons[reasonKey] || 0);
-            if (!reasonCount) return;
-            var reasonLabel = reasonKey === 'missing_cadastral_fields'
-                ? 'mancano i campi catastali minimi'
-                : reasonKey;
-            importLog('warning', reasonCount + ' righe saltate: ' + reasonLabel);
-        });
-        if (processPayload.notes_imported) {
-            importLog('info', 'Note importate: ' + processPayload.notes_imported);
-        }
-        importLog('info', 'Particelle geolocalizzate: ' + (processPayload.geolocated_parcels || 0));
-        await loadProperties();
-        renderEnrichmentReport({ coord_source: processPayload.coord_source || {}, failure_codes: processPayload.failure_codes || {}, unresolved_rows: processPayload.unresolved_rows || [], truncated: !!processPayload.unresolved_truncated });
-        if (processPayload.batch_id) {
-            if (processPayload.enrichment_done) { setImportPhase('Completato', 100, importProgressLabel(state.currentImportStats.savedRows, state.currentImportStats.totalRows) + ' · Completato'); importLog('info', 'Geolocalizzazione completata.'); }
-            else { importLog('warning', 'Particelle residue: ' + (processPayload.remaining_unique_parcels || 0)); await enrichChunkLoop(processPayload.batch_id); }
+        try {
+            var parseResult = await parseFiles(files);
+            var rows = parseResult.rows || [];
+            (parseResult.warnings || []).forEach(function (warningMessage) {
+                importLog('warning', warningMessage);
+            });
+            if (!rows.length) {
+                importLog('warning', 'Nessuna riga valida trovata.');
+                finalizeImportUi('warning', 'Nessuna riga valida trovata.');
+                return;
+            }
+
+            setWeightedImportPhase('read', 1, importProgressLabel(0, rows.length) + ' · Righe lette: ' + rows.length);
+            importLog('info', 'Righe lette: ' + rows.length);
+            setWeightedImportPhase('analyze', 0.5, importProgressLabel(0, rows.length) + ' · Analisi duplicati in corso...');
+            var analysis = await api(state.importEndpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ csrf_token: state.csrfToken, mode: 'analyze', rows: rows }) });
+            importLog('info', 'Duplicati rilevati: ' + (analysis.conflicts || []).length);
+            var decisions = {};
+            for (var ci = 0; ci < (analysis.conflicts || []).length; ci++) {
+                var conflict = analysis.conflicts[ci];
+                var confirmUpdate = window.confirm('Duplicato per ' + conflict.comune + ' F.' + conflict.foglio + ' P.' + conflict.particella + (conflict.subalterno ? '/' + conflict.subalterno : '') + '.\nNuovo intestatario: ' + (conflict.incoming_owner || conflict.new_owner || 'N/D') + '.\nSostituire?');
+                decisions[conflict.row_index] = confirmUpdate ? 'updated' : 'kept_old';
+            }
+
+            setWeightedImportPhase('save', 0.5, importProgressLabel(0, rows.length) + ' · Salvataggio dati in corso...');
+            importLog('info', 'Fase Salvataggio dati avviata');
+            var processPayload = await api(state.importEndpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ csrf_token: state.csrfToken, mode: 'process', filename: Array.from(files).map(function(f){return f.name;}).join(', '), decisions: decisions, rows: rows }) });
+            state.currentImportStats = {
+                savedRows: Number(processPayload.saved_rows || 0),
+                totalRows: Number(processPayload.total_rows || rows.length)
+            };
+            updateEnrichmentPhase({
+                processed: processPayload.processed_parcels || 0,
+                total: processPayload.total_unique_parcels || 0,
+                done: !!processPayload.enrichment_done
+            });
+            importLog('info', 'Righe salvate: ' + (processPayload.saved_rows !== undefined ? processPayload.saved_rows : rows.length));
+            if (processPayload.skipped_rows) {
+                importLog('warning', 'Righe saltate: ' + processPayload.skipped_rows);
+            }
+            Object.keys(processPayload.skipped_reasons || {}).forEach(function (reasonKey) {
+                var reasonCount = Number(processPayload.skipped_reasons[reasonKey] || 0);
+                if (!reasonCount) return;
+                var reasonLabel = reasonKey === 'missing_cadastral_fields'
+                    ? 'mancano i campi catastali minimi'
+                    : reasonKey;
+                importLog('warning', reasonCount + ' righe saltate: ' + reasonLabel);
+            });
+            if (processPayload.notes_imported) {
+                importLog('info', 'Note importate: ' + processPayload.notes_imported);
+            }
+            importLog('info', 'Particelle geolocalizzate nel giro corrente: ' + (processPayload.geolocated_parcels || 0));
+            renderEnrichmentReport({
+                coord_source: processPayload.coord_source || {},
+                attempt_failures: processPayload.attempt_failures || {},
+                failure_codes: processPayload.failure_codes || {},
+                unresolved_rows: processPayload.unresolved_rows || [],
+                truncated: !!processPayload.unresolved_truncated
+            });
+            await loadProperties();
+            if (!processPayload.batch_id) {
+                importLog('error', 'Import completato senza batch_id di enrichment.');
+                finalizeImportUi('danger', 'Errore: batch di geolocalizzazione non disponibile.');
+                return;
+            }
+            if (processPayload.enrichment_done) {
+                var summary = summarizeReconciliation(processPayload);
+                finalizeImportUi(summary.missing > 0 ? 'warning' : 'success', summary.text);
+                importLog(summary.missing > 0 ? 'warning' : 'info', summary.text);
+                return;
+            }
+            importLog('info', 'Particelle residue eleggibili: ' + (processPayload.remaining_unique_parcels || 0));
+            await enrichChunkLoop(processPayload.batch_id);
+        } catch (error) {
+            importLog('error', 'Import fallito: ' + (error && error.message ? error.message : 'Errore sconosciuto'));
+            finalizeImportUi('danger', 'Errore durante l\'import: ' + (error && error.message ? error.message : 'Errore sconosciuto'));
+            throw error;
+        } finally {
+            if (!state.importUiFinalized) {
+                finalizeImportUi('danger', 'Import interrotto senza uno stato finale valido.');
+            }
         }
     }
 
     async function pollEnrichment(batchId) {
-        var container = document.getElementById('enrichment-status-container');
-        var bar = document.getElementById('import-progress-bar');
-        var text = document.getElementById('import-progress-text');
         var reportEl = document.getElementById('enrichment-report');
-        if (container) container.style.display = '';
         if (reportEl) { reportEl.className = 'small mt-2 d-none'; reportEl.innerHTML = ''; }
-        var maxIterations = 240, iterations = 0, lastProcessed = -1, stalledSince = 0;
-        while (iterations < maxIterations) {
-            iterations++;
-            var batch;
-            try { var p2 = await api(state.importProgressEndpoint + '?batch_id=' + batchId); batch = p2.batch; } catch(e) { await new Promise(function(r){setTimeout(r,3000);}); continue; }
-            var status = batch.enrichment_status || null, processed = batch.enrichment_processed || 0, total = batch.enrichment_total || 0;
-            var pct = total > 0 ? Math.round(processed / total * 100) : 0;
-            var progressPrefix = state.currentImportStats
-                ? importProgressLabel(state.currentImportStats.savedRows, state.currentImportStats.totalRows) + ' · '
-                : '';
-            renderEnrichmentReport(batch.enrichment_report);
-            if (bar) bar.style.width = Math.max(80, clampPercent(pct)) + '%';
-            if (text) text.textContent = progressPrefix + 'Geolocalizzazione: ' + processed + '/' + total + ' (' + clampPercent(pct) + '%)';
-            if (status === 'completed') { if (text) text.textContent = progressPrefix + 'Geolocalizzazione completata.'; if (bar) bar.style.width = '100%'; setImportPhase('Completato', 100, progressPrefix + 'Completato'); try { await loadProperties(); } catch(e){} if (container) setTimeout(function(){container.style.display='none';},4000); return; }
-            if (status === 'failed') { if (text) { text.textContent = 'Geolocalizzazione non riuscita.'; text.classList.add('text-danger'); } if (bar) bar.classList.replace('bg-primary','bg-danger'); return; }
-            if (status === 'pending' && processed === 0) { stalledSince++; if (stalledSince >= 6 && state.enrichChunkEndpoint) { enrichChunkLoop(batchId).catch(function(){}); return; } }
-            else if (processed !== lastProcessed) { stalledSince = 0; lastProcessed = processed; }
-            await new Promise(function(r){setTimeout(r,2500);});
+        try {
+            var maxIterations = 240, iterations = 0, lastProcessed = -1, stalledSince = 0;
+            while (iterations < maxIterations) {
+                iterations++;
+                var batch;
+                try {
+                    var p2 = await api(withTenant(state.importProgressEndpoint + '?batch_id=' + batchId));
+                    batch = p2.batch;
+                } catch (progressError) {
+                    importLog('error', 'Polling enrichment non riuscito: ' + (progressError.message || 'errore sconosciuto'));
+                    await new Promise(function(r){setTimeout(r,3000);});
+                    continue;
+                }
+                var status = batch.enrichment_status || null;
+                var processed = batch.enrichment_processed || 0;
+                var total = batch.enrichment_total || 0;
+                renderEnrichmentReport(batch.enrichment_report);
+                updateEnrichmentPhase({ processed: processed, total: total, done: status === 'completed' });
+                if (status === 'completed') {
+                    await loadProperties();
+                    var summary = summarizeReconciliation(batch);
+                    finalizeImportUi(summary.missing > 0 ? 'warning' : 'success', summary.text);
+                    importLog(summary.missing > 0 ? 'warning' : 'info', summary.text);
+                    return;
+                }
+                if (status === 'failed') {
+                    importLog('error', 'Geolocalizzazione batch fallita.');
+                    finalizeImportUi('danger', 'Errore durante la geolocalizzazione del batch.');
+                    return;
+                }
+                if (status === 'pending' && processed === 0) {
+                    stalledSince++;
+                    if (stalledSince >= 6 && state.enrichChunkEndpoint) {
+                        importLog('warning', 'Polling fermo: avvio fallback sincrono.');
+                        await enrichChunkLoop(batchId);
+                        return;
+                    }
+                } else if (processed !== lastProcessed) {
+                    stalledSince = 0;
+                    lastProcessed = processed;
+                }
+                await new Promise(function(r){setTimeout(r,2500);});
+            }
+            importLog('error', 'Timeout polling enrichment.');
+            finalizeImportUi('danger', 'Timeout geolocalizzazione. Usa "Rigenera coordinate mancanti".');
+        } catch (error) {
+            importLog('error', 'Errore polling enrichment: ' + (error && error.message ? error.message : 'Errore sconosciuto'));
+            finalizeImportUi('danger', 'Errore polling geolocalizzazione: ' + (error && error.message ? error.message : 'Errore sconosciuto'));
+            throw error;
+        } finally {
+            if (!state.importUiFinalized) {
+                finalizeImportUi('danger', 'Geolocalizzazione interrotta senza stato finale.');
+            }
         }
-        if (text) text.textContent = 'Timeout. Usa "Rigenera coordinate mancanti".';
     }
 
     async function enrichChunkLoop(batchId) {
-        var container = document.getElementById('enrichment-status-container');
-        var bar = document.getElementById('import-progress-bar');
-        var text = document.getElementById('import-progress-text');
         var reportEl = document.getElementById('enrichment-report');
-        if (container) container.style.display = '';
         if (reportEl) { reportEl.className = 'small mt-2 d-none'; reportEl.innerHTML = ''; }
-        var maxChunks = 500, calls = 0;
-        setImportPhase('Geolocalizzazione', 80, (state.currentImportStats ? importProgressLabel(state.currentImportStats.savedRows, state.currentImportStats.totalRows) + ' · ' : '') + 'Geolocalizzazione sincrona...');
-        importLog('info', 'Avvio fallback chunk sincrono');
-        while (calls < maxChunks) {
-            calls++;
-            var result;
-            try { result = await api(state.enrichChunkEndpoint + '?batch_id=' + batchId + '&limit=25', { allowErrorPayload: true }); }
-            catch(e) { await new Promise(function(r){setTimeout(r,2000);}); continue; }
-            if (result.ok === false) {
-                var errCode = result.error_code || 'unknown';
-                if (errCode === 'transient') { await new Promise(function(r){setTimeout(r,2000);}); continue; }
-                if (text) { text.textContent = 'Errore [' + errCode + ']: ' + (result.error || 'Errore sconosciuto'); text.classList.add('text-danger'); }
-                if (bar) bar.classList.replace('bg-primary','bg-danger');
-                return;
+        try {
+            var maxChunks = 500, calls = 0;
+            updateEnrichmentPhase({ processed: 0, total: 0, done: false });
+            importLog('info', 'Avvio fallback chunk sincrono');
+            while (calls < maxChunks) {
+                calls++;
+                var result;
+                try {
+                    result = await api(withTenant(state.enrichChunkEndpoint + '?batch_id=' + batchId + '&limit=25'), { allowErrorPayload: true });
+                } catch (chunkError) {
+                    importLog('error', 'Errore chiamata chunk: ' + (chunkError.message || 'errore sconosciuto'));
+                    await new Promise(function(r){setTimeout(r,2000);});
+                    continue;
+                }
+                if (result.ok === false) {
+                    var errCode = result.error_code || 'unknown';
+                    if (errCode === 'transient') {
+                        importLog('info', 'Errore transient [' + errCode + '], nuovo tentativo.');
+                        await new Promise(function(r){setTimeout(r,2000);});
+                        continue;
+                    }
+                    importLog('error', 'Errore [' + errCode + ']: ' + (result.error || 'Errore sconosciuto'));
+                    finalizeImportUi('danger', 'Errore [' + errCode + ']: ' + (result.error || 'Errore sconosciuto'));
+                    return;
+                }
+                renderEnrichmentReport(result.enrichment_report);
+                updateEnrichmentPhase(result);
+                importLog('info', 'Chunk ' + calls + ': ' + (result.processed || 0) + '/' + (result.total || 0));
+                if (result.done || result.status === 'completed') {
+                    await loadProperties();
+                    var summary = summarizeReconciliation(result);
+                    finalizeImportUi(summary.missing > 0 ? 'warning' : 'success', summary.text);
+                    importLog(summary.missing > 0 ? 'warning' : 'info', summary.text);
+                    return;
+                }
+                if (result.status === 'failed') {
+                    importLog('error', 'Geolocalizzazione chunk fallita.');
+                    finalizeImportUi('danger', 'Errore durante la geolocalizzazione chunk.');
+                    return;
+                }
+                await new Promise(function(r){setTimeout(r,200);});
             }
-            var p2 = result.processed || 0, t2 = result.total || 0;
-            var pct2 = t2 > 0 ? Math.round(p2 / t2 * 100) : (result.done ? 100 : 0);
-            var progressPrefix = state.currentImportStats
-                ? importProgressLabel(state.currentImportStats.savedRows, state.currentImportStats.totalRows) + ' · '
-                : '';
-            renderEnrichmentReport(result.enrichment_report);
-            if (bar) bar.style.width = clampPercent(pct2) + '%';
-            if (text) text.textContent = progressPrefix + 'Geolocalizzazione: ' + p2 + '/' + t2 + ' (' + clampPercent(pct2) + '%)';
-            importLog('info', 'Chunk ' + calls + ': ' + p2 + '/' + t2);
-            if (result.done || result.status === 'completed') { if (text) text.textContent = progressPrefix + 'Geolocalizzazione completata: ' + p2 + '/' + t2 + '.'; if (bar) bar.style.width = '100%'; setImportPhase('Completato', 100, progressPrefix + 'Completato'); importLog('info', 'Completato.'); try { await loadProperties(); } catch(e){} if (container) setTimeout(function(){container.style.display='none';},4000); return; }
-            if (result.status === 'failed') { if (text) { text.textContent = 'Non riuscita.'; text.classList.add('text-danger'); } if (bar) bar.classList.replace('bg-primary','bg-danger'); return; }
-            await new Promise(function(r){setTimeout(r,200);});
+            importLog('error', 'Limite massimo chunk raggiunto.');
+            finalizeImportUi('danger', 'Limite chunk raggiunto. Usa "Rigenera coordinate mancanti".');
+        } catch (error) {
+            importLog('error', 'Errore ciclo chunk: ' + (error && error.message ? error.message : 'Errore sconosciuto'));
+            finalizeImportUi('danger', 'Errore geolocalizzazione sincrona: ' + (error && error.message ? error.message : 'Errore sconosciuto'));
+            throw error;
+        } finally {
+            if (!state.importUiFinalized) {
+                finalizeImportUi('danger', 'Geolocalizzazione sincrona interrotta senza stato finale.');
+            }
         }
-        if (text) text.textContent = 'Limite chunk raggiunto. Usa "Rigenera coordinate mancanti".';
     }
 
     function renderEnrichmentReport(report) {
         var el = document.getElementById('enrichment-report');
         if (!el || !report || typeof report !== 'object') { if (el) { el.className = 'small mt-2 d-none'; el.innerHTML = ''; } return; }
         var sourceEntries  = Object.keys(report.coord_source  || {}).filter(function(k){return Number(report.coord_source[k])>0;});
+        var attemptEntries = Object.keys(report.attempt_failures || {}).filter(function(k){return Number(report.attempt_failures[k])>0;});
         var failureEntries = Object.keys(report.failure_codes || {}).filter(function(k){return Number(report.failure_codes[k])>0;});
         var unresolved     = Array.isArray(report.unresolved_rows) ? report.unresolved_rows : [];
-        if (!sourceEntries.length && !failureEntries.length && !unresolved.length) { el.className = 'small mt-2 d-none'; el.innerHTML = ''; return; }
+        if (!sourceEntries.length && !attemptEntries.length && !failureEntries.length && !unresolved.length) { el.className = 'small mt-2 d-none'; el.innerHTML = ''; return; }
+        syncEnrichmentReportLog(report);
         var html = [];
         if (sourceEntries.length)  html.push('<div><strong>Sorgenti:</strong> '   + sourceEntries.map(function(k){return escapeHtml(k)+'='+escapeHtml(String(report.coord_source[k]));}).join(' &middot; ')  + '</div>');
-        if (failureEntries.length) html.push('<div class="mt-1"><strong>Fallimenti:</strong> ' + failureEntries.map(function(k){return escapeHtml(k)+'='+escapeHtml(String(report.failure_codes[k]));}).join(' &middot; ') + '</div>');
+        if (attemptEntries.length) html.push('<div class="mt-1 text-muted"><strong>Tentativi provider:</strong> ' + attemptEntries.map(function(k){return escapeHtml(k)+'='+escapeHtml(String(report.attempt_failures[k]));}).join(' &middot; ') + '</div>');
+        if (failureEntries.length) html.push('<div class="mt-1"><strong>Irrecuperabili:</strong> ' + failureEntries.map(function(k){return escapeHtml(k)+'='+escapeHtml(String(report.failure_codes[k]));}).join(' &middot; ') + '</div>');
         if (unresolved.length)     html.push('<ul class="mb-0 mt-2 ps-3">' + unresolved.map(function(i){return '<li>'+escapeHtml(String(i))+'</li>';}).join('') + (report.truncated ? '<li>&hellip;</li>' : '') + '</ul>');
         el.className = 'small';
         el.innerHTML = html.join('');
@@ -3740,20 +3972,32 @@
     }
 
     (function () {
+        if (state.missingCoordinatesStatsEndpoint && document.getElementById('missing-coordinates-summary')) {
+            loadMissingCoordinatesStats().catch(function (error) {
+                var summary = document.getElementById('missing-coordinates-summary');
+                if (summary) {
+                    summary.textContent = 'Impossibile caricare il contatore coordinate mancanti.';
+                }
+                console.error('[missing_coordinates_stats]', error);
+            });
+        }
         var btn = document.getElementById('rigenera-coordinate-btn');
         if (!btn || !state.enrichChunkEndpoint) return;
         btn.addEventListener('click', async function () {
             btn.disabled = true;
             btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>In corso...';
-            var container = document.getElementById('enrichment-status-container');
-            var bar = document.getElementById('import-progress-bar');
-            var text = document.getElementById('import-progress-text');
-            if (container) { container.style.display=''; if(bar){bar.style.width='0%';bar.className='progress-bar bg-primary progress-bar-striped progress-bar-animated';} if(text){text.textContent='Rigenera coordinate...';text.className='small mb-2';} }
-            setImportPhase('Geolocalizzazione', 0, 'Rigenera coordinate...');
+            importLoggerReset();
+            setWeightedImportPhase('enrich', 0, 'Rigenera coordinate...');
             importLog('info', 'Rigenera coordinate mancanti avviato.');
-            try { await enrichChunkLoop(0); } catch(e) {}
-            btn.disabled = false;
-            btn.innerHTML = '<i class="bi bi-geo-alt me-1"></i>Rigenera coordinate mancanti';
+            try {
+                await enrichChunkLoop(0);
+            } catch (error) {
+                importLog('error', 'Rigenerazione coordinate fallita: ' + (error && error.message ? error.message : 'Errore sconosciuto'));
+                finalizeImportUi('danger', 'Rigenerazione coordinate fallita: ' + (error && error.message ? error.message : 'Errore sconosciuto'));
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-geo-alt me-1"></i>Rigenera coordinate mancanti';
+            }
         });
     })();
 

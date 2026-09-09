@@ -133,6 +133,10 @@ foreach ([
     ['import_batches', 'enrichment_report'],
     ['import_batches', 'enrichment_sync'],
     ['properties', 'coord_source'],
+    ['properties', 'enrichment_attempts'],
+    ['properties', 'enrichment_last_attempt_at'],
+    ['properties', 'enrichment_last_error_code'],
+    ['properties', 'enrichment_last_error_note'],
 ] as [$table, $column]) {
     $migrationChecks[] = analyticspro_diag_column_exists($pdo, $table, $column);
 }
@@ -153,7 +157,7 @@ analyticspro_render_header('Diagnostica Import', ['app_assets' => false]);
     <h1 class="h3 mb-4">Diagnostica Import &amp; Enrichment</h1>
 
     <div class="card mb-4">
-        <div class="card-header fw-semibold">Verifica migration 001-007</div>
+        <div class="card-header fw-semibold">Verifica migration 001-012</div>
         <div class="card-body p-0">
             <table class="table table-sm mb-0">
                 <thead><tr><th>Elemento</th><th>Stato</th></tr></thead>

@@ -45,6 +45,11 @@ try {
         $batch['enrichment_report'] = is_array($decoded) ? $decoded : null;
     }
 
+    $reconciliation = analyticspro_enrichment_fetch_reconciliation(analyticspro_db(), $batchId);
+    $batch['geolocated_rows'] = $reconciliation['geolocated_rows'];
+    $batch['missing_rows'] = $reconciliation['missing_rows'];
+    $batch['total_rows_reconciled'] = $reconciliation['total_rows'];
+
     analyticspro_json(['ok' => true, 'batch' => $batch]);
 } catch (Throwable $exception) {
     analyticspro_json(['ok' => false, 'error' => $exception->getMessage()], 404);

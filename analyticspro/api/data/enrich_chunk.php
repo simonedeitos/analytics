@@ -90,6 +90,7 @@ try {
                 $decoded = json_decode((string) $row['enrichment_report'], true);
                 $report = is_array($decoded) ? $decoded : null;
             }
+            $reconciliation = analyticspro_enrichment_fetch_reconciliation($pdo, $batchId);
             analyticspro_json([
                 'ok' => true,
                 'processed' => (int) ($row['enrichment_processed'] ?? 0),
@@ -97,11 +98,14 @@ try {
                 'done' => true,
                 'status' => $status,
                 'enrichment_report' => $report,
+                'total_rows' => $reconciliation['total_rows'],
+                'geolocated_rows' => $reconciliation['geolocated_rows'],
+                'missing_rows' => $reconciliation['missing_rows'],
             ]);
         }
     }
 
-    $result = analyticspro_enrich_batch_coordinates_chunk($batchId, $limit);
+    $result = analyticspro_enrich_batch_coordinates_chunk($batchId, $limit, $tenantId);
 
     analyticspro_json([
         'ok' => true,
@@ -110,6 +114,9 @@ try {
         'done' => $result['done'],
         'status' => $result['status'],
         'enrichment_report' => $result['enrichment_report'] ?? null,
+        'total_rows' => (int) ($result['total_rows'] ?? 0),
+        'geolocated_rows' => (int) ($result['geolocated_rows'] ?? 0),
+        'missing_rows' => (int) ($result['missing_rows'] ?? 0),
     ]);
 } catch (Throwable $exception) {
     $msg = $exception->getMessage();

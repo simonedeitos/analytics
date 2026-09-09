@@ -38,7 +38,8 @@ analyticspro_render_header('Importa dati', ['app_assets' => true]);
      data-property-delete-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/delete_property.php')) ?>"
      data-import-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/import.php')) ?>"
      data-import-progress-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/import_progress.php')) ?>"
-     data-enrich-chunk-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/enrich_chunk.php')) ?>">
+     data-enrich-chunk-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/enrich_chunk.php')) ?>"
+     data-missing-coordinates-stats-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/missing_coordinates_stats.php')) ?>">
 
     <?= analyticspro_ui_page_header(
         'Importa dati',
@@ -73,14 +74,51 @@ analyticspro_render_header('Importa dati', ['app_assets' => true]);
     </div>
 
     <div class="card border-0 shadow-sm mb-4">
-        <div class="card-body d-flex align-items-center justify-content-between flex-wrap gap-2">
-            <div>
-                <h2 class="h5 mb-1">Coordinate mancanti</h2>
-                <p class="text-muted small mb-0">Rilancia la geolocalizzazione per tutti gli immobili con coordinate non ancora risolte (lat / lng = NULL).</p>
+        <div class="card-body">
+            <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+                <div>
+                    <h2 class="h5 mb-1">Coordinate mancanti</h2>
+                    <p class="text-muted small mb-0">Rilancia la geolocalizzazione per tutti gli immobili con coordinate non ancora risolte (lat / lng = NULL).</p>
+                </div>
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                    <div id="missing-coordinates-manual-action-slot" class="d-flex gap-2"></div>
+                    <button id="rigenera-coordinate-btn" class="btn btn-outline-secondary">
+                        <i class="bi bi-geo-alt me-1"></i>Rigenera coordinate mancanti
+                    </button>
+                </div>
             </div>
-            <button id="rigenera-coordinate-btn" class="btn btn-outline-secondary">
-                <i class="bi bi-geo-alt me-1"></i>Rigenera coordinate mancanti
-            </button>
+            <div class="row g-3 align-items-start">
+                <div class="col-lg-4">
+                    <div class="border rounded-4 p-3 h-100">
+                        <div class="small text-uppercase text-muted fw-semibold mb-2">Situazione corrente</div>
+                        <div class="d-flex flex-wrap gap-2 mb-2">
+                            <span class="badge text-bg-secondary" id="missing-coordinates-total-badge">Totale: —</span>
+                            <span class="badge text-bg-warning" id="missing-coordinates-recoverable-badge">Recuperabili: —</span>
+                            <span class="badge text-bg-dark" id="missing-coordinates-exhausted-badge">Esauriti: —</span>
+                        </div>
+                        <p id="missing-coordinates-summary" class="small text-muted mb-0">Caricamento conteggi coordinate mancanti…</p>
+                    </div>
+                </div>
+                <div class="col-lg-8">
+                    <div id="missing-coordinates-admin-panel" class="<?= analyticspro_is_admin() ? '' : 'd-none' ?>">
+                        <div class="table-responsive border rounded-4">
+                            <table class="table table-sm align-middle mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Tenant</th>
+                                        <th class="text-end">Totale</th>
+                                        <th class="text-end">Recuperabili</th>
+                                        <th class="text-end">Esauriti</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="missing-coordinates-admin-body">
+                                    <tr><td colspan="4" class="text-center text-muted py-3 small">Caricamento conteggi…</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 </div>
