@@ -1,6 +1,6 @@
 # AnalyticsPRO
 
-Webapp PHP/PDO multi-tenant per importare dati catastali, salvarli su MySQL/MariaDB e visualizzarli su mappa, report e analitiche.
+Webapp PHP/PDO multi-tenant per importare dati catastali, salvarli su MySQL/MariaDB e visualizzarli su dashboard, mappa e report.
 
 **Requisiti PHP**: **PHP 8.0+** (il codice usa `match()`, `str_contains()`, `catch (Throwable)` senza variabile e altri costrutti 8.0+).
 

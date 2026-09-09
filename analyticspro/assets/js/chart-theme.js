@@ -61,5 +61,4 @@
     };
 
     applyDefaults();
-    window.addEventListener('analyticspro:theme-change', applyDefaults);
 })();

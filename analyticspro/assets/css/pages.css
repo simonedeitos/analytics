@@ -50,9 +50,6 @@
     background: rgba(255,255,255,.9);
     backdrop-filter: blur(10px);
 }
-[data-theme="dark"] .report-filter-bar {
-    background: rgba(16,24,40,.84);
-}
 
 .table,
 .dataTables_wrapper,
@@ -72,11 +69,6 @@
 .accordion-button:not(.collapsed) {
     background: var(--ap-blue-light);
     color: var(--ap-blue-dark);
-}
-[data-theme="dark"] .accordion-button,
-[data-theme="dark"] .accordion-button:not(.collapsed) {
-    background: var(--ap-surface-2);
-    color: var(--ap-text);
 }
 
 .ap-subtle-block {
