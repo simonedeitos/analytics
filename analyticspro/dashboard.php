@@ -16,16 +16,15 @@ if (($user['role'] ?? '') === 'subuser' && !empty($user['must_change_password'])
 $tenantId           = analyticspro_current_tenant_id();
 $selectedTenant     = analyticspro_is_admin() ? (string) analyticspro_get('tenant_id', 'all') : (string) $tenantId;
 $subuserPermissions = analyticspro_is_subuser() ? analyticspro_get_subuser_permissions((int) $user['id']) : null;
-$tenants            = analyticspro_is_admin() ? analyticspro_fetch_tenants() : [];
-$period             = analyticspro_dashboard_period_key((string) analyticspro_get('period', '30d'));
+$period             = 'all';
 $canImport          = !analyticspro_is_subuser() || !empty($subuserPermissions['can_import']);
 $canViewAnalytics   = !analyticspro_is_subuser() || !empty($subuserPermissions['can_view_analytics']);
 $canViewReports     = !analyticspro_is_subuser() || !empty($subuserPermissions['can_view_reports']);
 $canExport          = !analyticspro_is_subuser() || !empty($subuserPermissions['can_export']);
 $canViewPhone       = analyticspro_tenant_phone_visibility($tenantId);
-$selectedProvince   = trim((string) analyticspro_get('province', ''));
+$selectedComune     = trim((string) analyticspro_get('comune', ''));
 $selectedCategory   = trim((string) analyticspro_get('category', ''));
-$provinceOptions    = [];
+$comuneOptions      = [];
 $categoryOptions    = [];
 
 try {
@@ -60,76 +59,46 @@ try {
 
 if ($canViewAnalytics) {
     try {
-        $scopeSql = 'SELECT DISTINCT provincia, categoria FROM properties';
+        $scopeSql = 'SELECT DISTINCT comune, categoria FROM properties';
         $scopeParams = [];
         if ($tenantId !== null) {
             $scopeSql .= ' WHERE user_id = :tenant_id';
             $scopeParams['tenant_id'] = $tenantId;
         }
-        $scopeSql .= ' ORDER BY provincia, categoria';
+        $scopeSql .= ' ORDER BY comune, categoria';
         $scopeStmt = analyticspro_db()->prepare($scopeSql);
         $scopeStmt->execute($scopeParams);
         foreach ($scopeStmt->fetchAll() ?: [] as $row) {
-            $province = trim((string) ($row['provincia'] ?? ''));
+            $comune = trim((string) ($row['comune'] ?? ''));
             $category = trim((string) ($row['categoria'] ?? ''));
-            if ($province !== '') {
-                $provinceOptions[$province] = $province;
+            if ($comune !== '') {
+                $comuneOptions[$comune] = $comune;
             }
             if ($category !== '') {
                 $categoryOptions[$category] = $category;
             }
         }
-        ksort($provinceOptions);
+        ksort($comuneOptions);
         ksort($categoryOptions);
     } catch (Throwable) {
-        $provinceOptions = [];
+        $comuneOptions = [];
         $categoryOptions = [];
     }
 }
 
-ob_start();
-?>
-<div class="d-flex align-items-center gap-2 flex-wrap">
-    <label class="small text-muted fw-semibold" for="dashboard-period-topbar">Periodo</label>
-    <select id="dashboard-period-topbar" class="form-select form-select-sm" data-dashboard-period-control>
-        <option value="today" <?= $period === 'today' ? 'selected' : '' ?>>Oggi</option>
-        <option value="7d" <?= $period === '7d' ? 'selected' : '' ?>>7 giorni</option>
-        <option value="30d" <?= $period === '30d' ? 'selected' : '' ?>>30 giorni</option>
-        <option value="year" <?= $period === 'year' ? 'selected' : '' ?>>Anno</option>
-        <option value="all" <?= $period === 'all' ? 'selected' : '' ?>>Sempre</option>
-    </select>
-</div>
-<?php
-$topbarContent = (string) ob_get_clean();
+$topbarContent = '';
 
 analyticspro_render_header('Dashboard', ['app_assets' => true, 'topbar_content' => $topbarContent]);
 
 ob_start();
 ?>
 <div class="d-flex align-items-center gap-2 flex-wrap">
-    <label class="small text-muted fw-semibold" for="dashboard-period-select">Periodo</label>
-    <select id="dashboard-period-select" class="form-select form-select-sm" data-dashboard-period-control>
-        <option value="today" <?= $period === 'today' ? 'selected' : '' ?>>Oggi</option>
-        <option value="7d" <?= $period === '7d' ? 'selected' : '' ?>>7 giorni</option>
-        <option value="30d" <?= $period === '30d' ? 'selected' : '' ?>>30 giorni</option>
-        <option value="year" <?= $period === 'year' ? 'selected' : '' ?>>Anno</option>
-        <option value="all" <?= $period === 'all' ? 'selected' : '' ?>>Sempre</option>
-    </select>
-    <?php if (analyticspro_is_admin()): ?>
-        <label class="small text-muted fw-semibold" for="dashboard-tenant-select">Tenant</label>
-        <select id="dashboard-tenant-select" class="form-select form-select-sm" onchange="var url = new URL(window.location.href); url.searchParams.set('tenant_id', this.value || 'all'); window.location.href = url.toString();">
-            <option value="all" <?= $selectedTenant === 'all' ? 'selected' : '' ?>>Tutti i tenant</option>
-            <?php foreach ($tenants as $tenant): ?>
-                <option value="<?= analyticspro_h((string) $tenant['id']) ?>" <?= $selectedTenant === (string) $tenant['id'] ? 'selected' : '' ?>><?= analyticspro_h(analyticspro_full_name($tenant)) ?></option>
-            <?php endforeach; ?>
-        </select>
-    <?php endif; ?>
     <?php if ($canViewAnalytics): ?>
-        <label class="small text-muted fw-semibold" for="dashboard-province-select">Provincia</label>
-        <select id="dashboard-province-select" class="form-select form-select-sm" data-dashboard-filter-control="province">
+        <label class="small text-muted fw-semibold" for="dashboard-comune-select">Comune</label>
+        <select id="dashboard-comune-select" class="form-select form-select-sm" data-dashboard-filter-control="comune">
             <option value="">Tutte</option>
-            <?php foreach ($provinceOptions as $province): ?>
-                <option value="<?= analyticspro_h($province) ?>" <?= $selectedProvince === $province ? 'selected' : '' ?>><?= analyticspro_h($province) ?></option>
+            <?php foreach ($comuneOptions as $comune): ?>
+                <option value="<?= analyticspro_h($comune) ?>" <?= $selectedComune === $comune ? 'selected' : '' ?>><?= analyticspro_h($comune) ?></option>
             <?php endforeach; ?>
         </select>
         <label class="small text-muted fw-semibold" for="dashboard-category-select">Categoria</label>
@@ -176,7 +145,7 @@ $quickActions = [
      data-ade-jobs-endpoint="<?= analyticspro_h(analyticspro_base_url('api/admin/ade_jobs.php')) ?>"
      data-dashboard-stats-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/dashboard_stats.php')) ?>"
      data-dashboard-period="<?= analyticspro_h($period) ?>"
-     data-dashboard-province="<?= analyticspro_h($selectedProvince) ?>"
+     data-dashboard-comune="<?= analyticspro_h($selectedComune) ?>"
      data-dashboard-category="<?= analyticspro_h($selectedCategory) ?>"
      data-dashboard-page="home"
      data-dashboard-map-url="<?= analyticspro_h(analyticspro_base_url('mappa.php')) ?>">
@@ -238,7 +207,7 @@ $quickActions = [
         </section>
         <section class="row g-4 mb-4" data-dashboard-section="all territorio immobili">
             <div class="col-12 col-xl-4"><?= analyticspro_ui_chart_card(['title' => 'Distribuzione sesso', 'icon' => 'bi-gender-ambiguous', 'canvas_id' => 'chart-gender', 'height' => '300']) ?></div>
-            <div class="col-12 col-xl-4"><?= analyticspro_ui_chart_card(['title' => 'Distribuzione per provincia', 'icon' => 'bi-pin-map', 'canvas_id' => 'chart-province', 'height' => '300']) ?></div>
+            <div class="col-12 col-xl-4"><?= analyticspro_ui_chart_card(['title' => 'Distribuzione per comuni', 'icon' => 'bi-pin-map', 'canvas_id' => 'chart-comune-distribution', 'height' => '300']) ?></div>
             <div class="col-12 col-xl-4"><?= analyticspro_ui_chart_card(['title' => 'Tipologie immobili', 'icon' => 'bi-house', 'canvas_id' => 'chart-categoria', 'height' => '300']) ?></div>
         </section>
     <?php else: ?>

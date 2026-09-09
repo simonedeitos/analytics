@@ -58,8 +58,8 @@
         adeManualFilesEndpoint: root.dataset.adeManualFilesEndpoint || '',
         dashboardStatsEndpoint: root.dataset.dashboardStatsEndpoint || '',
         dashboardPage: root.dataset.dashboardPage || '',
-        dashboardPeriod: root.dataset.dashboardPeriod || '30d',
-        dashboardProvince: root.dataset.dashboardProvince || '',
+        dashboardPeriod: root.dataset.dashboardPeriod || 'all',
+        dashboardComune: root.dataset.dashboardComune || '',
         dashboardCategory: root.dataset.dashboardCategory || '',
         dashboardMapUrl: root.dataset.dashboardMapUrl || '',
         reportQuery: root.dataset.reportQuery || '',
@@ -526,20 +526,12 @@
         return url + (url.indexOf('?') !== -1 ? '&' : '?') + 'tenant_id=' + encodeURIComponent(state.selectedTenant);
     }
 
-    function syncPeriodControls(value) {
-        document.querySelectorAll('[data-dashboard-period-control]').forEach(function (control) {
-            if (control.value !== value) {
-                control.value = value;
-            }
-        });
-    }
-
     function currentDashboardFilters() {
-        var provinceControl = document.querySelector('[data-dashboard-filter-control="province"]');
+        var comuneControl = document.querySelector('[data-dashboard-filter-control="comune"]');
         var categoryControl = document.querySelector('[data-dashboard-filter-control="category"]');
         return {
-            period: state.dashboardPeriod || '30d',
-            province: provinceControl ? provinceControl.value : (state.dashboardProvince || ''),
+            period: 'all',
+            comune: comuneControl ? comuneControl.value : (state.dashboardComune || ''),
             category: categoryControl ? categoryControl.value : (state.dashboardCategory || ''),
         };
     }
@@ -549,8 +541,8 @@
         var url = state.dashboardStatsEndpoint || '';
         if (!url) return '';
         var sep = url.indexOf('?') === -1 ? '?' : '&';
-        url += sep + 'period=' + encodeURIComponent(filters.period || '30d');
-        if (filters.province) url += '&province=' + encodeURIComponent(filters.province);
+        url += sep + 'period=all';
+        if (filters.comune) url += '&comune=' + encodeURIComponent(filters.comune);
         if (filters.category) url += '&category=' + encodeURIComponent(filters.category);
         if (forceRefresh) url += '&refresh=1';
         return withTenant(url);
@@ -559,16 +551,15 @@
     async function loadDashboardStats(forceRefresh) {
         if (!state.dashboardStatsEndpoint || !state.dashboardPage) return;
         var filters = currentDashboardFilters();
-        state.dashboardPeriod = filters.period;
-        state.dashboardProvince = filters.province;
+        state.dashboardPeriod = 'all';
+        state.dashboardComune = filters.comune;
         state.dashboardCategory = filters.category;
-        syncPeriodControls(state.dashboardPeriod);
         var payload = await api(buildDashboardStatsUrl(forceRefresh), {
             headers: { 'X-CSRF-Token': state.csrfToken }
         });
         renderDashboardStats(payload || {});
-        setQueryParam('period', state.dashboardPeriod);
-        setQueryParam('province', state.dashboardProvince);
+        setQueryParam('period', 'all');
+        setQueryParam('comune', state.dashboardComune);
         setQueryParam('category', state.dashboardCategory);
     }
 
@@ -1374,13 +1365,6 @@
     function setDashboardKpiValue(key, value, delta, sparkline) {
         var el = document.querySelector('[data-kpi="' + key + '"]');
         if (el) el.textContent = Number(value || 0).toLocaleString('it-IT');
-        var deltaEl = document.querySelector('[data-kpi-delta="' + key + '"]');
-        if (deltaEl && delta !== null && delta !== undefined) {
-            var deltaValue = Number(delta || 0);
-            deltaEl.textContent = (deltaValue > 0 ? '+' : '') + deltaValue.toLocaleString('it-IT', { maximumFractionDigits: 1 }) + '%';
-            deltaEl.classList.remove('ap-kpi-delta-positive', 'ap-kpi-delta-negative', 'ap-kpi-delta-neutral');
-            deltaEl.classList.add(deltaValue > 0 ? 'ap-kpi-delta-positive' : (deltaValue < 0 ? 'ap-kpi-delta-negative' : 'ap-kpi-delta-neutral'));
-        }
         var sparkId = 'spark-' + key;
         if (Array.isArray(sparkline) && sparkline.length && document.getElementById(sparkId)) {
             lineSparkline(sparkId, sparkline, chartColors(1)[0]);
@@ -1461,8 +1445,8 @@
         if (series.age && (series.age.labels || []).length) {
             barChart('chart-age', series.age.labels || [], series.age.values || [], 'Intestatari');
         }
-        if (series.province && (series.province.labels || []).length) {
-            pieChart('chart-province', series.province.labels || [], series.province.values || [], { type: 'doughnut' });
+        if (series.comune_distribution && (series.comune_distribution.labels || []).length) {
+            pieChart('chart-comune-distribution', series.comune_distribution.labels || [], series.comune_distribution.values || [], { type: 'doughnut' });
         }
         if (series.comune && (series.comune.labels || []).length) {
             barChart('chart-comune', series.comune.labels || [], series.comune.values || [], 'Immobili', { horizontal: true, backgroundColor: chartColors(2)[1] });
@@ -1483,10 +1467,9 @@
         if (state.canViewPhone) withPhone = owners.filter(function (o) { return o.telefono; }).length;
         var withEmail = owners.filter(function (o) { return o.email; }).length;
         var withPiva  = owners.filter(function (o) { return o.tipo === 'azienda'; }).length;
-        var genders = {}, provinces = {}, comuni = {}, categories = {}, ownership = {}, ages = {};
+        var genders = {}, comuni = {}, categories = {}, ownership = {}, ages = {};
         owners.forEach(function (o) { var k = o.genere || 'N/D'; genders[k] = (genders[k] || 0) + 1; });
         state.properties.forEach(function (p) {
-            var kp = p.provincia || 'N/D'; provinces[kp] = (provinces[kp] || 0) + 1;
             var kc = p.comune || 'N/D'; comuni[kc] = (comuni[kc] || 0) + 1;
             var kcat = p.categoria || 'N/D'; categories[kcat] = (categories[kcat] || 0) + 1;
             var ko = p.titolarita || 'N/D'; ownership[ko] = (ownership[ko] || 0) + 1;
@@ -1514,8 +1497,21 @@
         }
         pieChart('chart-gender',    Object.keys(genders),    Object.keys(genders).map(function(k){return genders[k];}));
         barChart('chart-age',       Object.keys(ages),       Object.keys(ages).map(function(k){return ages[k];}), 'Intestatari');
-        pieChart('chart-province',  Object.keys(provinces),  Object.keys(provinces).map(function(k){return provinces[k];}));
-        barChart('chart-comune',    Object.keys(comuni).slice(0,10), Object.keys(comuni).slice(0,10).map(function(k){return comuni[k];}), 'Immobili', { horizontal: true, backgroundColor: chartColors(2)[1] });
+        var sortedComuni = Object.keys(comuni).sort(function (a, b) { return (comuni[b] || 0) - (comuni[a] || 0); });
+        var topComuni = sortedComuni.slice(0, 10);
+        var distributionLimit = 20;
+        var distributionLabels = sortedComuni.slice(0, distributionLimit);
+        var distributionValues = distributionLabels.map(function (label) { return comuni[label]; });
+        var remainingLabels = sortedComuni.slice(distributionLimit);
+        if (remainingLabels.length) {
+            var othersValue = remainingLabels.reduce(function (sum, label) { return sum + (comuni[label] || 0); }, 0);
+            if (othersValue > 0) {
+                distributionLabels.push('Altri');
+                distributionValues.push(othersValue);
+            }
+        }
+        pieChart('chart-comune-distribution', distributionLabels, distributionValues);
+        barChart('chart-comune', topComuni, topComuni.map(function(k){return comuni[k];}), 'Immobili', { horizontal: true, backgroundColor: chartColors(2)[1] });
         pieChart('chart-categoria', Object.keys(categories), Object.keys(categories).map(function(k){return categories[k];}));
         pieChart('chart-titolarita',Object.keys(ownership),  Object.keys(ownership).map(function(k){return ownership[k];}));
         if (state.dashboardPage === 'home') {
@@ -3646,16 +3642,6 @@
                 window.setTimeout(function () {
                     if (state.dashboardMiniMap) state.dashboardMiniMap.invalidateSize();
                 }, 160);
-            }
-        });
-    });
-
-    document.querySelectorAll('[data-dashboard-period-control]').forEach(function (control) {
-        control.addEventListener('change', function () {
-            state.dashboardPeriod = control.value || '30d';
-            syncPeriodControls(state.dashboardPeriod);
-            if (state.dashboardPage) {
-                loadDashboardStats(true).catch(function () {});
             }
         });
     });

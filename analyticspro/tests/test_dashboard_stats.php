@@ -54,11 +54,11 @@ $properties = [
 ];
 
 $assignedProperties = [$properties[0], $properties[2]];
-$bounds = analyticspro_dashboard_period_bounds('30d', new DateTimeImmutable('2026-09-09 12:00:00'));
+$bounds = analyticspro_dashboard_period_bounds('all', new DateTimeImmutable('2026-09-09 12:00:00'));
 $stats = analyticspro_dashboard_build_stats($properties, $assignedProperties, [
     'bounds' => $bounds,
-    'period' => '30d',
-    'province' => 'BS',
+    'period' => 'all',
+    'comune' => 'Brescia',
     'category' => '',
     'can_view_phone' => true,
     'can_view_analytics' => true,
@@ -69,17 +69,17 @@ $stats = analyticspro_dashboard_build_stats($properties, $assignedProperties, [
 $pass = true;
 $errors = [];
 
-if (($stats['kpis']['properties']['value'] ?? null) !== 2) {
+if (($stats['kpis']['properties']['value'] ?? null) !== 1) {
     $pass = false;
-    $errors[] = 'properties KPI atteso 2 per provincia BS.';
+    $errors[] = 'properties KPI atteso 1 per comune Brescia.';
 }
-if (($stats['kpis']['owners']['value'] ?? null) !== 3) {
+if (($stats['kpis']['owners']['value'] ?? null) !== 2) {
     $pass = false;
-    $errors[] = 'owners KPI atteso 3 per provincia BS.';
+    $errors[] = 'owners KPI atteso 2 per comune Brescia.';
 }
 if (($stats['kpis']['phones']['value'] ?? null) !== 1) {
     $pass = false;
-    $errors[] = 'phones KPI atteso 1 per provincia BS.';
+    $errors[] = 'phones KPI atteso 1 per comune Brescia.';
 }
 if (($stats['kpis']['assigned']['value'] ?? null) !== 1) {
     $pass = false;
@@ -89,9 +89,13 @@ if (($stats['series']['comune']['labels'][0] ?? '') !== 'Brescia') {
     $pass = false;
     $errors[] = 'Top comuni dovrebbe iniziare con Brescia.';
 }
-if (count($stats['map_points'] ?? []) !== 2) {
+if (count($stats['map_points'] ?? []) !== 1) {
     $pass = false;
-    $errors[] = 'La mini-mappa deve includere solo i punti BS con coordinate.';
+    $errors[] = 'La mini-mappa deve includere solo i punti del comune filtrato con coordinate.';
+}
+if (($stats['series']['comune_distribution']['labels'][0] ?? '') !== 'Brescia') {
+    $pass = false;
+    $errors[] = 'La distribuzione comuni deve includere Brescia come primo elemento nel filtro applicato.';
 }
 if (($stats['series']['contacts']['values'][0] ?? 0) < 1) {
     $pass = false;
