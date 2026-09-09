@@ -1029,6 +1029,9 @@
             state.map.fitBounds(state.markers.getBounds().pad(0.2));
         }
         scheduleMapInvalidateSize(120);
+        window.setTimeout(function () {
+            if (state.map) state.map.invalidateSize();
+        }, 450);
     }
 
     window.addEventListener('analyticspro:topbar-resize', function () {
