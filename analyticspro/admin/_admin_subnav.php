@@ -14,6 +14,7 @@ $adminPages = [
         <?php foreach ($adminPages as $file => $meta): ?>
             <li class="nav-item">
                 <a class="nav-link<?= $currentPage === $file ? ' active' : '' ?>"
+                   <?= $currentPage === $file ? 'aria-current="page"' : '' ?>
                    href="<?= analyticspro_h(analyticspro_base_url('admin/' . $file)) ?>">
                     <i class="bi <?= analyticspro_h($meta['icon']) ?> me-1"></i>
                     <?= analyticspro_h($meta['label']) ?>

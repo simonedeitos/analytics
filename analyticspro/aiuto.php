@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/includes/bootstrap.php';
 require_once __DIR__ . '/includes/layout.php';
+require_once __DIR__ . '/includes/ui/helpers.php';
 
 analyticspro_require_auth();
 $user = analyticspro_current_user();
@@ -11,6 +12,8 @@ $role = (string) $user['role'];
 $subPermissions = $role === 'subuser' ? analyticspro_get_subuser_permissions((int) $user['id']) : [];
 analyticspro_render_header('Aiuto');
 ?>
+
+<?= analyticspro_ui_page_header('Aiuto', 'Guida operativa, FAQ e permessi del tuo profilo in un layout più leggibile e coerente con la nuova app.', '', ['eyebrow' => 'Supporto']) ?>
 
 <!-- ===== SEARCH BAR ===== -->
 <div class="mb-4">

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/includes/bootstrap.php';
 require_once __DIR__ . '/includes/layout.php';
+require_once __DIR__ . '/includes/ui/helpers.php';
 
 analyticspro_require_auth();
 $user = analyticspro_current_user();
@@ -39,7 +40,12 @@ analyticspro_render_header('Importa dati', ['app_assets' => true]);
      data-import-progress-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/import_progress.php')) ?>"
      data-enrich-chunk-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/enrich_chunk.php')) ?>">
 
-    <h1 class="h3 mb-4">Importa dati</h1>
+    <?= analyticspro_ui_page_header(
+        'Importa dati',
+        'Carica file catastali, inserisci record manuali e monitora l\'arricchimento delle coordinate con uno stile coerente con la nuova app.',
+        '',
+        ['eyebrow' => 'Import & enrichment']
+    ) ?>
 
     <div class="card border-0 shadow-sm mb-4">
         <div class="card-body">
@@ -89,7 +95,7 @@ analyticspro_render_header('Importa dati', ['app_assets' => true]);
             <div id="import-progress-bar" class="progress-bar bg-primary progress-bar-striped progress-bar-animated" style="width:0%"></div>
         </div>
         <p id="import-progress-text" class="small mb-2 text-muted">Preparazione import...</p>
-        <pre id="import-log-console" class="bg-dark text-light small p-2 rounded mb-2" style="max-height:220px;overflow:auto;white-space:pre-wrap;"></pre>
+        <pre id="import-log-console" class="bg-dark text-light small p-3 rounded-4 mb-2" style="max-height:220px;overflow:auto;white-space:pre-wrap;"></pre>
         <div id="enrichment-report" class="small d-none"></div>
     </div>
 </div>

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/../includes/bootstrap.php';
 require_once __DIR__ . '/../includes/layout.php';
+require_once __DIR__ . '/../includes/ui/helpers.php';
 require __DIR__ . '/_admin_check.php';
 
 $user = analyticspro_current_user();
@@ -75,7 +76,7 @@ $usersOverview = analyticspro_db()
 analyticspro_render_header('Gestione utenti');
 require __DIR__ . '/_admin_subnav.php';
 ?>
-<h1 class="h3 mb-4">Gestione utenti</h1>
+<?= analyticspro_ui_page_header('Gestione utenti', 'Aggiorna stato, visibilità telefono e operazioni di manutenzione dati senza cambiare logica backend.', '', ['eyebrow' => 'Admin']) ?>
 
 <div class="card border-0 shadow-sm">
     <div class="card-body">

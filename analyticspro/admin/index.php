@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/../includes/bootstrap.php';
 require_once __DIR__ . '/../includes/layout.php';
+require_once __DIR__ . '/../includes/ui/helpers.php';
 require __DIR__ . '/_admin_check.php';
 
 $pdo = analyticspro_db();
@@ -17,7 +18,7 @@ $runningJobs    = (int) $pdo->query("SELECT COUNT(*) FROM ade_import_jobs WHERE 
 analyticspro_render_header('Amministrazione');
 require __DIR__ . '/_admin_subnav.php';
 ?>
-<h1 class="h3 mb-4">Panoramica amministrazione</h1>
+<?= analyticspro_ui_page_header('Panoramica amministrazione', 'Controlla utenti, registrazioni pendenti e job di import dall’area admin con navigazione a pill.', '', ['eyebrow' => 'Admin']) ?>
 
 <div class="row g-3 mb-4">
     <div class="col-6 col-xl-3">

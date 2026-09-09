@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/../includes/bootstrap.php';
 require_once __DIR__ . '/../includes/layout.php';
+require_once __DIR__ . '/../includes/ui/helpers.php';
 require __DIR__ . '/_admin_check.php';
 
 try {
@@ -39,7 +40,7 @@ $smtpSettings = analyticspro_smtp_settings();
 analyticspro_render_header('Configurazione SMTP');
 require __DIR__ . '/_admin_subnav.php';
 ?>
-<h1 class="h3 mb-4">Configurazione SMTP</h1>
+<?= analyticspro_ui_page_header('Configurazione SMTP', 'Configura invio email e notifiche admin con lo stesso backend esistente ma un layout più coerente.', '', ['eyebrow' => 'Admin']) ?>
 
 <div class="card border-0 shadow-sm mb-4">
     <div class="card-body">

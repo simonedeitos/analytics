@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/includes/bootstrap.php';
 require_once __DIR__ . '/includes/layout.php';
+require_once __DIR__ . '/includes/ui/helpers.php';
 
 analyticspro_require_auth();
 $user = analyticspro_current_user();
@@ -15,108 +16,269 @@ $tenantId           = analyticspro_current_tenant_id();
 $selectedTenant     = analyticspro_is_admin() ? (string) analyticspro_get('tenant_id', 'all') : (string) $tenantId;
 $subuserPermissions = analyticspro_is_subuser() ? analyticspro_get_subuser_permissions((int) $user['id']) : null;
 $tenants            = analyticspro_is_admin() ? analyticspro_fetch_tenants() : [];
+$period             = analyticspro_dashboard_period_key((string) analyticspro_get('period', '30d'));
+$canImport          = !analyticspro_is_subuser() || !empty($subuserPermissions['can_import']);
+$canViewAnalytics   = !analyticspro_is_subuser() || !empty($subuserPermissions['can_view_analytics']);
+$canViewReports     = !analyticspro_is_subuser() || !empty($subuserPermissions['can_view_reports']);
+$canExport          = !analyticspro_is_subuser() || !empty($subuserPermissions['can_export']);
+$canViewPhone       = analyticspro_tenant_phone_visibility($tenantId);
 
-analyticspro_render_header('Dashboard', ['app_assets' => true]);
+$importsSql = 'SELECT filename, status, processed_rows, total_rows, created_at FROM import_batches';
+$importsParams = [];
+if ($tenantId !== null) {
+    $importsSql .= ' WHERE user_id = :tenant_id';
+    $importsParams['tenant_id'] = $tenantId;
+}
+$importsSql .= ' ORDER BY created_at DESC LIMIT 5';
+$importsStmt = analyticspro_db()->prepare($importsSql);
+$importsStmt->execute($importsParams);
+$recentImports = $importsStmt->fetchAll() ?: [];
+
+$activitySql = 'SELECT comune, provincia, foglio, particella, updated_at FROM properties';
+$activityParams = [];
+if ($tenantId !== null) {
+    $activitySql .= ' WHERE user_id = :tenant_id';
+    $activityParams['tenant_id'] = $tenantId;
+}
+$activitySql .= ' ORDER BY updated_at DESC LIMIT 5';
+$activityStmt = analyticspro_db()->prepare($activitySql);
+$activityStmt->execute($activityParams);
+$recentActivity = $activityStmt->fetchAll() ?: [];
+
+ob_start();
+?>
+<div class="d-flex align-items-center gap-2 flex-wrap">
+    <label class="small text-muted fw-semibold" for="dashboard-period-topbar">Periodo</label>
+    <select id="dashboard-period-topbar" class="form-select form-select-sm" data-dashboard-period-control>
+        <option value="today" <?= $period === 'today' ? 'selected' : '' ?>>Oggi</option>
+        <option value="7d" <?= $period === '7d' ? 'selected' : '' ?>>7 giorni</option>
+        <option value="30d" <?= $period === '30d' ? 'selected' : '' ?>>30 giorni</option>
+        <option value="year" <?= $period === 'year' ? 'selected' : '' ?>>Anno</option>
+        <option value="all" <?= $period === 'all' ? 'selected' : '' ?>>Sempre</option>
+    </select>
+</div>
+<?php
+$topbarContent = (string) ob_get_clean();
+
+analyticspro_render_header('Dashboard', ['app_assets' => true, 'topbar_content' => $topbarContent]);
+
+ob_start();
+?>
+<div class="d-flex align-items-center gap-2 flex-wrap">
+    <label class="small text-muted fw-semibold" for="dashboard-period-select">Periodo</label>
+    <select id="dashboard-period-select" class="form-select form-select-sm" data-dashboard-period-control>
+        <option value="today" <?= $period === 'today' ? 'selected' : '' ?>>Oggi</option>
+        <option value="7d" <?= $period === '7d' ? 'selected' : '' ?>>7 giorni</option>
+        <option value="30d" <?= $period === '30d' ? 'selected' : '' ?>>30 giorni</option>
+        <option value="year" <?= $period === 'year' ? 'selected' : '' ?>>Anno</option>
+        <option value="all" <?= $period === 'all' ? 'selected' : '' ?>>Sempre</option>
+    </select>
+    <?php if (analyticspro_is_admin()): ?>
+        <form method="get" class="d-flex align-items-center gap-2">
+            <input type="hidden" name="period" value="<?= analyticspro_h($period) ?>">
+            <label class="small text-muted fw-semibold" for="dashboard-tenant-select">Tenant</label>
+            <select id="dashboard-tenant-select" class="form-select form-select-sm" name="tenant_id" onchange="this.form.submit()">
+                <option value="all" <?= $selectedTenant === 'all' ? 'selected' : '' ?>>Tutti i tenant</option>
+                <?php foreach ($tenants as $tenant): ?>
+                    <option value="<?= analyticspro_h((string) $tenant['id']) ?>" <?= $selectedTenant === (string) $tenant['id'] ? 'selected' : '' ?>><?= analyticspro_h(analyticspro_full_name($tenant)) ?></option>
+                <?php endforeach; ?>
+            </select>
+        </form>
+    <?php endif; ?>
+    <?php if ($canExport): ?>
+        <button type="button" class="btn btn-outline-primary btn-sm" id="dashboard-export"><i class="bi bi-download me-1"></i>Export</button>
+    <?php endif; ?>
+    <?php if ($canImport): ?>
+        <a href="<?= analyticspro_h(analyticspro_base_url('importa.php')) ?>" class="btn btn-primary btn-sm"><i class="bi bi-plus-circle me-1"></i>Importa</a>
+    <?php endif; ?>
+</div>
+<?php
+$pageActions = (string) ob_get_clean();
+
+$quickActions = [
+    ['visible' => true, 'url' => 'mappa.php', 'icon' => 'bi-map', 'title' => 'Apri mappa', 'desc' => 'Esplora la distribuzione territoriale'],
+    ['visible' => true, 'url' => 'assegnati.php', 'icon' => 'bi-pin-map', 'title' => 'Marker assegnati', 'desc' => 'Controlla la tua coda operativa'],
+    ['visible' => $canImport, 'url' => 'importa.php', 'icon' => 'bi-upload', 'title' => 'Importa dati', 'desc' => 'Carica CSV o Excel'],
+    ['visible' => $canViewReports, 'url' => 'report.php', 'icon' => 'bi-table', 'title' => 'Report', 'desc' => 'Apri la vista tabellare'],
+    ['visible' => $canViewAnalytics, 'url' => 'analitiche.php', 'icon' => 'bi-bar-chart-line', 'title' => 'Analitiche avanzate', 'desc' => 'Approfondisci i grafici'],
+    ['visible' => analyticspro_is_main_user(), 'url' => 'subutenti.php', 'icon' => 'bi-people', 'title' => 'Subutenti', 'desc' => 'Gestisci permessi e inviti'],
+];
 ?>
 <div id="analyticspro-app"
      data-role="<?= analyticspro_h((string) $user['role']) ?>"
      data-tenant-id="<?= analyticspro_h((string) ($tenantId ?? '')) ?>"
      data-selected-tenant="<?= analyticspro_h($selectedTenant) ?>"
-     data-can-view-phone="<?= analyticspro_tenant_phone_visibility($tenantId) ? '1' : '0' ?>"
-     data-can-import="<?= !analyticspro_is_subuser() || !empty($subuserPermissions['can_import']) ? '1' : '0' ?>"
-     data-can-view-reports="<?= !analyticspro_is_subuser() || !empty($subuserPermissions['can_view_reports']) ? '1' : '0' ?>"
-     data-can-view-analytics="<?= !analyticspro_is_subuser() || !empty($subuserPermissions['can_view_analytics']) ? '1' : '0' ?>"
-     data-can-export="<?= !analyticspro_is_subuser() || !empty($subuserPermissions['can_export']) ? '1' : '0' ?>"
+     data-can-view-phone="<?= $canViewPhone ? '1' : '0' ?>"
+     data-can-import="<?= $canImport ? '1' : '0' ?>"
+     data-can-view-reports="<?= $canViewReports ? '1' : '0' ?>"
+     data-can-view-analytics="<?= $canViewAnalytics ? '1' : '0' ?>"
+     data-can-export="<?= $canExport ? '1' : '0' ?>"
      data-can-edit-all-markers="<?= !analyticspro_is_subuser() || !empty($subuserPermissions['can_edit_all_markers']) ? '1' : '0' ?>"
      data-properties-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/properties.php')) ?>"
      data-property-update-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/update_property.php')) ?>"
      data-property-delete-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/delete_property.php')) ?>"
      data-import-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/import.php')) ?>"
      data-import-progress-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/import_progress.php')) ?>"
-     data-ade-jobs-endpoint="<?= analyticspro_h(analyticspro_base_url('api/admin/ade_jobs.php')) ?>">
+     data-ade-jobs-endpoint="<?= analyticspro_h(analyticspro_base_url('api/admin/ade_jobs.php')) ?>"
+     data-dashboard-stats-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/dashboard_stats.php')) ?>"
+     data-dashboard-period="<?= analyticspro_h($period) ?>"
+     data-dashboard-page="home"
+     data-dashboard-map-url="<?= analyticspro_h(analyticspro_base_url('mappa.php')) ?>">
 
-    <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-center gap-3 mb-4">
-        <div>
-            <h1 class="h3 mb-1">Dashboard</h1>
-            <p class="text-muted mb-0">Benvenuto/a, <?= analyticspro_h(analyticspro_full_name($user)) ?>. Qui trovi un riepilogo del tuo account.</p>
+    <div class="card border-0 shadow-sm ap-hero-card mb-4">
+        <div class="card-body">
+            <?= analyticspro_ui_page_header(
+                'Ciao, ' . analyticspro_full_name($user),
+                'Una home unificata per monitorare KPI, territorio, attività e accessi senza uscire dalla dashboard.',
+                $pageActions,
+                ['eyebrow' => 'Home professionale']
+            ) ?>
+            <ul class="nav nav-pills ap-dashboard-tabs mt-4" id="dashboardTabPills" role="tablist">
+                <li class="nav-item"><button class="nav-link active" type="button" data-dashboard-tab="all">Panoramica</button></li>
+                <li class="nav-item"><button class="nav-link" type="button" data-dashboard-tab="anagrafica">Anagrafica</button></li>
+                <li class="nav-item"><button class="nav-link" type="button" data-dashboard-tab="territorio">Territorio</button></li>
+                <li class="nav-item"><button class="nav-link" type="button" data-dashboard-tab="immobili">Immobili</button></li>
+            </ul>
         </div>
-        <?php if (analyticspro_is_admin()): ?>
-            <form method="get" class="d-flex align-items-center gap-2">
-                <label class="form-label mb-0 small text-muted">Vista admin</label>
-                <select class="form-select form-select-sm" name="tenant_id" onchange="this.form.submit()">
-                    <option value="all" <?= $selectedTenant === 'all' ? 'selected' : '' ?>>Tutti i tenant</option>
-                    <?php foreach ($tenants as $tenant): ?>
-                        <option value="<?= analyticspro_h((string) $tenant['id']) ?>" <?= $selectedTenant === (string) $tenant['id'] ? 'selected' : '' ?>><?= analyticspro_h(analyticspro_full_name($tenant)) ?></option>
-                    <?php endforeach; ?>
-                </select>
-            </form>
-        <?php endif; ?>
     </div>
 
-    <div class="row g-3 mb-4">
-        <div class="col-6 col-xl-3"><div class="card metric-card border-0 shadow-sm"><div class="card-body"><div class="text-muted small">Immobili visibili</div><div class="display-6" data-kpi="properties">—</div></div></div></div>
-        <div class="col-6 col-xl-3"><div class="card metric-card border-0 shadow-sm"><div class="card-body"><div class="text-muted small">Intestatari correnti</div><div class="display-6" data-kpi="owners">—</div></div></div></div>
-        <div class="col-6 col-xl-3"><div class="card metric-card border-0 shadow-sm"><div class="card-body"><div class="text-muted small">Con telefono visibile</div><div class="display-6" data-kpi="phones">—</div></div></div></div>
-        <div class="col-6 col-xl-3"><div class="card metric-card border-0 shadow-sm"><div class="card-body"><div class="text-muted small">Marker assegnati a me</div><div class="display-6" data-kpi="assigned">—</div></div></div></div>
-    </div>
+    <section data-dashboard-section="all overview immobili">
+        <div class="row g-3 mb-4">
+            <div class="col-12 col-md-6 col-xl-3"><?= analyticspro_ui_kpi_card(['icon' => 'bi-buildings', 'label' => 'Immobili visibili', 'data_key' => 'properties', 'sparkline_id' => 'spark-properties', 'icon_tone' => 'primary']) ?></div>
+            <div class="col-12 col-md-6 col-xl-3"><?= analyticspro_ui_kpi_card(['icon' => 'bi-people', 'label' => 'Intestatari correnti', 'data_key' => 'owners', 'sparkline_id' => 'spark-owners', 'icon_tone' => 'success']) ?></div>
+            <div class="col-12 col-md-6 col-xl-3"><?= analyticspro_ui_kpi_card(['icon' => 'bi-telephone', 'label' => 'Con telefono visibile', 'data_key' => 'phones', 'sparkline_id' => 'spark-phones', 'icon_tone' => 'warning']) ?></div>
+            <div class="col-12 col-md-6 col-xl-3"><?= analyticspro_ui_kpi_card(['icon' => 'bi-person-badge', 'label' => 'Assegnati a me', 'data_key' => 'assigned', 'sparkline_id' => 'spark-assigned', 'icon_tone' => 'primary']) ?></div>
+        </div>
+    </section>
 
-    <div class="row g-3">
-        <div class="col-sm-6 col-lg-3">
-            <a href="<?= analyticspro_h(analyticspro_base_url('mappa.php')) ?>" class="card border-0 shadow-sm text-decoration-none text-dark h-100">
-                <div class="card-body d-flex align-items-center gap-3">
-                    <i class="bi bi-map fs-2" style="color:var(--ap-blue)"></i>
-                    <div><div class="fw-semibold">Mappa</div><div class="text-muted small">Esplora i marker</div></div>
-                </div>
-            </a>
+    <section class="row g-4 mb-4" data-dashboard-section="all overview territorio immobili">
+        <div class="col-12 <?= $canViewAnalytics ? 'col-xl-8' : '' ?>">
+            <?= analyticspro_ui_chart_card([
+                'title' => 'Distribuzione territoriale',
+                'icon' => 'bi-globe-europe-africa',
+                'height' => '360',
+                'actions' => '<a class="btn btn-outline-primary btn-sm" href="' . analyticspro_h(analyticspro_base_url('mappa.php')) . '">Apri mappa completa</a>',
+                'body' => '<div id="dashboard-mini-map" class="ap-dashboard-map"></div>',
+            ]) ?>
         </div>
-        <div class="col-sm-6 col-lg-3">
-            <a href="<?= analyticspro_h(analyticspro_base_url('assegnati.php')) ?>" class="card border-0 shadow-sm text-decoration-none text-dark h-100">
-                <div class="card-body d-flex align-items-center gap-3">
-                    <i class="bi bi-pin-map fs-2" style="color:var(--ap-orange)"></i>
-                    <div><div class="fw-semibold">Marker assegnati</div><div class="text-muted small">La tua lista</div></div>
+        <?php if ($canViewAnalytics): ?>
+            <div class="col-12 col-xl-4">
+                <div class="row g-4">
+                    <div class="col-12" data-dashboard-section="all overview anagrafica">
+                        <?= analyticspro_ui_chart_card(['title' => 'Disponibilità contatti', 'icon' => 'bi-telephone', 'canvas_id' => 'chart-contacts', 'height' => '165']) ?>
+                    </div>
+                    <div class="col-12" data-dashboard-section="all overview immobili">
+                        <?= analyticspro_ui_chart_card(['title' => 'Titolarità', 'icon' => 'bi-person-check', 'canvas_id' => 'chart-titolarita', 'height' => '165']) ?>
+                    </div>
                 </div>
-            </a>
-        </div>
-        <?php if (!analyticspro_is_subuser() || !empty($subuserPermissions['can_import'])): ?>
-        <div class="col-sm-6 col-lg-3">
-            <a href="<?= analyticspro_h(analyticspro_base_url('importa.php')) ?>" class="card border-0 shadow-sm text-decoration-none text-dark h-100">
-                <div class="card-body d-flex align-items-center gap-3">
-                    <i class="bi bi-upload fs-2" style="color:var(--ap-blue)"></i>
-                    <div><div class="fw-semibold">Importa dati</div><div class="text-muted small">CSV / Excel</div></div>
-                </div>
-            </a>
-        </div>
+            </div>
         <?php endif; ?>
-        <?php if (!analyticspro_is_subuser() || !empty($subuserPermissions['can_view_reports'])): ?>
-        <div class="col-sm-6 col-lg-3">
-            <a href="<?= analyticspro_h(analyticspro_base_url('report.php')) ?>" class="card border-0 shadow-sm text-decoration-none text-dark h-100">
-                <div class="card-body d-flex align-items-center gap-3">
-                    <i class="bi bi-table fs-2" style="color:var(--ap-blue)"></i>
-                    <div><div class="fw-semibold">Report</div><div class="text-muted small">Vista griglia</div></div>
+    </section>
+
+    <?php if ($canViewAnalytics): ?>
+        <section class="row g-4 mb-4" data-dashboard-section="all anagrafica territorio">
+            <div class="col-12 col-xl-6"><?= analyticspro_ui_chart_card(['title' => 'Fasce d\'età', 'icon' => 'bi-bar-chart', 'canvas_id' => 'chart-age', 'height' => '300']) ?></div>
+            <div class="col-12 col-xl-6"><?= analyticspro_ui_chart_card(['title' => 'Top 10 comuni', 'icon' => 'bi-geo-alt', 'canvas_id' => 'chart-comune', 'height' => '300']) ?></div>
+        </section>
+        <section class="row g-4 mb-4" data-dashboard-section="all territorio immobili">
+            <div class="col-12 col-xl-6"><?= analyticspro_ui_chart_card(['title' => 'Distribuzione per provincia', 'icon' => 'bi-pin-map', 'canvas_id' => 'chart-province', 'height' => '300']) ?></div>
+            <div class="col-12 col-xl-6"><?= analyticspro_ui_chart_card(['title' => 'Tipologie immobili', 'icon' => 'bi-house', 'canvas_id' => 'chart-categoria', 'height' => '300']) ?></div>
+        </section>
+    <?php else: ?>
+        <section class="mb-4" data-dashboard-section="all anagrafica territorio immobili">
+            <div class="card border-0 shadow-sm">
+                <div class="card-body">
+                    <?= analyticspro_ui_empty_state([
+                        'icon' => 'bi-shield-lock',
+                        'title' => 'Analitiche non disponibili',
+                        'message' => 'Il tuo profilo non ha il permesso per visualizzare i grafici avanzati. Puoi comunque usare mappa, attività e azioni rapide.',
+                    ]) ?>
                 </div>
-            </a>
-        </div>
-        <?php endif; ?>
-        <?php if (!analyticspro_is_subuser() || !empty($subuserPermissions['can_view_analytics'])): ?>
-        <div class="col-sm-6 col-lg-3">
-            <a href="<?= analyticspro_h(analyticspro_base_url('analitiche.php')) ?>" class="card border-0 shadow-sm text-decoration-none text-dark h-100">
-                <div class="card-body d-flex align-items-center gap-3">
-                    <i class="bi bi-bar-chart-line fs-2" style="color:var(--ap-orange)"></i>
-                    <div><div class="fw-semibold">Analitiche</div><div class="text-muted small">Grafici e statistiche</div></div>
+            </div>
+        </section>
+    <?php endif; ?>
+
+    <section class="row g-4" data-dashboard-section="all overview immobili">
+        <div class="col-12 col-xl-8">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body">
+                    <div class="row g-4">
+                        <div class="col-12 col-lg-6">
+                            <div class="d-flex align-items-center justify-content-between gap-2 mb-3">
+                                <h2 class="h5 mb-0">Attività recenti</h2>
+                                <span class="badge text-bg-light">Ultimi aggiornamenti</span>
+                            </div>
+                            <?php if ($recentActivity): ?>
+                                <div class="list-group list-group-flush ap-dense-list">
+                                    <?php foreach ($recentActivity as $activity): ?>
+                                        <div class="list-group-item px-0">
+                                            <div class="fw-semibold"><?= analyticspro_h((string) $activity['comune']) ?> (<?= analyticspro_h((string) $activity['provincia']) ?>)</div>
+                                            <div class="small text-muted">Foglio <?= analyticspro_h((string) $activity['foglio']) ?> · Particella <?= analyticspro_h((string) $activity['particella']) ?></div>
+                                            <div class="small text-muted">Aggiornato il <?= analyticspro_h((string) $activity['updated_at']) ?></div>
+                                        </div>
+                                    <?php endforeach; ?>
+                                </div>
+                            <?php else: ?>
+                                <?= analyticspro_ui_empty_state(['icon' => 'bi-clock-history', 'title' => 'Nessuna attività recente', 'message' => 'Gli ultimi aggiornamenti agli immobili compariranno qui.']) ?>
+                            <?php endif; ?>
+                        </div>
+                        <div class="col-12 col-lg-6">
+                            <div class="d-flex align-items-center justify-content-between gap-2 mb-3">
+                                <h2 class="h5 mb-0">Ultimi import</h2>
+                                <span class="badge text-bg-light">Storico rapido</span>
+                            </div>
+                            <?php if ($recentImports): ?>
+                                <div class="list-group list-group-flush ap-dense-list">
+                                    <?php foreach ($recentImports as $import): ?>
+                                        <div class="list-group-item px-0">
+                                            <div class="fw-semibold"><?= analyticspro_h((string) $import['filename']) ?></div>
+                                            <div class="small text-muted"><?= analyticspro_h((string) $import['processed_rows']) ?> / <?= analyticspro_h((string) $import['total_rows']) ?> righe · Stato <?= analyticspro_h((string) $import['status']) ?></div>
+                                            <div class="small text-muted">Creato il <?= analyticspro_h((string) $import['created_at']) ?></div>
+                                        </div>
+                                    <?php endforeach; ?>
+                                </div>
+                            <?php else: ?>
+                                <?= analyticspro_ui_empty_state(['icon' => 'bi-cloud-upload', 'title' => 'Nessun import disponibile', 'message' => 'Appena caricherai un CSV o un Excel, qui troverai gli ultimi batch.']) ?>
+                            <?php endif; ?>
+                        </div>
+                    </div>
                 </div>
-            </a>
+            </div>
         </div>
-        <?php endif; ?>
-        <?php if (analyticspro_is_main_user()): ?>
-        <div class="col-sm-6 col-lg-3">
-            <a href="<?= analyticspro_h(analyticspro_base_url('subutenti.php')) ?>" class="card border-0 shadow-sm text-decoration-none text-dark h-100">
-                <div class="card-body d-flex align-items-center gap-3">
-                    <i class="bi bi-people fs-2" style="color:var(--ap-blue)"></i>
-                    <div><div class="fw-semibold">Subutenti</div><div class="text-muted small">Gestione permessi</div></div>
+        <div class="col-12 col-xl-4">
+            <div class="row g-4">
+                <div class="col-12">
+                    <div class="card border-0 shadow-sm h-100">
+                        <div class="card-body">
+                            <h2 class="h5 mb-3">Quick actions</h2>
+                            <div class="d-grid gap-2">
+                                <?php foreach ($quickActions as $action): ?>
+                                    <?php if (!$action['visible']) continue; ?>
+                                    <a href="<?= analyticspro_h(analyticspro_base_url($action['url'])) ?>" class="btn btn-outline-primary text-start">
+                                        <i class="bi <?= analyticspro_h($action['icon']) ?> me-2"></i>
+                                        <span class="fw-semibold"><?= analyticspro_h($action['title']) ?></span>
+                                        <span class="d-block small text-muted"><?= analyticspro_h($action['desc']) ?></span>
+                                    </a>
+                                <?php endforeach; ?>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-            </a>
+                <div class="col-12">
+                    <div class="card border-0 shadow-sm h-100">
+                        <div class="card-body">
+                            <h2 class="h5 mb-3">Stato account</h2>
+                            <div class="ap-account-status">
+                                <div class="ap-account-status-item"><span>Ruolo</span><span class="badge text-bg-primary"><?= analyticspro_h((string) $user['role']) ?></span></div>
+                                <div class="ap-account-status-item"><span>Vista telefono</span><span class="badge <?= $canViewPhone ? 'text-bg-success' : 'text-bg-secondary' ?>"><?= $canViewPhone ? 'Attiva' : 'Limitata' ?></span></div>
+                                <div class="ap-account-status-item"><span>Tenant selezionato</span><span class="badge text-bg-light"><?= analyticspro_h($selectedTenant === 'all' ? 'Tutti' : $selectedTenant) ?></span></div>
+                                <div class="ap-account-status-item"><span>Export</span><span class="badge <?= $canExport ? 'text-bg-success' : 'text-bg-secondary' ?>"><?= $canExport ? 'Consentito' : 'Non disponibile' ?></span></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
-        <?php endif; ?>
-    </div>
+    </section>
 </div>
 <?php analyticspro_render_footer(true); ?>

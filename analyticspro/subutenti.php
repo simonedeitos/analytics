@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/includes/bootstrap.php';
 require_once __DIR__ . '/includes/layout.php';
+require_once __DIR__ . '/includes/ui/helpers.php';
 
 analyticspro_require_auth();
 $user = analyticspro_current_user();
@@ -103,10 +104,10 @@ $subusers = analyticspro_fetch_subusers((int) $user['id']);
 
 analyticspro_render_header('Subutenti');
 ?>
-<h1 class="h3 mb-4">Gestione subutenti</h1>
+<?= analyticspro_ui_page_header('Gestione subutenti', 'Invita nuovi collaboratori e aggiorna i loro permessi senza uscire dal tenant.', '', ['eyebrow' => 'Team']) ?>
 <div class="row g-4">
     <div class="col-lg-5">
-        <div class="card border-0 shadow-sm">
+        <div class="card border-0 shadow-sm h-100">
             <div class="card-body">
                 <h2 class="h5">Invita subutente</h2>
                 <form method="post">
@@ -124,7 +125,7 @@ analyticspro_render_header('Subutenti');
                         <div class="col-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="can_view_reports" value="1" id="perm-reports"><label class="form-check-label" for="perm-reports">Può vedere report</label></div></div>
                         <div class="col-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="can_export" value="1" checked id="perm-export"><label class="form-check-label" for="perm-export">Può esportare</label></div></div>
                     </div>
-                    <button class="btn btn-primary mt-3" type="submit">INVITA</button>
+                    <button class="btn btn-primary mt-3" type="submit">Invita</button>
                 </form>
             </div>
         </div>
@@ -134,10 +135,10 @@ analyticspro_render_header('Subutenti');
             <div class="card-body">
                 <h2 class="h5">Permessi subutenti</h2>
                 <?php if (!$subusers): ?>
-                    <p class="text-muted mb-0">Nessun subutente creato.</p>
+                    <?= analyticspro_ui_empty_state(['icon' => 'bi-people', 'title' => 'Nessun subutente creato', 'message' => 'Invita il primo collaboratore per assegnare marker, report e analitiche.']) ?>
                 <?php endif; ?>
                 <?php foreach ($subusers as $subuser): ?>
-                    <form method="post" class="border rounded p-3 mb-3 bg-light-subtle">
+                    <form method="post" class="border rounded-4 p-3 mb-3 ap-subtle-block">
                         <input type="hidden" name="csrf_token" value="<?= analyticspro_h(analyticspro_csrf_token()) ?>">
                         <input type="hidden" name="action" value="update_subuser_permissions">
                         <input type="hidden" name="subuser_id" value="<?= analyticspro_h((string) $subuser['id']) ?>">

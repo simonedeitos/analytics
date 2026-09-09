@@ -61,11 +61,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 analyticspro_render_header('Registrazione', ['body_class' => 'bg-auth', 'auth_page' => true]);
 ?>
-<div class="row justify-content-center">
-    <div class="col-12 col-md-7 col-lg-5">
-        <div class="card shadow-sm border-0 auth-card mt-4">
-            <div class="card-body p-4">
-                <h1 class="h3 mb-3 text-center">Registrazione utente principale</h1>
+<div class="card border-0 shadow-lg ap-auth-card">
+    <div class="ap-auth-grid">
+        <div class="ap-auth-brand">
+            <div>
+                <div class="ap-page-eyebrow text-white-50">Nuovo tenant</div>
+                <h1>Richiedi l'accesso ad AnalyticsPRO</h1>
+                <p>Crea il tuo account principale per gestire immobili geolocalizzati, team e workflow di import in un'unica applicazione.</p>
+            </div>
+            <ul class="mb-0 ps-3 small">
+                <li>Attivazione tramite approvazione admin.</li>
+                <li>Tenant isolato dai dati degli altri utenti.</li>
+                <li>Subutenti invitabili dopo l'attivazione.</li>
+            </ul>
+        </div>
+        <div class="ap-auth-panel">
+            <div class="ap-auth-panel-inner">
+                <h2 class="h3 mb-2">Registrazione utente principale</h2>
+                <p class="text-muted small mb-4">Compila i campi richiesti per inviare la richiesta di attivazione.</p>
                 <form method="post">
                     <input type="hidden" name="csrf_token" value="<?= analyticspro_h(analyticspro_csrf_token()) ?>">
                     <div class="row g-3">
@@ -88,6 +101,7 @@ analyticspro_render_header('Registrazione', ['body_class' => 'bg-auth', 'auth_pa
                     </div>
                     <button class="btn btn-primary w-100 mt-4" type="submit">Invia registrazione</button>
                 </form>
+                <p class="text-center small mt-4 mb-0">Hai già un account? <a href="<?= analyticspro_h(analyticspro_base_url('login.php')) ?>">Accedi</a></p>
             </div>
         </div>
     </div>
