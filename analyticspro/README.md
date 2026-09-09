@@ -443,6 +443,8 @@ La stessa card mostra anche il contatore degli immobili senza coordinate tramite
 
 - utenti normali / subutenti: solo il proprio tenant
 - admin: totale globale + dettaglio per tenant con righe recuperabili vs esaurite
+- il payload distingue anche le **particelle uniche** con `unique_parcels` e
+  `unique_parcels_recoverable`, perché più immobili possono condividere la stessa particella
 
 ### Diagnostica: health check Zornade
 
@@ -504,6 +506,7 @@ Se una particella non viene risolta, il batch registra anche un report struttura
 - conteggi `attempt_failures` per i tentativi provider falliti (debug/info, non mostrati come errore utente)
 - conteggi `failure_codes` solo per le particelle definitivamente irrisolte dopo `ANALYTICSPRO_ENRICH_MAX_ATTEMPTS` tentativi
 - elenco troncato delle righe non risolte nel formato `Comune F.x P.y — motivo`
+- elenco distinto `missing_comuni` per i casi `comune_non_indicizzato` (nome, provincia, eventuale Belfiore)
 
 Le particelle definitivamente irrisolvibili vengono marcate con:
 
@@ -515,7 +518,16 @@ Le particelle definitivamente irrisolvibili vengono marcate con:
 
 Il report è esposto da `api/data/import.php`, `api/data/import_progress.php` e
 `api/data/enrich_chunk.php`, insieme ai conteggi riconciliati `geolocated_rows` e
-`missing_rows`, ed è mostrato nella UI di `importa.php` accanto alla barra di avanzamento.
+`missing_rows`, ai contatori `resolved` / `unresolved` e ai `missing_comuni`; è mostrato
+nella UI di `importa.php` accanto alla barra di avanzamento.
+
+Nel fallback a chunk:
+
+- `processed` significa sempre `resolved + unresolved`
+- la condizione di uscita primaria è `remaining_unique_parcels === 0`
+- nessun chunk restituisce `total = 0` con `done = false`
+- il frontend interrompe il loop dopo 3 chunk consecutivi senza progresso e mostra
+  uno stato terminale `warning` invece di continuare fino al limite massimo
 
 La sorgente è salvata nel campo `coord_source` della tabella `properties`
 (aggiunto dalla migration `004_add_coord_source_to_properties.sql`).

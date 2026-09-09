@@ -507,7 +507,7 @@ function analyticspro_resolve_cod_catastale(string $codCatastale, string $comune
 }
 
 /**
- * @return array{coord_source:array<string,int>,attempt_failures:array<string,int>,failure_codes:array<string,int>,unresolved_rows:array<int,string>,truncated:bool}
+ * @return array{coord_source:array<string,int>,attempt_failures:array<string,int>,failure_codes:array<string,int>,unresolved_rows:array<int,string>,truncated:bool,missing_comuni:array<int,array{name:string,provincia:string,belfiore:string}>,missing_comuni_truncated:bool}
  */
 function analyticspro_enrichment_report_default(): array
 {
@@ -517,11 +517,13 @@ function analyticspro_enrichment_report_default(): array
         'failure_codes' => [],
         'unresolved_rows' => [],
         'truncated' => false,
+        'missing_comuni' => [],
+        'missing_comuni_truncated' => false,
     ];
 }
 
 /**
- * @return array{coord_source:array<string,int>,attempt_failures:array<string,int>,failure_codes:array<string,int>,unresolved_rows:array<int,string>,truncated:bool}
+ * @return array{coord_source:array<string,int>,attempt_failures:array<string,int>,failure_codes:array<string,int>,unresolved_rows:array<int,string>,truncated:bool,missing_comuni:array<int,array{name:string,provincia:string,belfiore:string}>,missing_comuni_truncated:bool}
  */
 function analyticspro_enrichment_report_load(PDO $pdo, int $batchId): array
 {
@@ -563,20 +565,102 @@ function analyticspro_enrichment_report_add_attempt_failure(array &$report, stri
     $report['attempt_failures'][$code] = (int) ($report['attempt_failures'][$code] ?? 0) + 1;
 }
 
-function analyticspro_enrichment_report_add_final_failure(array &$report, array $parcel, string $code, string $note): void
+function analyticspro_enrichment_report_add_missing_comune(array &$report, array $parcel, ?string $belfiore = null): void
+{
+    $name = trim((string) ($parcel['comune'] ?? ''));
+    $provincia = trim((string) ($parcel['provincia'] ?? ''));
+    $code = strtoupper(trim((string) ($belfiore ?? $parcel['cod_catastale'] ?? '')));
+    if (!analyticspro_is_valid_cod_catastale($code)) {
+        $code = '';
+    }
+    $key = mb_strtolower($name, 'UTF-8') . '|' . strtoupper($provincia) . '|' . $code;
+    foreach (($report['missing_comuni'] ?? []) as $entry) {
+        $entryKey = mb_strtolower((string) ($entry['name'] ?? ''), 'UTF-8')
+            . '|' . strtoupper((string) ($entry['provincia'] ?? ''))
+            . '|' . strtoupper((string) ($entry['belfiore'] ?? ''));
+        if ($entryKey === $key) {
+            return;
+        }
+    }
+    if (count($report['missing_comuni']) >= 20) {
+        $report['missing_comuni_truncated'] = true;
+        return;
+    }
+    $report['missing_comuni'][] = [
+        'name' => $name !== '' ? $name : 'Comune sconosciuto',
+        'provincia' => strtoupper($provincia),
+        'belfiore' => $code,
+    ];
+}
+
+function analyticspro_enrichment_report_add_final_failure(array &$report, array $parcel, string $code, string $note, ?string $belfiore = null): void
 {
     $report['failure_codes'][$code] = (int) ($report['failure_codes'][$code] ?? 0) + 1;
     if (count($report['unresolved_rows']) >= 100) {
         $report['truncated'] = true;
-        return;
+    } else {
+        $comune = trim((string) ($parcel['comune'] ?? ''));
+        $foglio = trim((string) ($parcel['foglio'] ?? ''));
+        $part   = trim((string) ($parcel['particella'] ?? ''));
+        $label  = trim(($comune !== '' ? $comune : 'Comune sconosciuto')
+            . ' F.' . ($foglio !== '' ? $foglio : '?')
+            . ' P.' . ($part !== '' ? $part : '?'));
+        $report['unresolved_rows'][] = $label . ' — ' . $code . ($note !== '' ? ': ' . $note : '');
     }
-    $comune = trim((string) ($parcel['comune'] ?? ''));
-    $foglio = trim((string) ($parcel['foglio'] ?? ''));
-    $part   = trim((string) ($parcel['particella'] ?? ''));
-    $label  = trim(($comune !== '' ? $comune : 'Comune sconosciuto')
-        . ' F.' . ($foglio !== '' ? $foglio : '?')
-        . ' P.' . ($part !== '' ? $part : '?'));
-    $report['unresolved_rows'][] = $label . ' — ' . $code . ($note !== '' ? ': ' . $note : '');
+    if ($code === 'comune_non_indicizzato') {
+        analyticspro_enrichment_report_add_missing_comune($report, $parcel, $belfiore);
+    }
+}
+
+function analyticspro_enrichment_report_count_bucket(array $bucket): int
+{
+    $total = 0;
+    foreach ($bucket as $value) {
+        $total += max(0, (int) $value);
+    }
+
+    return $total;
+}
+
+/**
+ * @return array{processed:int,total:int,remaining:int,resolved:int,unresolved:int,done:bool}
+ */
+function analyticspro_enrichment_progress_payload(int $totalUnique, int $remainingUnique, int $resolved, int $unresolved): array
+{
+    $resolved = max(0, $resolved);
+    $unresolved = max(0, $unresolved);
+    $processed = $resolved + $unresolved;
+    $remainingUnique = max(0, $remainingUnique);
+    $totalUnique = max($processed + $remainingUnique, $totalUnique);
+    $processed = min($processed, $totalUnique);
+
+    return [
+        'processed' => $processed,
+        'total' => $totalUnique,
+        'remaining' => min($remainingUnique, $totalUnique),
+        'resolved' => min($resolved, $totalUnique),
+        'unresolved' => min($unresolved, $totalUnique),
+        'done' => $remainingUnique === 0,
+    ];
+}
+
+/**
+ * @return array{total:int,recoverable:int,exhausted:int,unique_parcels:int,unique_parcels_recoverable:int}
+ */
+function analyticspro_missing_coordinate_stats_normalize(int $total, int $recoverable, int $uniqueParcels = 0, int $uniqueRecoverable = 0): array
+{
+    $total = max(0, $total);
+    $recoverable = max(0, min($recoverable, $total));
+    $uniqueParcels = max(0, $uniqueParcels);
+    $uniqueRecoverable = max(0, min($uniqueRecoverable, $uniqueParcels));
+
+    return [
+        'total' => $total,
+        'recoverable' => $recoverable,
+        'exhausted' => max(0, $total - $recoverable),
+        'unique_parcels' => $uniqueParcels,
+        'unique_parcels_recoverable' => $uniqueRecoverable,
+    ];
 }
 
 /**
@@ -838,7 +922,7 @@ function analyticspro_enrichment_mark_parcel_failure(PDO $pdo, int $batchId, arr
 }
 
 /**
- * @return array{total:int,recoverable:int,exhausted:int}
+ * @return array{total:int,recoverable:int,exhausted:int,unique_parcels:int,unique_parcels_recoverable:int}
  */
 function analyticspro_fetch_missing_coordinate_stats(?int $tenantId = null): array
 {
@@ -859,7 +943,7 @@ function analyticspro_fetch_missing_coordinate_stats(?int $tenantId = null): arr
         $recoverable[] = "(coord_source IS NULL OR coord_source <> 'unresolved')";
     }
     if (analyticspro_properties_has_enrichment_attempt_columns()) {
-        $recoverable[] = 'enrichment_attempts < :max_attempts';
+        $recoverable[] = 'COALESCE(enrichment_attempts, 0) < :max_attempts';
         $params['max_attempts'] = (int) ANALYTICSPRO_ENRICH_MAX_ATTEMPTS;
     }
 
@@ -877,12 +961,10 @@ function analyticspro_fetch_missing_coordinate_stats(?int $tenantId = null): arr
     $row = $stmt->fetch() ?: [];
     $total = (int) ($row['total'] ?? 0);
     $recoverableCount = (int) ($row['recoverable'] ?? 0);
+    $uniqueParcels = analyticspro_enrichment_count_unique_parcels($pdo, 0, $tenantId, true, false);
+    $uniqueRecoverable = analyticspro_enrichment_count_unique_parcels($pdo, 0, $tenantId, true, true);
 
-    return [
-        'total' => $total,
-        'recoverable' => $recoverableCount,
-        'exhausted' => max(0, $total - $recoverableCount),
-    ];
+    return analyticspro_missing_coordinate_stats_normalize($total, $recoverableCount, $uniqueParcels, $uniqueRecoverable);
 }
 
 function analyticspro_enrichment_recoverable_condition_sql(string $alias = ''): string
@@ -893,10 +975,46 @@ function analyticspro_enrichment_recoverable_condition_sql(string $alias = ''): 
         $clauses[] = '(' . $prefix . "coord_source IS NULL OR " . $prefix . "coord_source <> 'unresolved')";
     }
     if (analyticspro_properties_has_enrichment_attempt_columns()) {
-        $clauses[] = $prefix . 'enrichment_attempts < ' . (int) ANALYTICSPRO_ENRICH_MAX_ATTEMPTS;
+        $clauses[] = 'COALESCE(' . $prefix . 'enrichment_attempts, 0) < ' . (int) ANALYTICSPRO_ENRICH_MAX_ATTEMPTS;
     }
 
     return implode(' AND ', $clauses);
+}
+
+function analyticspro_enrichment_unique_parcel_expr(string $alias = ''): string
+{
+    $prefix = $alias !== '' ? rtrim($alias, '.') . '.' : '';
+
+    return "CONCAT_WS('|', COALESCE({$prefix}provincia, ''), COALESCE({$prefix}comune, ''), COALESCE({$prefix}cod_catastale, ''), COALESCE({$prefix}sezione, ''), COALESCE({$prefix}foglio, ''), COALESCE({$prefix}particella, ''))";
+}
+
+function analyticspro_enrichment_count_unresolved_unique_parcels(PDO $pdo, int $batchId, ?int $tenantId = null): int
+{
+    if (!analyticspro_properties_has_coord_source_column() && !analyticspro_properties_has_enrichment_attempt_columns()) {
+        return 0;
+    }
+
+    $params = [];
+    $where = analyticspro_enrichment_scope_where($batchId, $tenantId, $params, true, false);
+    $clauses = [$where];
+    if (analyticspro_properties_has_coord_source_column()) {
+        $clauses[] = "coord_source = 'unresolved'";
+    } else {
+        $clauses[] = 'COALESCE(enrichment_attempts, 0) >= :max_attempts';
+        $params['max_attempts'] = (int) ANALYTICSPRO_ENRICH_MAX_ATTEMPTS;
+    }
+    $sql = 'SELECT COUNT(*) FROM (
+        SELECT 1 FROM properties
+        WHERE ' . implode(' AND ', $clauses) . '
+        GROUP BY ' . analyticspro_enrichment_parcel_group_by($batchId === 0) . '
+    ) t';
+    $stmt = $pdo->prepare($sql);
+    foreach ($params as $name => $value) {
+        $stmt->bindValue(':' . $name, $value, PDO::PARAM_INT);
+    }
+    $stmt->execute();
+
+    return (int) $stmt->fetchColumn();
 }
 
 /**
@@ -1394,7 +1512,7 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
  * Esegue la geolocalizzazione sincrona post-import per un batch, con soglia di sicurezza
  * sul numero di particelle uniche da processare nella stessa richiesta HTTP.
  *
- * @return array{saved_rows:int,geolocated:int,total_unique:int,processed_unique:int,remaining_unique:int,done:bool,enrichment_sync:bool,coord_source:array<string,int>,attempt_failures:array<string,int>,failure_codes:array<string,int>,unresolved_rows:array<int,string>,truncated:bool,total_rows:int,geolocated_rows:int,missing_rows:int}
+ * @return array{saved_rows:int,geolocated:int,total_unique:int,processed_unique:int,remaining_unique:int,done:bool,enrichment_sync:bool,coord_source:array<string,int>,attempt_failures:array<string,int>,failure_codes:array<string,int>,unresolved_rows:array<int,string>,truncated:bool,missing_comuni:array<int,array{name:string,provincia:string,belfiore:string}>,missing_comuni_truncated:bool,resolved:int,unresolved:int,total_rows:int,geolocated_rows:int,missing_rows:int}
  */
 function analyticspro_enrich_batch_coordinates_sync(int $batchId, int $maxUnique = 2000): array
 {
@@ -1427,6 +1545,8 @@ function analyticspro_enrich_batch_coordinates_sync(int $batchId, int $maxUnique
         $savedStmt->execute(['id' => $batchId]);
         $savedRows = (int) $savedStmt->fetchColumn();
         $reconciliation = analyticspro_enrichment_fetch_reconciliation($pdo, $batchId);
+        $unresolvedUnique = analyticspro_enrichment_count_unresolved_unique_parcels($pdo, $batchId);
+        $resolvedUnique = max(0, $totalUnique - $unresolvedUnique);
 
         return [
             'saved_rows' => $savedRows,
@@ -1441,6 +1561,10 @@ function analyticspro_enrich_batch_coordinates_sync(int $batchId, int $maxUnique
             'failure_codes' => [],
             'unresolved_rows' => [],
             'truncated' => false,
+            'missing_comuni' => [],
+            'missing_comuni_truncated' => false,
+            'resolved' => $resolvedUnique,
+            'unresolved' => $unresolvedUnique,
             'total_rows' => $reconciliation['total_rows'],
             'geolocated_rows' => $reconciliation['geolocated_rows'],
             'missing_rows' => $reconciliation['missing_rows'],
@@ -1489,7 +1613,7 @@ function analyticspro_enrich_batch_coordinates_sync(int $batchId, int $maxUnique
                 $failureNote = (string) ($resolved['failure_note'] ?? '');
                 analyticspro_enrichment_report_add_attempt_failure($report, $failureCode);
                 if (analyticspro_enrichment_mark_parcel_failure($pdo, $batchId, $parcel, $failureCode, $failureNote)) {
-                    analyticspro_enrichment_report_add_final_failure($report, $parcel, $failureCode, $failureNote);
+                    analyticspro_enrichment_report_add_final_failure($report, $parcel, $failureCode, $failureNote, $resolved['belfiore'] ?? null);
                 }
             }
         } catch (Throwable $exception) {
@@ -1532,6 +1656,8 @@ function analyticspro_enrich_batch_coordinates_sync(int $batchId, int $maxUnique
     $savedStmt->execute(['id' => $batchId]);
     $savedRows = (int) $savedStmt->fetchColumn();
     $reconciliation = analyticspro_enrichment_fetch_reconciliation($pdo, $batchId);
+    $unresolvedUnique = analyticspro_enrichment_count_unresolved_unique_parcels($pdo, $batchId);
+    $resolvedUnique = max(0, $progress['total'] - $progress['remaining'] - $unresolvedUnique);
 
     return [
         'saved_rows' => $savedRows,
@@ -1546,6 +1672,10 @@ function analyticspro_enrich_batch_coordinates_sync(int $batchId, int $maxUnique
         'failure_codes' => $report['failure_codes'],
         'unresolved_rows' => $report['unresolved_rows'],
         'truncated' => (bool) $report['truncated'],
+        'missing_comuni' => $report['missing_comuni'],
+        'missing_comuni_truncated' => (bool) $report['missing_comuni_truncated'],
+        'resolved' => $resolvedUnique,
+        'unresolved' => $unresolvedUnique,
         'total_rows' => $reconciliation['total_rows'],
         'geolocated_rows' => $reconciliation['geolocated_rows'],
         'missing_rows' => $reconciliation['missing_rows'],
@@ -1622,7 +1752,7 @@ function analyticspro_enrich_batch_coordinates(int $batchId): void
  *  3. Risolve le coordinate e aggiorna properties.
  *  4. Se non rimangono più particelle da risolvere, chiude con 'completed'.
  *
- * @return array{processed:int,total:int,done:bool,status:string,enrichment_report:array{coord_source:array<string,int>,attempt_failures:array<string,int>,failure_codes:array<string,int>,unresolved_rows:array<int,string>,truncated:bool},total_rows?:int,geolocated_rows?:int,missing_rows?:int}
+ * @return array{processed:int,total:int,remaining:int,resolved:int,unresolved:int,done:bool,status:string,enrichment_report:array{coord_source:array<string,int>,attempt_failures:array<string,int>,failure_codes:array<string,int>,unresolved_rows:array<int,string>,truncated:bool,missing_comuni:array<int,array{name:string,provincia:string,belfiore:string}>,missing_comuni_truncated:bool},total_rows?:int,geolocated_rows?:int,missing_rows?:int}
  */
 function analyticspro_enrich_batch_coordinates_chunk(int $batchId, int $limit = 25, ?int $tenantId = null): array
 {
@@ -1660,9 +1790,13 @@ function analyticspro_enrich_batch_coordinates_chunk(int $batchId, int $limit = 
     if (empty($parcels)) {
         $progress = analyticspro_enrichment_fetch_progress($pdo, $batchId, $tenantId);
         if ($globalMode) {
+            $payloadProgress = analyticspro_enrichment_progress_payload($progress['total'], $progress['remaining'], $progress['processed'], 0);
             return [
-                'processed' => $progress['processed'],
-                'total' => $progress['total'],
+                'processed' => $payloadProgress['processed'],
+                'total' => $payloadProgress['total'],
+                'remaining' => $payloadProgress['remaining'],
+                'resolved' => $payloadProgress['resolved'],
+                'unresolved' => 0,
                 'done' => true,
                 'status' => 'completed',
                 'enrichment_report' => $report,
@@ -1680,10 +1814,16 @@ function analyticspro_enrich_batch_coordinates_chunk(int $batchId, int $limit = 
             'total' => $progress['total'],
         ]);
         $row = analyticspro_enrich_fetch_batch_state($pdo, $batchId);
+        $unresolvedUnique = analyticspro_enrichment_count_unresolved_unique_parcels($pdo, $batchId, $tenantId);
+        $resolvedUnique = max(0, $progress['total'] - $progress['remaining'] - $unresolvedUnique);
+        $payloadProgress = analyticspro_enrichment_progress_payload($progress['total'], $progress['remaining'], $resolvedUnique, $unresolvedUnique);
         $reconciliation = analyticspro_enrichment_fetch_reconciliation($pdo, $batchId);
         return [
-            'processed' => $row['processed'],
-            'total' => $row['total'],
+            'processed' => $payloadProgress['processed'],
+            'total' => $payloadProgress['total'],
+            'remaining' => $payloadProgress['remaining'],
+            'resolved' => $payloadProgress['resolved'],
+            'unresolved' => $payloadProgress['unresolved'],
             'done' => true,
             'status' => 'completed',
             'enrichment_report' => $row['report'],
@@ -1701,6 +1841,8 @@ function analyticspro_enrich_batch_coordinates_chunk(int $batchId, int $limit = 
 
     $memo              = [];
     $chunkProcessed    = 0;
+    $chunkResolved     = 0;
+    $chunkUnresolved   = 0;
 
     foreach ($parcels as $parcel) {
         $comune    = (string) ($parcel['comune'] ?? '');
@@ -1714,6 +1856,7 @@ function analyticspro_enrich_batch_coordinates_chunk(int $batchId, int $limit = 
                 'coord_source' => $resolvedCore['coord_source'],
                 'failure_code' => $resolvedCore['failure_code'],
                 'failure_note' => (string) ($resolvedCore['failure_note'] ?? ''),
+                'belfiore' => $resolvedCore['belfiore'] ?? null,
             ];
             if ($resolved['lat'] !== null && $resolved['lng'] !== null) {
                 $params = analyticspro_enrichment_parcel_match_params($parcel, $batchId, $tenantId);
@@ -1736,18 +1879,21 @@ function analyticspro_enrich_batch_coordinates_chunk(int $batchId, int $limit = 
                     }
                 }
                 analyticspro_enrichment_report_add_success($report, (string) ($resolved['coord_source'] ?? ''));
+                $chunkResolved++;
             } else {
                 $failureCode = (string) ($resolved['failure_code'] ?? 'provider_remoto_fallito');
                 $failureNote = (string) ($resolved['failure_note'] ?? '');
                 analyticspro_enrichment_report_add_attempt_failure($report, $failureCode);
                 if (analyticspro_enrichment_mark_parcel_failure($pdo, $batchId, $parcel, $failureCode, $failureNote, $tenantId)) {
-                    analyticspro_enrichment_report_add_final_failure($report, $parcel, $failureCode, $failureNote);
+                    analyticspro_enrichment_report_add_final_failure($report, $parcel, $failureCode, $failureNote, $resolved['belfiore'] ?? null);
+                    $chunkUnresolved++;
                 }
             }
         } catch (Throwable $exception) {
             analyticspro_enrichment_report_add_attempt_failure($report, 'provider_remoto_fallito');
             if (analyticspro_enrichment_mark_parcel_failure($pdo, $batchId, $parcel, 'provider_remoto_fallito', $exception->getMessage(), $tenantId)) {
                 analyticspro_enrichment_report_add_final_failure($report, $parcel, 'provider_remoto_fallito', $exception->getMessage());
+                $chunkUnresolved++;
             }
             error_log('[enrich_chunk] Errore per ' . $comune . '/' . ($parcel['foglio'] ?? '') . '/' . ($parcel['particella'] ?? '') . ': ' . $exception->getMessage());
         }
@@ -1760,12 +1906,24 @@ function analyticspro_enrich_batch_coordinates_chunk(int $batchId, int $limit = 
 
     $progress = analyticspro_enrichment_fetch_progress($pdo, $batchId, $tenantId);
     $done = ($progress['remaining'] === 0);
+    $unresolvedUnique = $globalMode
+        ? $chunkUnresolved
+        : analyticspro_enrichment_count_unresolved_unique_parcels($pdo, $batchId, $tenantId);
+    $resolvedUnique = $globalMode
+        ? $chunkResolved
+        : max(0, $progress['total'] - $progress['remaining'] - $unresolvedUnique);
+    $payloadProgress = $globalMode
+        ? analyticspro_enrichment_progress_payload($chunkResolved + $chunkUnresolved + $progress['remaining'], $progress['remaining'], $chunkResolved, $chunkUnresolved)
+        : analyticspro_enrichment_progress_payload($progress['total'], $progress['remaining'], $resolvedUnique, $unresolvedUnique);
 
     if ($globalMode) {
         return [
-            'processed' => $progress['processed'],
-            'total' => $progress['total'],
-            'done' => $done,
+            'processed' => $payloadProgress['processed'],
+            'total' => $payloadProgress['total'],
+            'remaining' => $payloadProgress['remaining'],
+            'resolved' => $payloadProgress['resolved'],
+            'unresolved' => $payloadProgress['unresolved'],
+            'done' => $payloadProgress['done'],
             'status' => $done ? 'completed' : 'processing',
             'enrichment_report' => $report,
         ];
@@ -1789,9 +1947,12 @@ function analyticspro_enrich_batch_coordinates_chunk(int $batchId, int $limit = 
     $row = analyticspro_enrich_fetch_batch_state($pdo, $batchId);
     $reconciliation = analyticspro_enrichment_fetch_reconciliation($pdo, $batchId);
     return [
-        'processed' => $row['processed'],
-        'total' => $row['total'],
-        'done' => $done,
+        'processed' => $payloadProgress['processed'],
+        'total' => $payloadProgress['total'],
+        'remaining' => $payloadProgress['remaining'],
+        'resolved' => $payloadProgress['resolved'],
+        'unresolved' => $payloadProgress['unresolved'],
+        'done' => $payloadProgress['done'],
         'status' => $done ? 'completed' : 'processing',
         'enrichment_report' => $row['report'],
         'total_rows' => $reconciliation['total_rows'],
@@ -1803,7 +1964,7 @@ function analyticspro_enrich_batch_coordinates_chunk(int $batchId, int $limit = 
 /**
  * Legge lo stato di avanzamento enrichment dal DB.
  *
- * @return array{processed:int,total:int,report:array{coord_source:array<string,int>,attempt_failures:array<string,int>,failure_codes:array<string,int>,unresolved_rows:array<int,string>,truncated:bool}}
+ * @return array{processed:int,total:int,report:array{coord_source:array<string,int>,attempt_failures:array<string,int>,failure_codes:array<string,int>,unresolved_rows:array<int,string>,truncated:bool,missing_comuni:array<int,array{name:string,provincia:string,belfiore:string}>,missing_comuni_truncated:bool}}
  */
 function analyticspro_enrich_fetch_batch_state(\PDO $pdo, int $batchId): array
 {
