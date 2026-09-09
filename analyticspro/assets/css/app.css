@@ -371,8 +371,19 @@ body {
     bottom: 1rem;
     transform: translateX(-50%);
     z-index: 520;
-    width: min(520px, calc(100% - 2rem));
+    width: auto;                     /* prima: min(520px, calc(100% - 2rem)) */
+    max-width: min(550px, calc(100% - 2rem));
     pointer-events: none;
+
+    /* ── Compattazione ── */
+    font-size: .72rem;               /* ~metà del default 1rem di .alert */
+    line-height: 1.25;
+    padding: .3rem .6rem;
+    margin-bottom: 0;
+    border-radius: .5rem;
+}
+.analyticspro-map-feedback .bi {
+    font-size: .8rem;
 }
 .analyticspro-autocomplete {
     position: absolute;
