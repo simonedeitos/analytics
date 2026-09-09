@@ -104,6 +104,10 @@ try {
             'failure_codes' => $enrichment['failure_codes'] ?? [],
             'unresolved_rows' => $enrichment['unresolved_rows'] ?? [],
             'unresolved_truncated' => (bool) ($enrichment['truncated'] ?? false),
+            'missing_comuni' => $enrichment['missing_comuni'] ?? [],
+            'missing_comuni_truncated' => (bool) ($enrichment['missing_comuni_truncated'] ?? false),
+            'resolved' => (int) ($enrichment['resolved'] ?? 0),
+            'unresolved' => (int) ($enrichment['unresolved'] ?? 0),
             'geolocated_rows' => (int) ($enrichment['geolocated_rows'] ?? 0),
             'missing_rows' => (int) ($enrichment['missing_rows'] ?? 0),
         ]);

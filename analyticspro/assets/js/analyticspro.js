@@ -61,6 +61,7 @@
         importProgressEndpoint: root.dataset.importProgressEndpoint || '',
         enrichChunkEndpoint: root.dataset.enrichChunkEndpoint || '',
         missingCoordinatesStatsEndpoint: root.dataset.missingCoordinatesStatsEndpoint || '',
+        adminImportGmlUrl: root.dataset.adminImportGmlUrl || '',
         adeJobsEndpoint: root.dataset.adeJobsEndpoint || '',
         adeManualFilesEndpoint: root.dataset.adeManualFilesEndpoint || '',
         dashboardStatsEndpoint: root.dataset.dashboardStatsEndpoint || '',
@@ -157,6 +158,108 @@
             'Quota': '',
             'Latitudine': button.dataset.lat || '',
             'Longitudine': button.dataset.lng || '',
+        };
+    }
+
+    function countReportBucket(bucket) {
+        return Object.keys(bucket || {}).reduce(function (sum, key) {
+            return sum + Number(bucket[key] || 0);
+        }, 0);
+    }
+
+    function normalizeEnrichmentReport(report) {
+        var base = {
+            coord_source: {},
+            attempt_failures: {},
+            failure_codes: {},
+            unresolved_rows: [],
+            truncated: false,
+            missing_comuni: [],
+            missing_comuni_truncated: false
+        };
+        if (!report || typeof report !== 'object') {
+            return base;
+        }
+        base.coord_source = report.coord_source || {};
+        base.attempt_failures = report.attempt_failures || {};
+        base.failure_codes = report.failure_codes || {};
+        base.unresolved_rows = Array.isArray(report.unresolved_rows) ? report.unresolved_rows.slice() : [];
+        base.truncated = !!report.truncated;
+        base.missing_comuni = Array.isArray(report.missing_comuni) ? report.missing_comuni.slice() : [];
+        base.missing_comuni_truncated = !!report.missing_comuni_truncated;
+        return base;
+    }
+
+    function mergeCountBuckets(target, source) {
+        Object.keys(source || {}).forEach(function (key) {
+            target[key] = Number(target[key] || 0) + Number(source[key] || 0);
+        });
+    }
+
+    function mergeListEntries(target, source, keyFn, limit) {
+        var seen = {};
+        target.forEach(function (entry) {
+            seen[keyFn(entry)] = true;
+        });
+        (source || []).forEach(function (entry) {
+            var key = keyFn(entry);
+            if (seen[key] || target.length >= limit) {
+                return;
+            }
+            seen[key] = true;
+            target.push(entry);
+        });
+    }
+
+    function accumulateEnrichmentReport(target, source) {
+        mergeCountBuckets(target.coord_source, source.coord_source);
+        mergeCountBuckets(target.attempt_failures, source.attempt_failures);
+        mergeCountBuckets(target.failure_codes, source.failure_codes);
+        mergeListEntries(target.unresolved_rows, source.unresolved_rows, function (entry) {
+            return String(entry || '');
+        }, 100);
+        mergeListEntries(target.missing_comuni, source.missing_comuni, function (entry) {
+            entry = entry || {};
+            return [entry.name || '', entry.provincia || '', entry.belfiore || ''].join('|').toLowerCase();
+        }, 20);
+        target.truncated = target.truncated || source.truncated || target.unresolved_rows.length >= 100;
+        target.missing_comuni_truncated = target.missing_comuni_truncated || source.missing_comuni_truncated || target.missing_comuni.length >= 20;
+        return target;
+    }
+
+    function formatMissingComune(entry) {
+        if (entry && typeof entry === 'object') {
+            var suffix = entry.provincia ? ' (' + entry.provincia + ')' : '';
+            if (entry.belfiore) {
+                suffix += ' [' + entry.belfiore + ']';
+            }
+            return String(entry.name || 'Comune sconosciuto') + suffix;
+        }
+        return String(entry || '');
+    }
+
+    function dominantFailureCode(report) {
+        var entries = Object.keys((report && report.failure_codes) || {}).sort(function (a, b) {
+            return Number(report.failure_codes[b] || 0) - Number(report.failure_codes[a] || 0);
+        });
+        return entries.length ? entries[0] : '';
+    }
+
+    function buildEnrichmentTerminalState(payload, report, resolved, unresolved) {
+        var summary = summarizeReconciliation(payload);
+        var topFailure = dominantFailureCode(report);
+        if (unresolved > 0) {
+            var suffix = topFailure === 'comune_non_indicizzato'
+                ? ' (comune non indicizzato).'
+                : '.';
+            return {
+                kind: 'warning',
+                text: 'Completato con avvisi: ' + resolved + ' particelle risolte, ' + unresolved + ' non risolte' + suffix
+            };
+        }
+        return {
+            kind: summary.missing > 0 ? 'warning' : 'success',
+            text: summary.text
         };
     }
 
@@ -630,13 +733,19 @@
         var exhaustedBadge = document.getElementById('missing-coordinates-exhausted-badge');
         var summary = document.getElementById('missing-coordinates-summary');
         var adminBody = document.getElementById('missing-coordinates-admin-body');
-        if (totalBadge) totalBadge.textContent = 'Totale: ' + Number(stats.total || 0);
-        if (recoverableBadge) recoverableBadge.textContent = 'Recuperabili: ' + Number(stats.recoverable || 0);
-        if (exhaustedBadge) exhaustedBadge.textContent = 'Esauriti: ' + Number(stats.exhausted || 0);
+        if (totalBadge) totalBadge.textContent = 'Totale: ' + Number(stats.total || 0) + ' immobili';
+        if (recoverableBadge) recoverableBadge.textContent = 'Recuperabili: ' + Number(stats.recoverable || 0) + ' immobili';
+        if (exhaustedBadge) exhaustedBadge.textContent = 'Esauriti: ' + Number(stats.exhausted || 0) + ' immobili';
         if (summary) {
+            var uniqueParcels = Number(stats.unique_parcels || 0);
+            var uniqueRecoverable = Number(stats.unique_parcels_recoverable || 0);
+            var unitsText = Number(stats.total || 0) + ' immobili · ' + uniqueParcels + ' particelle uniche da risolvere';
             summary.textContent = payload.scope === 'admin'
-                ? 'Panoramica globale degli immobili senza coordinate sulla mappa.'
-                : 'Immobili del tuo tenant ancora senza coordinate sulla mappa.';
+                ? 'Panoramica globale degli immobili senza coordinate sulla mappa. ' + unitsText + '.'
+                : 'Immobili del tuo tenant ancora senza coordinate sulla mappa. ' + unitsText + '.';
+            if (uniqueRecoverable !== uniqueParcels) {
+                summary.textContent += ' Recuperabili: ' + uniqueRecoverable + ' particelle uniche.';
+            }
         }
         if (adminBody) {
             var tenants = Array.isArray(payload.tenants) ? payload.tenants : [];
@@ -644,8 +753,10 @@
                 ? tenants.map(function (tenant) {
                     var label = escapeHtml(String(tenant.tenant_name || ('Tenant #' + tenant.tenant_id)));
                     var email = tenant.tenant_email ? '<div class="text-muted small">' + escapeHtml(String(tenant.tenant_email)) + '</div>' : '';
+                    var parcelInfo = '<div class="text-muted small">' + escapeHtml(String(tenant.unique_parcels || 0)) + ' particelle uniche'
+                        + ' · recuperabili ' + escapeHtml(String(tenant.unique_parcels_recoverable || 0)) + '</div>';
                     return '<tr>'
-                        + '<td>' + label + email + '</td>'
+                        + '<td>' + label + email + parcelInfo + '</td>'
                         + '<td class="text-end">' + escapeHtml(String(tenant.total || 0)) + '</td>'
                         + '<td class="text-end">' + escapeHtml(String(tenant.recoverable || 0)) + '</td>'
                         + '<td class="text-end">' + escapeHtml(String(tenant.exhausted || 0)) + '</td>'
@@ -2343,7 +2454,7 @@
         var importPrefix = state.currentImportStats
             ? importProgressLabel(state.currentImportStats.savedRows, state.currentImportStats.totalRows) + ' · '
             : '';
-        setWeightedImportPhase('enrich', ratio, importPrefix + 'Geolocalizzazione: ' + processed + '/' + total + ' (' + clampPercent(Math.round(ratio * 100)) + '%)');
+        setWeightedImportPhase('enrich', ratio, importPrefix + 'Geolocalizzazione: ' + processed + '/' + total + ' particelle uniche (' + clampPercent(Math.round(ratio * 100)) + '%)');
     }
 
     function syncEnrichmentReportLog(report) {
@@ -2422,7 +2533,9 @@
                 attempt_failures: processPayload.attempt_failures || {},
                 failure_codes: processPayload.failure_codes || {},
                 unresolved_rows: processPayload.unresolved_rows || [],
-                truncated: !!processPayload.unresolved_truncated
+                truncated: !!processPayload.unresolved_truncated,
+                missing_comuni: processPayload.missing_comuni || [],
+                missing_comuni_truncated: !!processPayload.missing_comuni_truncated
             });
             await loadProperties();
             if (!processPayload.batch_id) {
@@ -2431,9 +2544,23 @@
                 return;
             }
             if (processPayload.enrichment_done) {
-                var summary = summarizeReconciliation(processPayload);
-                finalizeImportUi(summary.missing > 0 ? 'warning' : 'success', summary.text);
-                importLog(summary.missing > 0 ? 'warning' : 'info', summary.text);
+                var initialReport = normalizeEnrichmentReport({
+                    coord_source: processPayload.coord_source || {},
+                    attempt_failures: processPayload.attempt_failures || {},
+                    failure_codes: processPayload.failure_codes || {},
+                    unresolved_rows: processPayload.unresolved_rows || [],
+                    truncated: !!processPayload.unresolved_truncated,
+                    missing_comuni: processPayload.missing_comuni || [],
+                    missing_comuni_truncated: !!processPayload.missing_comuni_truncated
+                });
+                var terminalState = buildEnrichmentTerminalState(
+                    processPayload,
+                    initialReport,
+                    Number(processPayload.resolved || countReportBucket(initialReport.coord_source)),
+                    Number(processPayload.unresolved || countReportBucket(initialReport.failure_codes))
+                );
+                finalizeImportUi(terminalState.kind, terminalState.text);
+                importLog(terminalState.kind === 'warning' ? 'warning' : 'info', terminalState.text);
                 return;
             }
             importLog('info', 'Particelle residue eleggibili: ' + (processPayload.remaining_unique_parcels || 0));
@@ -2468,13 +2595,19 @@
                 var status = batch.enrichment_status || null;
                 var processed = batch.enrichment_processed || 0;
                 var total = batch.enrichment_total || 0;
-                renderEnrichmentReport(batch.enrichment_report);
+                var batchReport = normalizeEnrichmentReport(batch.enrichment_report);
+                renderEnrichmentReport(batchReport);
                 updateEnrichmentPhase({ processed: processed, total: total, done: status === 'completed' });
                 if (status === 'completed') {
                     await loadProperties();
-                    var summary = summarizeReconciliation(batch);
-                    finalizeImportUi(summary.missing > 0 ? 'warning' : 'success', summary.text);
-                    importLog(summary.missing > 0 ? 'warning' : 'info', summary.text);
+                    var terminalState = buildEnrichmentTerminalState(
+                        batch,
+                        batchReport,
+                        countReportBucket(batchReport.coord_source),
+                        countReportBucket(batchReport.failure_codes)
+                    );
+                    finalizeImportUi(terminalState.kind, terminalState.text);
+                    importLog(terminalState.kind === 'warning' ? 'warning' : 'info', terminalState.text);
                     return;
                 }
                 if (status === 'failed') {
@@ -2513,6 +2646,10 @@
         if (reportEl) { reportEl.className = 'small mt-2 d-none'; reportEl.innerHTML = ''; }
         try {
             var maxChunks = 500, calls = 0;
+            var cumulativeReport = normalizeEnrichmentReport(null);
+            var observedTotal = 0;
+            var lastProgress = 0;
+            var noProgressChunks = 0;
             updateEnrichmentPhase({ processed: 0, total: 0, done: false });
             importLog('info', 'Avvio fallback chunk sincrono');
             while (calls < maxChunks) {
@@ -2536,19 +2673,41 @@
                     finalizeImportUi('danger', 'Errore [' + errCode + ']: ' + (result.error || 'Errore sconosciuto'));
                     return;
                 }
-                renderEnrichmentReport(result.enrichment_report);
-                updateEnrichmentPhase(result);
-                importLog('info', 'Chunk ' + calls + ': ' + (result.processed || 0) + '/' + (result.total || 0));
+                var rawReport = normalizeEnrichmentReport(result.enrichment_report);
+                var reportForUi = batchId === 0 ? accumulateEnrichmentReport(cumulativeReport, rawReport) : rawReport;
+                var resolved = batchId === 0
+                    ? countReportBucket(reportForUi.coord_source)
+                    : Number(result.resolved || countReportBucket(reportForUi.coord_source));
+                var unresolved = batchId === 0
+                    ? countReportBucket(reportForUi.failure_codes)
+                    : Number(result.unresolved || countReportBucket(reportForUi.failure_codes));
+                var processed = resolved + unresolved;
+                var remaining = Number(result.remaining || 0);
+                observedTotal = Math.max(observedTotal, Number(result.total || 0), processed + remaining);
+                renderEnrichmentReport(reportForUi);
+                updateEnrichmentPhase({ processed: processed, total: observedTotal, done: !!result.done });
+                importLog('info', 'Chunk ' + calls + ': ' + processed + '/' + observedTotal);
+                if (processed > lastProgress) {
+                    lastProgress = processed;
+                    noProgressChunks = 0;
+                } else {
+                    noProgressChunks++;
+                }
                 if (result.done || result.status === 'completed') {
                     await loadProperties();
-                    var summary = summarizeReconciliation(result);
-                    finalizeImportUi(summary.missing > 0 ? 'warning' : 'success', summary.text);
-                    importLog(summary.missing > 0 ? 'warning' : 'info', summary.text);
+                    var terminalState = buildEnrichmentTerminalState(result, reportForUi, resolved, unresolved);
+                    finalizeImportUi(terminalState.kind, terminalState.text);
+                    importLog(terminalState.kind === 'warning' ? 'warning' : 'info', terminalState.text);
                     return;
                 }
                 if (result.status === 'failed') {
                     importLog('error', 'Geolocalizzazione chunk fallita.');
                     finalizeImportUi('danger', 'Errore durante la geolocalizzazione chunk.');
+                    return;
+                }
+                if (noProgressChunks >= 3) {
+                    importLog('warning', 'Nessun progresso nei chunk: interruzione anticipata.');
+                    finalizeImportUi('warning', 'Nessun progresso nei chunk: interruzione anticipata. Verifica i comuni non indicizzati nel report.');
                     return;
                 }
                 await new Promise(function(r){setTimeout(r,200);});
@@ -2568,17 +2727,29 @@
 
     function renderEnrichmentReport(report) {
         var el = document.getElementById('enrichment-report');
-        if (!el || !report || typeof report !== 'object') { if (el) { el.className = 'small mt-2 d-none'; el.innerHTML = ''; } return; }
+        report = normalizeEnrichmentReport(report);
+        if (!el) { return; }
         var sourceEntries  = Object.keys(report.coord_source  || {}).filter(function(k){return Number(report.coord_source[k])>0;});
         var attemptEntries = Object.keys(report.attempt_failures || {}).filter(function(k){return Number(report.attempt_failures[k])>0;});
         var failureEntries = Object.keys(report.failure_codes || {}).filter(function(k){return Number(report.failure_codes[k])>0;});
         var unresolved     = Array.isArray(report.unresolved_rows) ? report.unresolved_rows : [];
-        if (!sourceEntries.length && !attemptEntries.length && !failureEntries.length && !unresolved.length) { el.className = 'small mt-2 d-none'; el.innerHTML = ''; return; }
+        var missingComuni  = Array.isArray(report.missing_comuni) ? report.missing_comuni : [];
+        if (!sourceEntries.length && !attemptEntries.length && !failureEntries.length && !unresolved.length && !missingComuni.length) { el.className = 'small mt-2 d-none'; el.innerHTML = ''; return; }
         syncEnrichmentReportLog(report);
         var html = [];
         if (sourceEntries.length)  html.push('<div><strong>Sorgenti:</strong> '   + sourceEntries.map(function(k){return escapeHtml(k)+'='+escapeHtml(String(report.coord_source[k]));}).join(' &middot; ')  + '</div>');
         if (attemptEntries.length) html.push('<div class="mt-1 text-muted"><strong>Tentativi provider:</strong> ' + attemptEntries.map(function(k){return escapeHtml(k)+'='+escapeHtml(String(report.attempt_failures[k]));}).join(' &middot; ') + '</div>');
         if (failureEntries.length) html.push('<div class="mt-1"><strong>Irrecuperabili:</strong> ' + failureEntries.map(function(k){return escapeHtml(k)+'='+escapeHtml(String(report.failure_codes[k]));}).join(' &middot; ') + '</div>');
+        if (missingComuni.length) {
+            var actionText = state.role === 'admin' && state.adminImportGmlUrl
+                ? ' — <a href="' + escapeHtml(state.adminImportGmlUrl) + '">carica i file GML da Admin → Import GML</a> per risolverli.'
+                : ' — contatta l\'amministratore per caricare i file GML mancanti.';
+            html.push('<div class="mt-2"><strong>Comuni non indicizzati:</strong> '
+                + missingComuni.map(function(item){ return escapeHtml(formatMissingComune(item)); }).join(', ')
+                + (report.missing_comuni_truncated ? ', …' : '')
+                + actionText
+                + '</div>');
+        }
         if (unresolved.length)     html.push('<ul class="mb-0 mt-2 ps-3">' + unresolved.map(function(i){return '<li>'+escapeHtml(String(i))+'</li>';}).join('') + (report.truncated ? '<li>&hellip;</li>' : '') + '</ul>');
         el.className = 'small';
         el.innerHTML = html.join('');

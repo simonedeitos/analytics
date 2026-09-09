@@ -39,7 +39,8 @@ analyticspro_render_header('Importa dati', ['app_assets' => true]);
      data-import-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/import.php')) ?>"
      data-import-progress-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/import_progress.php')) ?>"
      data-enrich-chunk-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/enrich_chunk.php')) ?>"
-     data-missing-coordinates-stats-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/missing_coordinates_stats.php')) ?>">
+     data-missing-coordinates-stats-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/missing_coordinates_stats.php')) ?>"
+     data-admin-import-gml-url="<?= analyticspro_h(analyticspro_base_url('admin/import_gml.php')) ?>">
 
     <?= analyticspro_ui_page_header(
         'Importa dati',
@@ -92,11 +93,16 @@ analyticspro_render_header('Importa dati', ['app_assets' => true]);
                     <div class="border rounded-4 p-3 h-100">
                         <div class="small text-uppercase text-muted fw-semibold mb-2">Situazione corrente</div>
                         <div class="d-flex flex-wrap gap-2 mb-2">
-                            <span class="badge text-bg-secondary" id="missing-coordinates-total-badge">Totale: —</span>
-                            <span class="badge text-bg-warning" id="missing-coordinates-recoverable-badge">Recuperabili: —</span>
-                            <span class="badge text-bg-dark" id="missing-coordinates-exhausted-badge">Esauriti: —</span>
+                            <span class="badge text-bg-secondary" id="missing-coordinates-total-badge">Totale immobili: —</span>
+                            <span class="badge text-bg-warning" id="missing-coordinates-recoverable-badge">Recuperabili immobili: —</span>
+                            <span class="badge text-bg-dark" id="missing-coordinates-exhausted-badge">Esauriti immobili: —</span>
                         </div>
                         <p id="missing-coordinates-summary" class="small text-muted mb-0">Caricamento conteggi coordinate mancanti…</p>
+                        <p class="small text-muted mt-2 mb-0">
+                            <span data-bs-toggle="tooltip" title="Più immobili possono condividere la stessa particella catastale: la geolocalizzazione lavora per particella.">
+                                Più immobili possono condividere la stessa particella catastale: la geolocalizzazione lavora per particella.
+                            </span>
+                        </p>
                     </div>
                 </div>
                 <div class="col-lg-8">
@@ -106,9 +112,9 @@ analyticspro_render_header('Importa dati', ['app_assets' => true]);
                                 <thead class="table-light">
                                     <tr>
                                         <th>Tenant</th>
-                                        <th class="text-end">Totale</th>
-                                        <th class="text-end">Recuperabili</th>
-                                        <th class="text-end">Esauriti</th>
+                                        <th class="text-end">Totale immobili</th>
+                                        <th class="text-end">Recuperabili immobili</th>
+                                        <th class="text-end">Esauriti immobili</th>
                                     </tr>
                                 </thead>
                                 <tbody id="missing-coordinates-admin-body">
