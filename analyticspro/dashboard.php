@@ -24,6 +24,7 @@ $canExport          = !analyticspro_is_subuser() || !empty($subuserPermissions['
 $canViewPhone       = analyticspro_tenant_phone_visibility($tenantId);
 $selectedComune     = trim((string) analyticspro_get('comune', ''));
 $selectedCategory   = trim((string) analyticspro_get('category', ''));
+$accountEmail       = trim((string) ($user['email'] ?? ''));
 $comuneOptions      = [];
 $categoryOptions    = [];
 
@@ -296,9 +297,10 @@ $quickActions = [
                             <h2 class="h5 mb-3">Stato account</h2>
                             <div class="ap-account-status">
                                 <div class="ap-account-status-item"><span>Ruolo</span><span class="badge text-bg-primary"><?= analyticspro_h((string) $user['role']) ?></span></div>
-                                <div class="ap-account-status-item"><span>Vista telefono</span><span class="badge <?= $canViewPhone ? 'text-bg-success' : 'text-bg-secondary' ?>"><?= $canViewPhone ? 'Attiva' : 'Limitata' ?></span></div>
-                                <div class="ap-account-status-item"><span>Tenant selezionato</span><span class="badge text-bg-light"><?= analyticspro_h($selectedTenant === 'all' ? 'Tutti' : $selectedTenant) ?></span></div>
-                                <div class="ap-account-status-item"><span>Export</span><span class="badge <?= $canExport ? 'text-bg-success' : 'text-bg-secondary' ?>"><?= $canExport ? 'Consentito' : 'Non disponibile' ?></span></div>
+                                <div class="ap-account-status-item">
+                                    <span>Email</span>
+                                    <span class="badge text-bg-light ap-account-status-value text-truncate" title="<?= analyticspro_h($accountEmail !== '' ? $accountEmail : 'Email non disponibile') ?>"><?= analyticspro_h($accountEmail !== '' ? $accountEmail : '—') ?></span>
+                                </div>
                             </div>
                         </div>
                     </div>

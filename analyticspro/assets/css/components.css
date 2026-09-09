@@ -218,6 +218,9 @@
     border-radius: 1rem;
     background: var(--ap-surface-2);
 }
+.ap-account-status-value {
+    max-width: min(100%, 16rem);
+}
 
 .ap-auth-card {
     overflow: hidden;

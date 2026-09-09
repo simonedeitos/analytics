@@ -119,10 +119,21 @@
         return Array.isArray(state.mapCategoriaFilter) ? state.mapCategoriaFilter : null;
     }
 
+    function normalizeComuneValue(value) {
+        if (value === null || value === undefined) {
+            return value;
+        }
+        var normalized = String(value);
+        if (normalized === '') {
+            return normalized;
+        }
+        return normalized.toLocaleUpperCase('it-IT');
+    }
+
     function cadastralButtonValues(button) {
         return {
             'Provincia': button.dataset.provincia || '',
-            'Comune': button.dataset.comune || '',
+            'Comune': normalizeComuneValue(button.dataset.comune || ''),
             'Codice Catastale': button.dataset.codCatastale || '',
             'Sezione': button.dataset.sezione || '',
             'Foglio': button.dataset.foglio || '',
@@ -158,7 +169,7 @@
             if (baseLng !== null) merged.Longitudine = String(baseLng);
             return merged;
         }
-        [['Provincia', details.provincia], ['Comune', details.comune], ['Codice Catastale', details.cod_catastale], ['Sezione', details.sezione], ['Foglio', details.foglio], ['Particella', details.particella], ['Subalterno', details.subalterno], ['Categoria', details.categoria], ['Indirizzo', details.indirizzo], ['Civico', details.civico]].forEach(function (entry) {
+        [['Provincia', details.provincia], ['Comune', normalizeComuneValue(details.comune)], ['Codice Catastale', details.cod_catastale], ['Sezione', details.sezione], ['Foglio', details.foglio], ['Particella', details.particella], ['Subalterno', details.subalterno], ['Categoria', details.categoria], ['Indirizzo', details.indirizzo], ['Civico', details.civico]].forEach(function (entry) {
             if (String(entry[1] || '').trim() !== '') {
                 merged[entry[0]] = String(entry[1]);
             }
