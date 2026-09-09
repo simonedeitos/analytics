@@ -170,10 +170,10 @@ $quickActions = [
 
     <section data-dashboard-section="all overview immobili">
         <div class="row g-3 mb-4">
-            <div class="col-12 col-md-6 col-xl-3"><?= analyticspro_ui_kpi_card(['icon' => 'bi-buildings', 'label' => 'Immobili visibili', 'data_key' => 'properties', 'sparkline_id' => 'spark-properties', 'icon_tone' => 'primary']) ?></div>
-            <div class="col-12 col-md-6 col-xl-3"><?= analyticspro_ui_kpi_card(['icon' => 'bi-people', 'label' => 'Intestatari correnti', 'data_key' => 'owners', 'sparkline_id' => 'spark-owners', 'icon_tone' => 'success']) ?></div>
-            <div class="col-12 col-md-6 col-xl-3"><?= analyticspro_ui_kpi_card(['icon' => 'bi-telephone', 'label' => 'Con telefono visibile', 'data_key' => 'phones', 'sparkline_id' => 'spark-phones', 'icon_tone' => 'warning']) ?></div>
-            <div class="col-12 col-md-6 col-xl-3"><?= analyticspro_ui_kpi_card(['icon' => 'bi-person-badge', 'label' => 'Assegnati a me', 'data_key' => 'assigned', 'sparkline_id' => 'spark-assigned', 'icon_tone' => 'primary']) ?></div>
+            <div class="col-12 col-md-6 col-xl-3"><?= analyticspro_ui_kpi_card(['icon' => 'bi-buildings', 'label' => 'Immobili', 'data_key' => 'properties', 'icon_tone' => 'primary']) ?></div>
+            <div class="col-12 col-md-6 col-xl-3"><?= analyticspro_ui_kpi_card(['icon' => 'bi-people', 'label' => 'Intestatari', 'data_key' => 'owners', 'icon_tone' => 'success']) ?></div>
+            <div class="col-12 col-md-6 col-xl-3"><?= analyticspro_ui_kpi_card(['icon' => 'bi-telephone', 'label' => 'Con telefono', 'data_key' => 'phones', 'icon_tone' => 'warning']) ?></div>
+            <div class="col-12 col-md-6 col-xl-3"><?= analyticspro_ui_kpi_card(['icon' => 'bi-person-badge', 'label' => 'Assegnati a me', 'data_key' => 'assigned', 'icon_tone' => 'primary']) ?></div>
         </div>
     </section>
 
