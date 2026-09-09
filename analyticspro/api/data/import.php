@@ -92,6 +92,7 @@ try {
             'processed_rows' => (int) ($processSummary['processed_rows'] ?? count($rows)),
             'skipped_rows' => (int) ($processSummary['skipped_rows'] ?? 0),
             'skipped_reasons' => $processSummary['skipped_reasons'] ?? [],
+            'warnings' => $processSummary['warnings'] ?? [],
             'notes_imported' => (int) ($processSummary['notes_imported'] ?? 0),
             'geolocated_parcels' => (int) ($enrichment['geolocated'] ?? 0),
             'processed_parcels' => (int) ($enrichment['processed_unique'] ?? 0),

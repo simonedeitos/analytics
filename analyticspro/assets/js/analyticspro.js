@@ -2521,8 +2521,15 @@
                 if (!reasonCount) return;
                 var reasonLabel = reasonKey === 'missing_cadastral_fields'
                     ? 'mancano i campi catastali minimi'
+                    : reasonKey === 'unrecognized_province'
+                        ? 'provincia non riconosciuta'
                     : reasonKey;
                 importLog('warning', reasonCount + ' righe saltate: ' + reasonLabel);
+            });
+            (processPayload.warnings || []).forEach(function (warningMessage) {
+                if (warningMessage) {
+                    importLog('warning', String(warningMessage));
+                }
             });
             if (processPayload.notes_imported) {
                 importLog('info', 'Note importate: ' + processPayload.notes_imported);

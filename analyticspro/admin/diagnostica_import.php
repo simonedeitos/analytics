@@ -133,6 +133,7 @@ foreach ([
     ['import_batches', 'enrichment_report'],
     ['import_batches', 'enrichment_sync'],
     ['properties', 'coord_source'],
+    ['properties', 'provincia_originale'],
     ['properties', 'enrichment_attempts'],
     ['properties', 'enrichment_last_attempt_at'],
     ['properties', 'enrichment_last_error_code'],
@@ -157,7 +158,7 @@ analyticspro_render_header('Diagnostica Import', ['app_assets' => false]);
     <h1 class="h3 mb-4">Diagnostica Import &amp; Enrichment</h1>
 
     <div class="card mb-4">
-        <div class="card-header fw-semibold">Verifica migration 001-012</div>
+        <div class="card-header fw-semibold">Verifica migration 001-013</div>
         <div class="card-body p-0">
             <table class="table table-sm mb-0">
                 <thead><tr><th>Elemento</th><th>Stato</th></tr></thead>

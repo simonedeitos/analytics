@@ -282,7 +282,51 @@ function analyticspro_properties_has_enrichment_attempt_columns(): bool
     return $hasColumns;
 }
 
-function analyticspro_extract_row_payload(array $row): array
+function analyticspro_properties_has_provincia_originale_column(): bool
+{
+    return analyticspro_properties_has_column('provincia_originale');
+}
+
+/**
+ * @return array{sigla:string,originale:string,warning:string}
+ */
+function analyticspro_import_normalize_provincia(string $provinciaRaw, string $comune, string $codCatastale, ?int $rowNumber = null): array
+{
+    require_once __DIR__ . '/cadastral_map.php';
+
+    $normalized = analyticspro_normalize_provincia_sigla($provinciaRaw, $codCatastale, $comune);
+    $originale = trim($provinciaRaw);
+    $sigla = trim((string) ($normalized['sigla'] ?? ''));
+    $source = (string) ($normalized['source'] ?? 'unresolved');
+    $rowLabel = $rowNumber !== null ? (' (riga ' . ($rowNumber + 1) . ')') : '';
+    $quotedOriginal = '"' . ($originale !== '' ? $originale : '(vuota)') . '"';
+
+    if ($sigla !== '') {
+        if ($source === 'input' || $originale === '') {
+            return ['sigla' => $sigla, 'originale' => $originale, 'warning' => ''];
+        }
+
+        $sourceMessage = $source === 'cod_catastale'
+            ? 'verrà usata la sigla derivata dal codice catastale (' . $sigla . ')'
+            : ($source === 'comune'
+                ? 'verrà usata la sigla derivata dal comune (' . $sigla . ')'
+                : 'verrà usata la sigla normalizzata (' . $sigla . ')');
+
+        return [
+            'sigla' => $sigla,
+            'originale' => $originale,
+            'warning' => 'Provincia non riconosciuta come sigla valida: ' . $quotedOriginal . $rowLabel . ' — ' . $sourceMessage . '.',
+        ];
+    }
+
+    return [
+        'sigla' => '',
+        'originale' => $originale,
+        'warning' => 'Provincia non riconosciuta: ' . $quotedOriginal . $rowLabel . ' — il valore resta da correggere.',
+    ];
+}
+
+function analyticspro_extract_row_payload(array $row, ?int $rowNumber = null): array
 {
     $contactValues = analyticspro_extract_row_values($row, ['Contatti', 'Telefono', 'Telefoni', 'Cellulare']);
     $emails = [];
@@ -304,9 +348,11 @@ function analyticspro_extract_row_payload(array $row): array
         $email = $emails[0] ?? '';
     }
     $cf = analyticspro_extract_row_value($row, ['Codice Fiscale']);
-    $provincia = strtoupper(analyticspro_extract_row_value($row, ['Provincia', 'Prov']));
+    $provinciaRaw = analyticspro_extract_row_value($row, ['Provincia', 'Prov']);
     $comune = analyticspro_extract_row_value($row, ['Comune', 'Comune Catastale', 'Comune Immobile']);
     $codCatastale = analyticspro_extract_row_value($row, ['Codice Catastale', 'Codice Comune', 'Cod Comune', 'Codice Belfiore', 'Belfiore', 'Cod_Catastale']);
+    $provinciaNormalized = analyticspro_import_normalize_provincia($provinciaRaw, $comune, $codCatastale, $rowNumber);
+    $provincia = $provinciaNormalized['sigla'];
     $resolvedCod = analyticspro_resolve_cod_catastale(
         $codCatastale,
         $comune,
@@ -316,6 +362,7 @@ function analyticspro_extract_row_payload(array $row): array
     return [
         'property' => [
             'provincia' => $provincia,
+            'provincia_originale' => $provinciaNormalized['originale'],
             'comune' => $comune,
             'cod_catastale' => trim((string) ($resolvedCod['cod'] ?? '')),
             'sezione' => analyticspro_extract_row_value($row, ['Sezione']),
@@ -348,6 +395,7 @@ function analyticspro_extract_row_payload(array $row): array
             'genere' => analyticspro_guess_gender($cf),
         ],
         'note' => analyticspro_extract_row_value($row, ['Note', 'note']),
+        'warnings' => $provinciaNormalized['warning'] !== '' ? [$provinciaNormalized['warning']] : [],
     ];
 }
 
@@ -359,7 +407,7 @@ function analyticspro_find_conflicts(array $rows, int $tenantId): array
     $conflicts = [];
 
     foreach ($rows as $index => $row) {
-        $payload = analyticspro_extract_row_payload($row);
+        $payload = analyticspro_extract_row_payload($row, $index);
         $property = $payload['property'];
         if ($property['provincia'] === '' || $property['comune'] === '' || $property['foglio'] === '' || $property['particella'] === '') {
             continue;
@@ -450,11 +498,13 @@ function analyticspro_resolve_cod_catastale(string $codCatastale, string $comune
 {
     require_once __DIR__ . '/wfs_lookup.php';
     require_once __DIR__ . '/gml_catalog.php';
+    require_once __DIR__ . '/cadastral_map.php';
 
     $explicit   = strtoupper(trim($codCatastale));
     $comune     = trim($comune);
     $provincia  = trim($provincia);
-    $provNorm   = analyticspro_gml_norm_provincia($provincia);
+    $provinciaNormalized = analyticspro_normalize_provincia_sigla($provincia, $explicit, $comune);
+    $provNorm   = analyticspro_gml_norm_provincia((string) ($provinciaNormalized['sigla'] ?? ''));
     $comuneNorm = analyticspro_gml_norm_nome_comune($comune);
 
     if (analyticspro_is_valid_cod_catastale($explicit)) {
@@ -468,7 +518,7 @@ function analyticspro_resolve_cod_catastale(string $codCatastale, string $comune
         }
 
         if ($provNorm !== '') {
-            $wfsCode = analyticspro_wfs_lookup_cod_catastale($comune, $provincia);
+            $wfsCode = analyticspro_wfs_lookup_cod_catastale($comune, $provNorm);
             if ($wfsCode !== null && analyticspro_is_valid_cod_catastale($wfsCode)) {
                 return ['cod' => $wfsCode, 'source' => 'comuni_catastali_json', 'note' => 'Codice risolto da comuni_catastali.json'];
             }
@@ -1307,22 +1357,51 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
     $decisions = $payload['decisions'] ?? [];
 
     $hasPianoColumn = analyticspro_properties_has_piano_column();
+    $hasProvinciaOriginaleColumn = analyticspro_properties_has_provincia_originale_column();
     $findProperty = $pdo->prepare('SELECT * FROM properties WHERE user_id = :user_id AND provincia = :provincia AND comune = :comune AND sezione <=> :sezione AND foglio = :foglio AND particella = :particella AND subalterno <=> :subalterno LIMIT 1');
-    $insertProperty = $pdo->prepare(
-        $hasPianoColumn
-            ? 'INSERT INTO properties (user_id, import_batch_id, provincia, comune, cod_catastale, sezione, foglio, particella, subalterno, indirizzo, civico, categoria, classe, piano, consistenza, superficie, rendita, titolarita, quota, lat, lng, posizione_verificata, coord_source, stato, stato_personalizzato, colore_marker) VALUES (:user_id, :import_batch_id, :provincia, :comune, :cod_catastale, :sezione, :foglio, :particella, :subalterno, :indirizzo, :civico, :categoria, :classe, :piano, :consistenza, :superficie, :rendita, :titolarita, :quota, :lat, :lng, :posizione_verificata, :coord_source, :stato, :stato_personalizzato, :colore_marker)'
-            : 'INSERT INTO properties (user_id, import_batch_id, provincia, comune, cod_catastale, sezione, foglio, particella, subalterno, indirizzo, civico, categoria, classe, consistenza, superficie, rendita, titolarita, quota, lat, lng, posizione_verificata, coord_source, stato, stato_personalizzato, colore_marker) VALUES (:user_id, :import_batch_id, :provincia, :comune, :cod_catastale, :sezione, :foglio, :particella, :subalterno, :indirizzo, :civico, :categoria, :classe, :consistenza, :superficie, :rendita, :titolarita, :quota, :lat, :lng, :posizione_verificata, :coord_source, :stato, :stato_personalizzato, :colore_marker)'
-    );
-    $updateProperty = $pdo->prepare(
-        $hasPianoColumn
-            ? 'UPDATE properties SET import_batch_id = :import_batch_id, cod_catastale = :cod_catastale, indirizzo = :indirizzo, civico = :civico, categoria = :categoria, classe = :classe, piano = :piano, consistenza = :consistenza, superficie = :superficie, rendita = :rendita, titolarita = :titolarita, quota = :quota WHERE id = :id'
-            : 'UPDATE properties SET import_batch_id = :import_batch_id, cod_catastale = :cod_catastale, indirizzo = :indirizzo, civico = :civico, categoria = :categoria, classe = :classe, consistenza = :consistenza, superficie = :superficie, rendita = :rendita, titolarita = :titolarita, quota = :quota WHERE id = :id'
-    );
-    $updatePropertyWithCoords = $pdo->prepare(
-        $hasPianoColumn
-            ? 'UPDATE properties SET import_batch_id = :import_batch_id, cod_catastale = :cod_catastale, indirizzo = :indirizzo, civico = :civico, categoria = :categoria, classe = :classe, piano = :piano, consistenza = :consistenza, superficie = :superficie, rendita = :rendita, titolarita = :titolarita, quota = :quota, lat = :lat, lng = :lng, posizione_verificata = :posizione_verificata, coord_source = :coord_source WHERE id = :id'
-            : 'UPDATE properties SET import_batch_id = :import_batch_id, cod_catastale = :cod_catastale, indirizzo = :indirizzo, civico = :civico, categoria = :categoria, classe = :classe, consistenza = :consistenza, superficie = :superficie, rendita = :rendita, titolarita = :titolarita, quota = :quota, lat = :lat, lng = :lng, posizione_verificata = :posizione_verificata, coord_source = :coord_source WHERE id = :id'
-    );
+    $insertColumns = [
+        'user_id', 'import_batch_id', 'provincia', 'comune', 'cod_catastale', 'sezione', 'foglio', 'particella', 'subalterno',
+        'indirizzo', 'civico', 'categoria', 'classe',
+    ];
+    if ($hasPianoColumn) {
+        $insertColumns[] = 'piano';
+    }
+    $insertColumns = array_merge($insertColumns, ['consistenza', 'superficie', 'rendita', 'titolarita', 'quota']);
+    if ($hasProvinciaOriginaleColumn) {
+        $insertColumns[] = 'provincia_originale';
+    }
+    $insertColumns = array_merge($insertColumns, ['lat', 'lng', 'posizione_verificata', 'coord_source', 'stato', 'stato_personalizzato', 'colore_marker']);
+    $insertPlaceholders = array_map(static fn (string $column): string => ':' . $column, $insertColumns);
+    $insertProperty = $pdo->prepare('INSERT INTO properties (' . implode(', ', $insertColumns) . ') VALUES (' . implode(', ', $insertPlaceholders) . ')');
+
+    $updateSet = [
+        'import_batch_id = :import_batch_id',
+        'cod_catastale = :cod_catastale',
+        'indirizzo = :indirizzo',
+        'civico = :civico',
+        'categoria = :categoria',
+        'classe = :classe',
+    ];
+    if ($hasPianoColumn) {
+        $updateSet[] = 'piano = :piano';
+    }
+    $updateSet = array_merge($updateSet, [
+        'consistenza = :consistenza',
+        'superficie = :superficie',
+        'rendita = :rendita',
+        'titolarita = :titolarita',
+        'quota = :quota',
+    ]);
+    if ($hasProvinciaOriginaleColumn) {
+        $updateSet[] = 'provincia_originale = COALESCE(NULLIF(:provincia_originale, \'\'), provincia_originale)';
+    }
+    $updateProperty = $pdo->prepare('UPDATE properties SET ' . implode(', ', $updateSet) . ' WHERE id = :id');
+    $updatePropertyWithCoords = $pdo->prepare('UPDATE properties SET ' . implode(', ', array_merge($updateSet, [
+        'lat = :lat',
+        'lng = :lng',
+        'posizione_verificata = :posizione_verificata',
+        'coord_source = :coord_source',
+    ])) . ' WHERE id = :id');
     $selectCurrentOwner = $pdo->prepare('SELECT * FROM property_owners WHERE property_id = :property_id AND is_current = 1 LIMIT 1');
     $closeOwners = $pdo->prepare('UPDATE property_owners SET is_current = 0, valid_to = NOW() WHERE property_id = :property_id AND is_current = 1');
     $insertOwner = $pdo->prepare('INSERT INTO property_owners (property_id, tipo, nome_enc, cognome_enc, codice_fiscale_enc, telefono_enc, indirizzo_enc, email_enc, nome_hash, cognome_hash, codice_fiscale_hash, telefono_hash, data_nascita, luogo_nascita_enc, genere, is_current, valid_from) VALUES (:property_id, :tipo, :nome_enc, :cognome_enc, :codice_fiscale_enc, :telefono_enc, :indirizzo_enc, :email_enc, :nome_hash, :cognome_hash, :codice_fiscale_hash, :telefono_hash, :data_nascita, :luogo_nascita_enc, :genere, 1, NOW())');
@@ -1335,10 +1414,20 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
         $savedRows = 0;
         $skippedRows = 0;
         $notesImported = 0;
-        $skippedReasons = ['missing_cadastral_fields' => 0];
+        $skippedReasons = ['missing_cadastral_fields' => 0, 'unrecognized_province' => 0];
+        $warnings = [];
         foreach ($rows as $index => $row) {
-            $entry = analyticspro_extract_row_payload($row);
+            $entry = analyticspro_extract_row_payload($row, $index);
             $property = $entry['property'];
+            foreach (($entry['warnings'] ?? []) as $warningMessage) {
+                $warningMessage = trim((string) $warningMessage);
+                if ($warningMessage !== '') {
+                    $warnings[] = $warningMessage;
+                }
+            }
+            if ($property['provincia'] === '' && trim((string) ($property['provincia_originale'] ?? '')) !== '') {
+                $skippedReasons['unrecognized_province']++;
+            }
             if ($property['provincia'] === '' || $property['comune'] === '' || $property['foglio'] === '' || $property['particella'] === '') {
                 $processed++;
                 $skippedRows++;
@@ -1375,6 +1464,9 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
                     'quota' => $property['quota'] !== '' ? $property['quota'] : null,
                     'id' => $propertyId,
                 ] + ($hasPianoColumn ? ['piano' => $property['piano'] !== '' ? $property['piano'] : null] : []);
+                if ($hasProvinciaOriginaleColumn) {
+                    $updateParams['provincia_originale'] = (string) ($property['provincia_originale'] ?? '');
+                }
                 if ($hasManualCoords) {
                     $updatePropertyWithCoords->execute($updateParams + [
                         'lat' => $property['lat'],
@@ -1424,7 +1516,7 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
                 }
 
             } else {
-                $insertProperty->execute([
+                $insertParams = [
                     'user_id' => $tenantId,
                     'import_batch_id' => $batchId,
                     'provincia' => $property['provincia'],
@@ -1450,7 +1542,11 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
                     'stato' => null,
                     'stato_personalizzato' => null,
                     'colore_marker' => '#0d6efd',
-                ] + ($hasPianoColumn ? ['piano' => $property['piano'] !== '' ? $property['piano'] : null] : []));
+                ] + ($hasPianoColumn ? ['piano' => $property['piano'] !== '' ? $property['piano'] : null] : []);
+                if ($hasProvinciaOriginaleColumn) {
+                    $insertParams['provincia_originale'] = (string) ($property['provincia_originale'] ?? '');
+                }
+                $insertProperty->execute($insertParams);
                 $propertyId = (int) $pdo->lastInsertId();
                 $insertOwner->execute([
                     'property_id' => $propertyId,
@@ -1500,6 +1596,7 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
             'skipped_rows' => $skippedRows,
             'notes_imported' => $notesImported,
             'skipped_reasons' => array_filter($skippedReasons),
+            'warnings' => array_values(array_unique($warnings)),
         ];
     } catch (Throwable $exception) {
         $pdo->prepare("UPDATE import_batches SET status = 'failed', error_message = :message, completed_at = NOW() WHERE id = :id")

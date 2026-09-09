@@ -29,6 +29,18 @@ Webapp PHP/PDO multi-tenant per importare dati catastali, salvarli su MySQL/Mari
 - I duplicati su chiave catastale `(user_id, provincia, comune, sezione, foglio, particella, subalterno)` vengono analizzati prima dell'import.
 - Se cambia l'intestatario, il worker crea lo storico su `property_owners` e registra la scelta in `import_duplicate_conflicts`.
 
+### Normalizzazione provincia (sigla canonica + valore originale)
+
+- In fase di import, `Provincia/Prov` viene sempre normalizzata alla sigla ufficiale a 2 lettere
+  tramite helper condiviso (`analyticspro_normalize_provincia_sigla()`).
+- Se nel file arriva il nome esteso (`BRESCIA`, `Provincia di Brescia`, `VERBANO-CUSIO-OSSOLA`, ecc.),
+  il valore canonico salvato in `properties.provincia` è la sigla (`BS`, `VB`, ...).
+- Il valore grezzo del file viene preservato in `properties.provincia_originale` per tracciabilità.
+- Se la provincia non è riconoscibile, non avviene alcun troncamento silenzioso:
+  viene emesso un warning esplicito nel log import e la riga resta da correggere.
+- Se provincia non è riconosciuta ma è disponibile il codice catastale (o il solo comune è
+  disambiguabile), la sigla viene derivata automaticamente dal catalogo comuni catastali.
+
 ### Flusso a due fasi: persistenza immediata + arricchimento coordinate asincrono
 
 L'import CSV/Excel è suddiviso in due fasi indipendenti:
@@ -572,6 +584,18 @@ I job di indicizzazione GML sono gestiti dalle tabelle `gml_index_jobs` / `gml_i
 - `006_add_enrichment_report.sql`
 - `007_add_enrichment_sync_flag.sql`
 - `012_add_enrichment_attempts.sql`
+- `013_normalize_provincia.sql`
+
+`013_normalize_provincia.sql`:
+
+- aggiunge `properties.provincia_originale` (`VARCHAR(100) NULL`);
+- backfill delle province non a 2 caratteri con priorità: `cod_catastale` → `nome_comune` → prefisso univoco;
+- gestisce collisioni sulla unique key catastale fondendo i duplicati su una riga keeper
+  (preferita con coordinate valorizzate, poi `id` minore), con audit in `provincia_normalization_audit`;
+- se una provincia non è riparabile, non indovina: lascia il valore corrente e registra audit `unresolved`;
+- restringe `properties.provincia` a `VARCHAR(2)` solo quando non restano righe non normalizzate;
+- per le righe normalizzate che erano `coord_source = 'unresolved'`, azzera i campi di tentativo
+  così tornano eleggibili al retry automatico.
 
 ### Protezione HTTP
 
@@ -698,7 +722,7 @@ Quando `analyticspro_tenant_phone_visibility()` restituisce `false`:
 
 ## Migration MySQL 8
 
-Le migration 006, 007 e 012 usano procedure portabili per MySQL 8 (la sintassi
+Le migration 006, 007, 012 e 013 usano procedure portabili per MySQL 8 (la sintassi
 `ADD COLUMN IF NOT EXISTS` è MariaDB-only):
 
 ```sql
@@ -726,7 +750,7 @@ DROP PROCEDURE IF EXISTS _analyticspro_migration_006;
 
 `analyticspro/admin/diagnostica_import.php` (solo admin) permette di:
 
-- Verificare la presenza di ogni colonna/tabella attesa dalle migration 001-012.
+- Verificare la presenza di ogni colonna/tabella attesa dalle migration 001-013.
 - Testare la risoluzione `nome comune → Belfiore` mostrando quale livello della catena ha risposto.
 - Eseguire `enrich_chunk` in-process per un batch specifico, mostrando l'eccezione completa
   con stack trace invece del 422 opaco.
