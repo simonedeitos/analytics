@@ -26,14 +26,23 @@ if (!str_contains($source, "require_once __DIR__ . '/includes/dashboard_stats.ph
 if (str_contains($source, 'analitiche.php')) {
     $errors[] = 'dashboard.php non deve mantenere riferimenti alla pagina rimossa analitiche.php.';
 }
-if (!str_contains($source, 'data-dashboard-filter-control="province"')) {
-    $errors[] = 'dashboard.php deve esporre il filtro avanzato provincia.';
+if (!str_contains($source, 'data-dashboard-filter-control="comune"')) {
+    $errors[] = 'dashboard.php deve esporre il filtro avanzato comune.';
+}
+if (str_contains($source, 'data-dashboard-period-control')) {
+    $errors[] = 'dashboard.php non deve esporre il selettore periodo nella barra filtri.';
+}
+if (str_contains($source, 'dashboard-tenant-select')) {
+    $errors[] = 'dashboard.php non deve esporre il selettore tenant nella barra filtri.';
 }
 if (!str_contains($source, 'data-dashboard-filter-control="category"')) {
     $errors[] = 'dashboard.php deve esporre il filtro avanzato categoria.';
 }
 if (!str_contains($source, "'canvas_id' => 'chart-gender'")) {
     $errors[] = 'dashboard.php deve includere il grafico Distribuzione sesso migrato da analitiche.php.';
+}
+if (!str_contains($source, "'canvas_id' => 'chart-comune-distribution'")) {
+    $errors[] = 'dashboard.php deve includere il grafico Distribuzione per comuni.';
 }
 if (analyticspro_dashboard_period_key('30d') !== '30d') {
     $errors[] = 'analyticspro_dashboard_period_key(30d) deve restituire 30d.';

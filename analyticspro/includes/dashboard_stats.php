@@ -72,9 +72,9 @@ function analyticspro_dashboard_parse_datetime(?string $value): ?DateTimeImmutab
     }
 }
 
-function analyticspro_dashboard_matches_dimension(array $property, ?string $province, ?string $category): bool
+function analyticspro_dashboard_matches_dimension(array $property, ?string $comune, ?string $category): bool
 {
-    if ($province !== null && $province !== '' && strcasecmp(trim((string) ($property['provincia'] ?? '')), $province) !== 0) {
+    if ($comune !== null && $comune !== '' && strcasecmp(trim((string) ($property['comune'] ?? '')), $comune) !== 0) {
         return false;
     }
     if ($category !== null && $category !== '' && strcasecmp(trim((string) ($property['categoria'] ?? '')), $category) !== 0) {
@@ -85,14 +85,14 @@ function analyticspro_dashboard_matches_dimension(array $property, ?string $prov
 
 function analyticspro_dashboard_filter_properties(array $properties, array $options = []): array
 {
-    $province = trim((string) ($options['province'] ?? ''));
+    $comune = trim((string) ($options['comune'] ?? ''));
     $category = trim((string) ($options['category'] ?? ''));
     $bounds = $options['bounds'] ?? analyticspro_dashboard_period_bounds((string) ($options['period'] ?? 'all'));
     $currentStart = $bounds['current_start'] ?? null;
     $currentEnd = $bounds['current_end'] ?? null;
 
-    return array_values(array_filter($properties, static function (array $property) use ($province, $category, $currentStart, $currentEnd): bool {
-        if (!analyticspro_dashboard_matches_dimension($property, $province, $category)) {
+    return array_values(array_filter($properties, static function (array $property) use ($comune, $category, $currentStart, $currentEnd): bool {
+        if (!analyticspro_dashboard_matches_dimension($property, $comune, $category)) {
             return false;
         }
         if (!$currentStart instanceof DateTimeImmutable || !$currentEnd instanceof DateTimeImmutable) {
@@ -108,7 +108,7 @@ function analyticspro_dashboard_filter_properties(array $properties, array $opti
 
 function analyticspro_dashboard_previous_properties(array $properties, array $options = []): array
 {
-    $province = trim((string) ($options['province'] ?? ''));
+    $comune = trim((string) ($options['comune'] ?? ''));
     $category = trim((string) ($options['category'] ?? ''));
     $bounds = $options['bounds'] ?? analyticspro_dashboard_period_bounds((string) ($options['period'] ?? 'all'));
     $previousStart = $bounds['previous_start'] ?? null;
@@ -118,8 +118,8 @@ function analyticspro_dashboard_previous_properties(array $properties, array $op
         return [];
     }
 
-    return array_values(array_filter($properties, static function (array $property) use ($province, $category, $previousStart, $previousEnd): bool {
-        if (!analyticspro_dashboard_matches_dimension($property, $province, $category)) {
+    return array_values(array_filter($properties, static function (array $property) use ($comune, $category, $previousStart, $previousEnd): bool {
+        if (!analyticspro_dashboard_matches_dimension($property, $comune, $category)) {
             return false;
         }
         $createdAt = analyticspro_dashboard_parse_datetime((string) ($property['created_at'] ?? ''));
@@ -223,6 +223,26 @@ function analyticspro_dashboard_series_assoc(array $items, int $limit = 0): arra
     ];
 }
 
+function analyticspro_dashboard_series_with_others(array $items, int $limit, string $othersLabel = 'Altri'): array
+{
+    arsort($items);
+    if ($limit <= 0 || count($items) <= $limit) {
+        return analyticspro_dashboard_series_assoc($items);
+    }
+
+    $top = array_slice($items, 0, $limit, true);
+    $remaining = array_slice($items, $limit, null, true);
+    $others = array_sum(array_values($remaining));
+    if ($others > 0) {
+        $top[$othersLabel] = (int) $others;
+    }
+
+    return [
+        'labels' => array_keys($top),
+        'values' => array_values($top),
+    ];
+}
+
 function analyticspro_dashboard_build_stats(array $properties, array $assignedProperties, array $options = []): array
 {
     $bounds = $options['bounds'] ?? analyticspro_dashboard_period_bounds((string) ($options['period'] ?? 'all'));
@@ -249,7 +269,6 @@ function analyticspro_dashboard_build_stats(array $properties, array $assignedPr
     ];
     $genders = [];
     $ages = [];
-    $provinces = [];
     $comuni = [];
     $categories = [];
     $ownership = [];
@@ -274,8 +293,6 @@ function analyticspro_dashboard_build_stats(array $properties, array $assignedPr
 
     $mapPoints = [];
     foreach ($currentProperties as $property) {
-        $provinceKey = trim((string) ($property['provincia'] ?? '')) ?: 'N/D';
-        $provinces[$provinceKey] = ($provinces[$provinceKey] ?? 0) + 1;
         $comuneKey = trim((string) ($property['comune'] ?? '')) ?: 'N/D';
         $comuni[$comuneKey] = ($comuni[$comuneKey] ?? 0) + 1;
         $categoryKey = trim((string) ($property['categoria'] ?? '')) ?: 'N/D';
@@ -330,15 +347,15 @@ function analyticspro_dashboard_build_stats(array $properties, array $assignedPr
             'contacts' => analyticspro_dashboard_series_assoc(array_filter($contacts, static fn (int $value): bool => $value > 0)),
             'gender' => analyticspro_dashboard_series_assoc($genders),
             'age' => analyticspro_dashboard_series_assoc($ages),
-            'province' => analyticspro_dashboard_series_assoc($provinces),
             'comune' => analyticspro_dashboard_series_assoc($comuni, 10),
+            'comune_distribution' => analyticspro_dashboard_series_with_others($comuni, 20),
             'categoria' => analyticspro_dashboard_series_assoc($categories),
             'titolarita' => analyticspro_dashboard_series_assoc($ownership),
         ] : [],
         'map_points' => $mapPoints,
         'filters' => [
             'period' => $bounds['period'],
-            'province' => (string) ($options['province'] ?? ''),
+            'comune' => (string) ($options['comune'] ?? ''),
             'category' => (string) ($options['category'] ?? ''),
         ],
         'meta' => [

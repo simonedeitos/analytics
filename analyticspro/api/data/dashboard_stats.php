@@ -12,8 +12,8 @@ $user = analyticspro_api_require_auth();
 try {
     analyticspro_verify_csrf($_SERVER['HTTP_X_CSRF_TOKEN'] ?? analyticspro_get('csrf_token'));
 
-    $period = analyticspro_dashboard_period_key((string) analyticspro_get('period', 'all'));
-    $province = trim((string) analyticspro_get('province', ''));
+    $period = 'all';
+    $comune = trim((string) analyticspro_get('comune', ''));
     $category = trim((string) analyticspro_get('category', ''));
     $refresh = analyticspro_get('refresh') === '1';
     $cacheKey = sha1(json_encode([
@@ -21,7 +21,7 @@ try {
         'tenant' => analyticspro_current_tenant_id(),
         'selected' => analyticspro_get('tenant_id', ''),
         'period' => $period,
-        'province' => $province,
+        'comune' => $comune,
         'category' => $category,
         'analytics' => !analyticspro_is_subuser() || !empty(analyticspro_get_subuser_permissions((int) $user['id'])['can_view_analytics']),
         'phone' => analyticspro_tenant_phone_visibility(analyticspro_current_tenant_id()),
@@ -34,7 +34,7 @@ try {
 
     $payload = analyticspro_fetch_dashboard_stats($user, [
         'period' => $period,
-        'province' => $province,
+        'comune' => $comune,
         'category' => $category,
         'map_limit' => 250,
     ]);
