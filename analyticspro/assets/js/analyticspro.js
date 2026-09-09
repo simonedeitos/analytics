@@ -83,6 +83,8 @@
         cadastralClickBound: false,
         cadastralPopup: null,
         manualRecordModal: null,
+        manualRecordContext: null,
+        pendingNewMarkerFocus: null,
         cadastralTileWarningShown: false,
         mapInvalidateTimer: 0,
     };
@@ -126,9 +128,25 @@
         };
     }
 
+    function parseFiniteCoordinate(value) {
+        var normalized = String(value === null || value === undefined ? '' : value).trim().replace(',', '.');
+        if (normalized === '') return null;
+        var parsed = Number(normalized);
+        return Number.isFinite(parsed) ? parsed : null;
+    }
+
+    function formatCoordinateSummary(lat, lng) {
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return '';
+        return Number(lat).toFixed(6) + ', ' + Number(lng).toFixed(6);
+    }
+
     function mergeCadastralManualRecordValues(baseValues, details) {
         var merged = Object.assign({}, baseValues);
+        var baseLat = parseFiniteCoordinate(baseValues && baseValues.Latitudine);
+        var baseLng = parseFiniteCoordinate(baseValues && baseValues.Longitudine);
         if (!details || typeof details !== 'object') {
+            if (baseLat !== null) merged.Latitudine = String(baseLat);
+            if (baseLng !== null) merged.Longitudine = String(baseLng);
             return merged;
         }
         [['Provincia', details.provincia], ['Comune', details.comune], ['Codice Catastale', details.cod_catastale], ['Sezione', details.sezione], ['Foglio', details.foglio], ['Particella', details.particella], ['Subalterno', details.subalterno], ['Categoria', details.categoria], ['Indirizzo', details.indirizzo], ['Civico', details.civico]].forEach(function (entry) {
@@ -136,6 +154,10 @@
                 merged[entry[0]] = String(entry[1]);
             }
         });
+        var resolvedLat = parseFiniteCoordinate(details.lat);
+        var resolvedLng = parseFiniteCoordinate(details.lng);
+        merged.Latitudine = String(resolvedLat !== null ? resolvedLat : (baseLat !== null ? baseLat : ''));
+        merged.Longitudine = String(resolvedLng !== null ? resolvedLng : (baseLng !== null ? baseLng : ''));
         return merged;
     }
 
@@ -144,7 +166,7 @@
         if (lockResolvedLocation) {
             candidateFields = ['Provincia', 'Comune'].concat(candidateFields);
         }
-        openManualRecordModal(values, resolveManualRecordLockedFields(values, candidateFields));
+        openManualRecordModal(values, resolveManualRecordLockedFields(values, candidateFields), { fromMap: true });
         setManualRecordFeedback(noticeMessage || '', noticeMessage ? 'warning' : 'warning');
     }
 
@@ -992,7 +1014,9 @@
         var statiFilter = getStatiFilter();
         var categorieFilter = getCategorieFilter();
         var pendingView = state.pendingMapView;
+        var pendingNewMarkerFocus = state.pendingNewMarkerFocus;
         state.pendingMapView = null;
+        state.pendingNewMarkerFocus = null;
         state.markers.clearLayers();
         var points = [];
 
@@ -1019,12 +1043,17 @@
                 weight: 2,
             });
             marker._analyticsPropertyId = Number(property.id);
+            marker._analyticsPropertyData = property;
             marker.bindPopup(buildPopupHtml(property), { maxWidth: 460 });
             state.markers.addLayer(marker);
             points.push(property);
         }
 
-        if (pendingView && pendingView.center && Number.isFinite(pendingView.zoom)) {
+        if (pendingNewMarkerFocus) {
+            if (!focusMapOnTargetMarker(pendingNewMarkerFocus)) {
+                showMapFeedback('Marker salvato ma non trovato in mappa dopo il ricaricamento.', 'warning', 3200);
+            }
+        } else if (pendingView && pendingView.center && Number.isFinite(pendingView.zoom)) {
             state.map.setView(pendingView.center, pendingView.zoom, { animate: false });
         } else if (points.length) {
             state.map.fitBounds(state.markers.getBounds().pad(0.2));
@@ -1312,6 +1341,60 @@
         }
     }
 
+    function normalizeFocusToken(value) {
+        return String(value === null || value === undefined ? '' : value).trim().toUpperCase();
+    }
+
+    function coordinatesMatch(latA, lngA, latB, lngB) {
+        if (!Number.isFinite(latA) || !Number.isFinite(lngA) || !Number.isFinite(latB) || !Number.isFinite(lngB)) {
+            return false;
+        }
+        return Math.abs(latA - latB) <= 0.000001 && Math.abs(lngA - lngB) <= 0.000001;
+    }
+
+    function propertyMatchesFocusTarget(property, target) {
+        if (!property || !target) return false;
+        var targetLat = parseFiniteCoordinate(target.lat);
+        var targetLng = parseFiniteCoordinate(target.lng);
+        var propertyLat = parseFiniteCoordinate(property.lat);
+        var propertyLng = parseFiniteCoordinate(property.lng);
+        if (coordinatesMatch(propertyLat, propertyLng, targetLat, targetLng)) {
+            return true;
+        }
+        return normalizeFocusToken(property.provincia) === normalizeFocusToken(target.provincia)
+            && normalizeFocusToken(property.comune) === normalizeFocusToken(target.comune)
+            && normalizeFocusToken(property.cod_catastale) === normalizeFocusToken(target.cod_catastale)
+            && normalizeFocusToken(property.sezione) === normalizeFocusToken(target.sezione)
+            && normalizeFocusToken(property.foglio) === normalizeFocusToken(target.foglio)
+            && normalizeFocusToken(property.particella) === normalizeFocusToken(target.particella)
+            && normalizeFocusToken(property.subalterno) === normalizeFocusToken(target.subalterno);
+    }
+
+    function focusMapOnTargetMarker(target) {
+        if (!state.map || !state.markers || !target) return false;
+        var targetMarker = null;
+        state.markers.eachLayer(function (layer) {
+            if (targetMarker) return;
+            if (!layer || !layer._analyticsPropertyData) return;
+            if (propertyMatchesFocusTarget(layer._analyticsPropertyData, target)) {
+                targetMarker = layer;
+            }
+        });
+        if (!targetMarker || typeof targetMarker.getLatLng !== 'function') {
+            return false;
+        }
+        var markerLatLng = targetMarker.getLatLng();
+        state.map.setView(markerLatLng, 18, { animate: false });
+        if (typeof state.markers.zoomToShowLayer === 'function') {
+            state.markers.zoomToShowLayer(targetMarker, function () {
+                targetMarker.openPopup();
+            });
+        } else {
+            targetMarker.openPopup();
+        }
+        return true;
+    }
+
     async function deleteProperty(propertyId) {
         if (!state.propertyDeleteEndpoint) throw new Error('Endpoint eliminazione non configurato.');
         await api(state.propertyDeleteEndpoint, {
@@ -1402,6 +1485,7 @@
     function resetManualRecordForm() {
         var form = document.getElementById('manual-record-form');
         var feedback = document.getElementById('manual-record-feedback');
+        var coordinateSummary = document.getElementById('manual-record-coordinates-summary');
         if (form) form.reset();
         if (form) {
             Array.from(form.querySelectorAll('input[type="hidden"][data-manual-record-mirror-for]')).forEach(function (field) {
@@ -1416,6 +1500,11 @@
             feedback.className = 'alert d-none py-2';
             feedback.textContent = '';
         }
+        if (coordinateSummary) {
+            coordinateSummary.className = 'col-12 small text-muted d-none';
+            coordinateSummary.textContent = '';
+        }
+        state.manualRecordContext = null;
     }
 
     function setManualRecordFieldValue(form, name, value) {
@@ -1442,10 +1531,33 @@
         syncManualRecordAutofillHint(form);
     }
 
-    function openManualRecordModal(values, lockedFields) {
+    function syncManualRecordCoordinateSummary(values, context) {
+        var summary = document.getElementById('manual-record-coordinates-summary');
+        if (!summary) return;
+        var fromMap = !!(context && context.fromMap);
+        var lat = parseFiniteCoordinate(values && values.Latitudine);
+        var lng = parseFiniteCoordinate(values && values.Longitudine);
+        if (!fromMap || lat === null || lng === null) {
+            summary.className = 'col-12 small text-muted d-none';
+            summary.textContent = '';
+            return;
+        }
+        summary.className = 'col-12 small text-muted';
+        summary.textContent = 'Coordinate: ' + formatCoordinateSummary(lat, lng);
+    }
+
+    function openManualRecordModal(values, lockedFields, context) {
         var modalEl = document.getElementById('manual-record-modal');
         if (!modalEl) return;
-        prefillManualRecordForm(values || {}, lockedFields || []);
+        var effectiveValues = values || {};
+        var effectiveContext = context && typeof context === 'object' ? context : {};
+        prefillManualRecordForm(effectiveValues, lockedFields || []);
+        state.manualRecordContext = {
+            fromMap: !!effectiveContext.fromMap,
+            lat: parseFiniteCoordinate(effectiveValues.Latitudine),
+            lng: parseFiniteCoordinate(effectiveValues.Longitudine),
+        };
+        syncManualRecordCoordinateSummary(effectiveValues, state.manualRecordContext);
         state.manualRecordModal = bootstrap.Modal.getOrCreateInstance(modalEl);
         state.manualRecordModal.show();
     }
@@ -1462,6 +1574,42 @@
         feedback.textContent = message;
     }
 
+    function ensureValueLabel(value) {
+        var normalized = String(value === null || value === undefined ? '' : value).trim();
+        return normalized !== '' ? normalized : '—';
+    }
+
+    function buildSavedMarkerSummary(values) {
+        var comune = ensureValueLabel(values.Comune);
+        var provincia = ensureValueLabel(values.Provincia);
+        var foglio = ensureValueLabel(values.Foglio);
+        var particella = ensureValueLabel(values.Particella);
+        var subalterno = ensureValueLabel(values.Subalterno);
+        var indirizzo = ensureValueLabel(((values.Indirizzo || '') + ' ' + (values.Civico || '')).trim());
+        var lat = parseFiniteCoordinate(values.Latitudine);
+        var lng = parseFiniteCoordinate(values.Longitudine);
+        return {
+            comuneProvincia: comune + ' (' + provincia + ')',
+            catastale: 'F.' + foglio + ' · P.' + particella + ' · Sub. ' + subalterno,
+            indirizzo: indirizzo,
+            coordinate: lat !== null && lng !== null ? formatCoordinateSummary(lat, lng) : '—',
+        };
+    }
+
+    function showManualRecordSavedModal(values) {
+        var modalEl = document.getElementById('manual-record-saved-modal');
+        var bodyEl = document.getElementById('manual-record-saved-body');
+        if (!modalEl || !bodyEl) return;
+        var summary = buildSavedMarkerSummary(values || {});
+        bodyEl.innerHTML = '<ul class="list-unstyled small mb-0">'
+            + '<li><strong>Comune/Provincia:</strong> ' + escapeHtml(summary.comuneProvincia) + '</li>'
+            + '<li><strong>Foglio/Particella/Subalterno:</strong> ' + escapeHtml(summary.catastale) + '</li>'
+            + '<li><strong>Indirizzo:</strong> ' + escapeHtml(summary.indirizzo) + '</li>'
+            + '<li><strong>Coordinate:</strong> ' + escapeHtml(summary.coordinate) + '</li>'
+            + '</ul>';
+        bootstrap.Modal.getOrCreateInstance(modalEl).show();
+    }
+
     function initManualRecordModal() {
         var modalEl = document.getElementById('manual-record-modal');
         var openBtn = document.getElementById('open-manual-record-modal');
@@ -1473,7 +1621,7 @@
         if (openBtn) {
             openBtn.addEventListener('click', function () {
                 allowClose = false;
-                openManualRecordModal({}, []);
+                openManualRecordModal({}, [], { fromMap: false });
             });
         }
         modalEl.addEventListener('hide.bs.modal', function (event) {
@@ -1493,6 +1641,17 @@
         saveBtn.addEventListener('click', async function () {
             var feedback = document.getElementById('manual-record-feedback');
             var row = manualRecordFormData();
+            var manualContext = state.manualRecordContext || { fromMap: false };
+            if (manualContext.fromMap) {
+                var mapLat = parseFiniteCoordinate(row.Latitudine);
+                var mapLng = parseFiniteCoordinate(row.Longitudine);
+                if (mapLat === null || mapLng === null) {
+                    setManualRecordFeedback('Impossibile salvare: coordinate mappa mancanti o non valide. Chiudi e ripeti il click sulla mappa.', 'danger');
+                    return;
+                }
+                row.Latitudine = String(mapLat);
+                row.Longitudine = String(mapLng);
+            }
             if (!Object.keys(row).some(function (key) { return row[key] !== ''; })) {
                 if (feedback) {
                     feedback.className = 'alert alert-warning py-2';
@@ -1521,8 +1680,22 @@
                 }
                 allowClose = true;
                 modal.hide();
-                await loadProperties({ preserveMapView: true });
-                window.alert('Record salvato correttamente.');
+                if (state.map) {
+                    state.map.closePopup();
+                }
+                state.pendingNewMarkerFocus = {
+                    lat: parseFiniteCoordinate(row.Latitudine),
+                    lng: parseFiniteCoordinate(row.Longitudine),
+                    provincia: row.Provincia || '',
+                    comune: row.Comune || '',
+                    cod_catastale: row['Codice Catastale'] || '',
+                    sezione: row.Sezione || '',
+                    foglio: row.Foglio || '',
+                    particella: row.Particella || '',
+                    subalterno: row.Subalterno || '',
+                };
+                await loadProperties();
+                showManualRecordSavedModal(row);
             } catch (error) {
                 if (feedback) {
                     feedback.className = 'alert alert-danger py-2';
@@ -1917,6 +2090,11 @@
             var phoneConfirmModal = document.createElement('div');
             phoneConfirmModal.innerHTML = '<div class="modal fade" id="owner-phone-confirm-modal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Conferma eliminazione</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button></div><div class="modal-body"><p id="owner-phone-confirm-message" class="mb-0 small"></p></div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Annulla</button><button type="button" class="btn btn-danger btn-sm" id="owner-phone-confirm-delete">Elimina</button></div></div></div></div>';
             document.body.appendChild(phoneConfirmModal.firstElementChild);
+        }
+        if (!document.getElementById('manual-record-saved-modal')) {
+            var savedModal = document.createElement('div');
+            savedModal.innerHTML = '<div class="modal fade" id="manual-record-saved-modal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Record salvato</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button></div><div class="modal-body"><div id="manual-record-saved-body"></div></div><div class="modal-footer"><button type="button" class="btn btn-primary btn-sm" data-bs-dismiss="modal">Chiudi</button></div></div></div></div>';
+            document.body.appendChild(savedModal.firstElementChild);
         }
     }
 
@@ -2466,15 +2644,16 @@
         }
         if (!hasCadastralLocationDetails(details)) {
             showMapFeedback('Nessuna particella in questo punto.', 'warning', 2600);
-            return;
+            details = details && typeof details === 'object' ? details : {};
+        } else {
+            showMapFeedback(
+                hasCadastralParcelDetails(details)
+                    ? 'Dati catastali trovati.'
+                    : 'Comune e provincia rilevati; particella non disponibile in questo punto.',
+                hasCadastralParcelDetails(details) ? 'success' : 'warning',
+                2200
+            );
         }
-        showMapFeedback(
-            hasCadastralParcelDetails(details)
-                ? 'Dati catastali trovati.'
-                : 'Comune e provincia rilevati; particella non disponibile in questo punto.',
-            hasCadastralParcelDetails(details) ? 'success' : 'warning',
-            2200
-        );
         state.cadastralPopup = L.popup({ maxWidth: 420 })
             .setLatLng(event.latlng)
             .setContent(buildCadastralPopupHtml(details, event.latlng))

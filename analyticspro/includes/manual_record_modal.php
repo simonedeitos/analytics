@@ -14,6 +14,7 @@ declare(strict_types=1);
                 <form id="manual-record-form" class="row g-3">
                     <input type="hidden" name="Latitudine">
                     <input type="hidden" name="Longitudine">
+                    <div id="manual-record-coordinates-summary" class="col-12 small text-muted d-none"></div>
                     <div class="col-12"><h3 class="h6 mb-0">Dati catastali</h3></div>
                     <div class="col-12">
                         <div id="manual-record-autofill-hint" class="manual-record-autofill-hint small text-muted d-none">

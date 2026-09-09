@@ -82,15 +82,28 @@ function analyticspro_parse_coordinate(?string $value): ?float
     return (float) $normalized;
 }
 
+function analyticspro_is_partita_iva(?string $value): bool
+{
+    $value = trim((string) $value);
+    return $value !== '' && preg_match('/^\d{11}$/', $value) === 1;
+}
+
 function analyticspro_guess_gender(?string $cf): ?string
 {
     $cf = strtoupper(trim((string) $cf));
-    if (!preg_match('/^[A-Z0-9]{11,16}$/', $cf)) {
+    if ($cf === '') {
+        return null;
+    }
+    if (analyticspro_is_partita_iva($cf)) {
+        return 'Società';
+    }
+    if (preg_match('/^[A-Z]{6}\d{2}[A-Z]\d{2}[A-Z]\d{3}[A-Z]$/', $cf) !== 1) {
         return null;
     }
 
     $day = (int) substr($cf, 9, 2);
-    if ($day <= 0) {
+    $normalizedDay = $day > 40 ? $day - 40 : $day;
+    if ($normalizedDay < 1 || $normalizedDay > 31) {
         return null;
     }
 
@@ -293,7 +306,7 @@ function analyticspro_extract_row_payload(array $row): array
             'lng' => analyticspro_parse_coordinate(analyticspro_extract_row_value($row, ['Longitudine', 'Lng', 'Lon', 'Longitude'])),
         ],
         'owner' => [
-            'tipo' => preg_match('/^\d{11}$/', $cf) ? 'azienda' : 'persona',
+            'tipo' => analyticspro_is_partita_iva($cf) ? 'azienda' : 'persona',
             'nome' => $givenName,
             'cognome' => $surname,
             'codice_fiscale' => $cf,

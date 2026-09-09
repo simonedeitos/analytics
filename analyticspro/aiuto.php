@@ -127,6 +127,7 @@ analyticspro_render_header('Aiuto');
 
                                 <h6 class="mt-3">Contatti, note e nomi multipli</h6>
                                 <p>La colonna <strong>Contatti</strong> può contenere più numeri separati da virgola: il sistema li importa tutti, rimuove separatori inutili come <code> -</code>, elimina i duplicati e li salva nello stesso campo separandoli con <code>;</code>. Se nel file è presente una colonna <strong>Note</strong> / <strong>note</strong>, il testo viene aggiunto alle note dell'immobile. Le colonne <strong>Nome</strong>, <strong>Nome1</strong>, <strong>Nome2</strong> e <strong>Nome3</strong> vengono unite automaticamente evitando ripetizioni.</p>
+                                <p>Il campo <strong>Genere</strong> viene derivato dal codice fiscale: per persone fisiche resta <strong>M</strong>/<strong>F</strong>, mentre con codice fiscale interamente numerico (P.IVA a 11 cifre) viene impostato <strong>Società</strong>.</p>
 
                                 <h6 class="mt-3">Storico intestatari</h6>
                                 <p>AnalyticsPRO conserva uno storico degli intestatari nel tempo. Ogni aggiornamento non sovrascrive il dato precedente ma lo archivia con la data di sostituzione, così puoi sempre sapere chi era il titolare in un determinato periodo.</p>
@@ -179,6 +180,8 @@ analyticspro_render_header('Aiuto');
 
                                 <h6 class="mt-3">Assegnazione a subutenti</h6>
                                 <p>Dal popup del marker puoi assegnare l'immobile a uno o più subutenti. I subutenti assegnati lo vedranno nella sezione <em>Marker assegnati</em> e, se il loro permesso è configurato su "solo marker assegnati", potranno modificare solo questi.</p>
+                                <h6 class="mt-3">Crea nuovo marker dalla mappa catastale</h6>
+                                <p>Con layer catastale attivo puoi cliccare sulla mappa e usare <strong>Crea nuovo marker</strong>. Le coordinate del click vengono sempre mantenute nel modulo (visibili nel riepilogo <em>Coordinate</em>) anche quando i dati AdE sono incompleti: puoi completare i campi manualmente e salvare. Dopo il salvataggio la mappa si centra subito sul marker appena creato/aperto e viene mostrato un popup di conferma con il riepilogo dei dati salvati.</p>
                             </div>
                         </div>
                     </div>

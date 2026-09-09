@@ -113,7 +113,7 @@ CREATE TABLE property_owners (
     telefono_hash CHAR(64) NULL,
     data_nascita DATE NULL,
     luogo_nascita_enc VARBINARY(512) NULL,
-    genere CHAR(1) NULL,
+    genere VARCHAR(16) NULL,
     is_current TINYINT(1) NOT NULL DEFAULT 1,
     valid_from DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     valid_to DATETIME NULL,
