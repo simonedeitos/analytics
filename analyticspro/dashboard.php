@@ -155,9 +155,9 @@ $quickActions = [
         <div class="card-body">
             <?= analyticspro_ui_page_header(
                 'Ciao, ' . analyticspro_full_name($user),
-                'Una home unificata per monitorare KPI, territorio, attività e accessi senza uscire dalla dashboard.',
+                'Una home unificata per monitorare KPI, territorio e attività, tutto a portata di mano!',
                 $pageActions,
-                ['eyebrow' => 'Home professionale']
+                ['eyebrow' => 'Dashboard']
             ) ?>
             <ul class="nav nav-pills ap-dashboard-tabs mt-4" id="dashboardTabPills" role="tablist">
                 <li class="nav-item"><button class="nav-link active" type="button" data-dashboard-tab="all">Panoramica</button></li>
