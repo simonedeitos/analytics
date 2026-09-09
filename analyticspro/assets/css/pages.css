@@ -1,0 +1,97 @@
+.metric-card {
+    border-left: 0;
+}
+
+.analyticspro-map-toolbar {
+    background: transparent;
+    gap: .75rem;
+}
+.analyticspro-map-toolbar-primary,
+.analyticspro-map-toolbar-secondary {
+    gap: .75rem;
+}
+.analyticspro-map-toolbar .btn,
+.analyticspro-map-toolbar .form-select,
+.analyticspro-map-toolbar .form-control,
+.analyticspro-map-toolbar .form-check {
+    border-radius: .95rem;
+}
+.analyticspro-map-toolbar .dropdown-menu.analyticspro-map-dropdown {
+    border-radius: 1rem;
+    box-shadow: var(--ap-shadow-lg);
+}
+.analyticspro-map-shell,
+#map-container {
+    border-radius: 1.25rem;
+    overflow: hidden;
+    box-shadow: var(--ap-shadow-md);
+}
+
+.ap-dashboard-map {
+    min-height: 320px;
+    border-radius: 1rem;
+    overflow: hidden;
+    background: linear-gradient(180deg, rgba(42,81,159,.05), rgba(42,81,159,.12));
+}
+.ap-dashboard-map .leaflet-container {
+    width: 100%;
+    height: 100%;
+}
+.ap-filter-bar {
+    position: sticky;
+    top: calc(var(--ap-topbar-offset) + .75rem);
+    z-index: 10;
+}
+
+.report-filter-bar {
+    position: sticky;
+    top: calc(var(--ap-topbar-offset) + .75rem);
+    z-index: 15;
+    background: rgba(255,255,255,.9);
+    backdrop-filter: blur(10px);
+}
+[data-theme="dark"] .report-filter-bar {
+    background: rgba(16,24,40,.84);
+}
+
+.table,
+.dataTables_wrapper,
+.dataTables_wrapper .dataTables_info,
+.dataTables_wrapper .dataTables_paginate,
+.dataTables_wrapper .dataTables_length,
+.dataTables_wrapper .dataTables_filter {
+    color: var(--ap-text);
+}
+.dataTables_wrapper .dt-buttons {
+    margin-bottom: .75rem;
+}
+.dataTables_wrapper .dt-buttons .btn {
+    border-radius: 999px;
+}
+
+.accordion-button:not(.collapsed) {
+    background: var(--ap-blue-light);
+    color: var(--ap-blue-dark);
+}
+[data-theme="dark"] .accordion-button,
+[data-theme="dark"] .accordion-button:not(.collapsed) {
+    background: var(--ap-surface-2);
+    color: var(--ap-text);
+}
+
+.ap-subtle-block {
+    padding: 1rem;
+    border-radius: 1rem;
+    background: var(--ap-surface-2);
+}
+
+.auth-card {
+    border-radius: var(--ap-radius-lg);
+}
+
+@media (max-width: 991.98px) {
+    .ap-filter-bar,
+    .report-filter-bar {
+        position: static;
+    }
+}

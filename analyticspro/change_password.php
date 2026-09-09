@@ -4,12 +4,10 @@ declare(strict_types=1);
 
 require __DIR__ . '/includes/bootstrap.php';
 require_once __DIR__ . '/includes/layout.php';
+require_once __DIR__ . '/includes/ui/helpers.php';
 
 analyticspro_require_auth();
 $user = analyticspro_current_user();
-if (($user['role'] ?? '') !== 'subuser' || empty($user['must_change_password'])) {
-    analyticspro_redirect('dashboard.php');
-}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
@@ -39,19 +37,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 analyticspro_render_header('Cambio password', ['body_class' => 'bg-auth', 'auth_page' => true]);
 ?>
-<div class="row justify-content-center">
-    <div class="col-12 col-md-6 col-lg-4">
-        <div class="card shadow-sm border-0 auth-card mt-4">
-            <div class="card-body p-4">
-                <h1 class="h3 mb-3 text-center">Cambia password</h1>
-                <p class="text-muted small">Al primo accesso il subutente deve impostare una nuova password personale.</p>
+<div class="card border-0 shadow-lg ap-auth-card">
+    <div class="ap-auth-grid">
+        <div class="ap-auth-brand">
+            <div>
+                <div class="ap-page-eyebrow text-white-50">Sicurezza account</div>
+                <h1>Cambia password</h1>
+                <p class="mb-0">Mantieni protetto l'accesso al tuo tenant aggiornando la password con una chiave personale forte e sicura.</p>
+            </div>
+            <ul class="mb-0 ps-3 small">
+                <li>Minimo 8 caratteri.</li>
+                <li>Operazione valida per utenti principali, subutenti e admin.</li>
+                <li>Dopo il salvataggio tornerai alla dashboard.</li>
+            </ul>
+        </div>
+        <div class="ap-auth-panel">
+            <div class="ap-auth-panel-inner">
+                <h2 class="h3 mb-2">Nuova password</h2>
+                <p class="text-muted small mb-4">Imposta una nuova password per continuare a usare AnalyticsPRO in sicurezza.</p>
                 <form method="post">
                     <input type="hidden" name="csrf_token" value="<?= analyticspro_h(analyticspro_csrf_token()) ?>">
                     <div class="mb-3">
                         <label class="form-label">Nuova password</label>
                         <input type="password" name="password" class="form-control" minlength="8" required>
                     </div>
-                    <div class="mb-3">
+                    <div class="mb-4">
                         <label class="form-label">Conferma password</label>
                         <input type="password" name="password_confirm" class="form-control" minlength="8" required>
                     </div>

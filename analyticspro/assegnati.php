@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/includes/bootstrap.php';
 require_once __DIR__ . '/includes/layout.php';
+require_once __DIR__ . '/includes/ui/helpers.php';
 
 analyticspro_require_auth();
 $user = analyticspro_current_user();
@@ -31,10 +32,17 @@ analyticspro_render_header('Marker assegnati', ['app_assets' => true]);
      data-property-update-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/update_property.php')) ?>"
      data-property-delete-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/delete_property.php')) ?>">
 
-    <div class="d-flex justify-content-between align-items-center flex-wrap gap-3 mb-4">
+    <?= analyticspro_ui_page_header(
+        'Marker assegnati',
+        'Controlla la coda operativa dei marker assegnati, con filtri rapidi e tabella coerente con il nuovo layout.',
+        '',
+        ['eyebrow' => 'Operatività']
+    ) ?>
+
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-3 mb-4 ap-subtle-block">
         <div>
-            <h1 class="h3 mb-1">Marker assegnati</h1>
-            <p class="text-muted small mb-0">Vista focalizzata sui marker assegnati al tuo account o filtrabili.</p>
+            <div class="fw-semibold">Filtri rapidi</div>
+            <p class="text-muted small mb-0">Mostra solo assegnati, non assegnati o focalizza un subutente specifico.</p>
         </div>
         <div class="d-flex gap-2 align-items-center flex-wrap assigned-filter-controls">
             <select id="assigned-assignment-filter" class="form-select form-select-sm" style="min-width:160px">
@@ -49,7 +57,7 @@ analyticspro_render_header('Marker assegnati', ['app_assets' => true]);
 
     <div class="card border-0 shadow-sm">
         <div class="card-body">
-            <table id="assigned-table" class="table table-sm table-striped table-hover w-100 ap-compact-table">
+            <table id="assigned-table" class="table table-sm table-striped table-hover w-100 ap-compact-table align-middle">
                 <thead></thead>
                 <tfoot></tfoot>
                 <tbody></tbody>

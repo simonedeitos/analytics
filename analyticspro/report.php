@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/includes/bootstrap.php';
 require_once __DIR__ . '/includes/layout.php';
+require_once __DIR__ . '/includes/ui/helpers.php';
 
 analyticspro_require_auth();
 $user = analyticspro_current_user();
@@ -19,6 +20,7 @@ if (analyticspro_is_subuser() && empty($subuserPermissions['can_view_reports']))
 
 $tenantId       = analyticspro_current_tenant_id();
 $selectedTenant = analyticspro_is_admin() ? (string) analyticspro_get('tenant_id', 'all') : (string) $tenantId;
+$reportQuery    = trim((string) analyticspro_get('q', ''));
 
 analyticspro_render_header('Report in griglia', ['app_assets' => true]);
 ?>
@@ -34,9 +36,15 @@ analyticspro_render_header('Report in griglia', ['app_assets' => true]);
      data-can-edit-all-markers="<?= !analyticspro_is_subuser() || !empty($subuserPermissions['can_edit_all_markers']) ? '1' : '0' ?>"
      data-properties-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/properties.php')) ?>"
      data-property-update-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/update_property.php')) ?>"
-     data-property-delete-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/delete_property.php')) ?>">
+     data-property-delete-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/delete_property.php')) ?>"
+     data-report-query="<?= analyticspro_h($reportQuery) ?>">
 
-    <h1 class="h3 mb-4">Report in griglia</h1>
+    <?= analyticspro_ui_page_header(
+        'Report in griglia',
+        'Vista tabellare densa con filtri rapidi, ricerca globale e export coerente con il nuovo design system.',
+        '',
+        ['eyebrow' => 'Dati operativi']
+    ) ?>
 
     <div class="card border-0 shadow-sm">
         <div class="card-body">
@@ -72,7 +80,7 @@ analyticspro_render_header('Report in griglia', ['app_assets' => true]);
                     </div>
                 </div>
             </div>
-            <table id="report-table" class="table table-sm table-striped table-hover w-100 ap-compact-table">
+            <table id="report-table" class="table table-sm table-striped table-hover w-100 ap-compact-table align-middle">
                 <thead></thead>
                 <tfoot></tfoot>
                 <tbody></tbody>

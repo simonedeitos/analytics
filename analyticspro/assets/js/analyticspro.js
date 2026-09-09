@@ -56,6 +56,13 @@
         enrichChunkEndpoint: root.dataset.enrichChunkEndpoint || '',
         adeJobsEndpoint: root.dataset.adeJobsEndpoint || '',
         adeManualFilesEndpoint: root.dataset.adeManualFilesEndpoint || '',
+        dashboardStatsEndpoint: root.dataset.dashboardStatsEndpoint || '',
+        dashboardPage: root.dataset.dashboardPage || '',
+        dashboardPeriod: root.dataset.dashboardPeriod || '30d',
+        dashboardProvince: root.dataset.dashboardProvince || '',
+        dashboardCategory: root.dataset.dashboardCategory || '',
+        dashboardMapUrl: root.dataset.dashboardMapUrl || '',
+        reportQuery: root.dataset.reportQuery || '',
         propertyDeleteEndpoint: root.dataset.propertyDeleteEndpoint || '',
         findAreaEndpoint: root.dataset.findAreaEndpoint || '',
         findAreaComuniEndpoint: root.dataset.findAreaComuniEndpoint || '',
@@ -87,6 +94,8 @@
         pendingNewMarkerFocus: null,
         cadastralTileWarningShown: false,
         mapInvalidateTimer: 0,
+        dashboardMiniMap: null,
+        dashboardMiniMarkers: null,
     };
 
     state.mapStatiFilter = Object.keys(STATE_OPTIONS).slice();
@@ -220,6 +229,16 @@
             window.localStorage.setItem(localStorageKey(key), enabled ? '1' : '0');
         } catch (error) {
         }
+    }
+
+    function setQueryParam(key, value) {
+        var url = new URL(window.location.href);
+        if (value === null || value === undefined || value === '') {
+            url.searchParams.delete(key);
+        } else {
+            url.searchParams.set(key, value);
+        }
+        window.history.replaceState({}, '', url.toString());
     }
 
     function getStoredCadastralOpacity() {
@@ -507,6 +526,52 @@
         return url + (url.indexOf('?') !== -1 ? '&' : '?') + 'tenant_id=' + encodeURIComponent(state.selectedTenant);
     }
 
+    function syncPeriodControls(value) {
+        document.querySelectorAll('[data-dashboard-period-control]').forEach(function (control) {
+            if (control.value !== value) {
+                control.value = value;
+            }
+        });
+    }
+
+    function currentDashboardFilters() {
+        var provinceControl = document.querySelector('[data-dashboard-filter-control="province"]');
+        var categoryControl = document.querySelector('[data-dashboard-filter-control="category"]');
+        return {
+            period: state.dashboardPeriod || '30d',
+            province: provinceControl ? provinceControl.value : (state.dashboardProvince || ''),
+            category: categoryControl ? categoryControl.value : (state.dashboardCategory || ''),
+        };
+    }
+
+    function buildDashboardStatsUrl(forceRefresh) {
+        var filters = currentDashboardFilters();
+        var url = state.dashboardStatsEndpoint || '';
+        if (!url) return '';
+        var sep = url.indexOf('?') === -1 ? '?' : '&';
+        url += sep + 'period=' + encodeURIComponent(filters.period || '30d');
+        if (filters.province) url += '&province=' + encodeURIComponent(filters.province);
+        if (filters.category) url += '&category=' + encodeURIComponent(filters.category);
+        if (forceRefresh) url += '&refresh=1';
+        return withTenant(url);
+    }
+
+    async function loadDashboardStats(forceRefresh) {
+        if (!state.dashboardStatsEndpoint || !state.dashboardPage) return;
+        var filters = currentDashboardFilters();
+        state.dashboardPeriod = filters.period;
+        state.dashboardProvince = filters.province;
+        state.dashboardCategory = filters.category;
+        syncPeriodControls(state.dashboardPeriod);
+        var payload = await api(buildDashboardStatsUrl(forceRefresh), {
+            headers: { 'X-CSRF-Token': state.csrfToken }
+        });
+        renderDashboardStats(payload || {});
+        setQueryParam('period', state.dashboardPeriod);
+        setQueryParam('province', state.dashboardProvince);
+        setQueryParam('category', state.dashboardCategory);
+    }
+
     async function loadProperties(options) {
         options = options || {};
         if (options.preserveMapView) {
@@ -526,6 +591,15 @@
         renderAssignedTable();
         if (state.canViewReports || state.role !== 'subuser') renderReportTable();
         if (state.canViewAnalytics || state.role !== 'subuser') renderCharts();
+        if (state.dashboardPage) {
+            try {
+                await loadDashboardStats(options.refreshStats === true);
+            } catch (error) {
+                if (state.dashboardPage === 'home') {
+                    renderDashboardMiniMapFromProperties();
+                }
+            }
+        }
         populateAssignedSubuserFilter();
         refreshMapCategoryFilters();
     }
@@ -774,6 +848,15 @@
         if (!document.getElementById('report-table')) return;
         initDataTable('#report-table', buildTableData(state.properties, 'report'), state.role !== 'subuser', 'report');
         hydrateReportFilters();
+        if (state.reportQuery) {
+            var comuneInput = document.getElementById('report-filter-comune');
+            if (comuneInput && !comuneInput.value) {
+                comuneInput.value = state.reportQuery;
+            }
+            if (state.tables['#report-table']) {
+                state.tables['#report-table'].search(state.reportQuery).draw();
+            }
+        }
         applyReportFilters();
     }
 
@@ -1066,6 +1149,19 @@
 
     window.addEventListener('analyticspro:topbar-resize', function () {
         scheduleMapInvalidateSize(120);
+        if (state.dashboardMiniMap) {
+            window.setTimeout(function () {
+                if (state.dashboardMiniMap) state.dashboardMiniMap.invalidateSize();
+            }, 120);
+        }
+    });
+    window.addEventListener('analyticspro:layout-resize', function () {
+        scheduleMapInvalidateSize(120);
+        if (state.dashboardMiniMap) {
+            window.setTimeout(function () {
+                if (state.dashboardMiniMap) state.dashboardMiniMap.invalidateSize();
+            }, 180);
+        }
     });
     window.addEventListener('resize', function () {
         scheduleMapInvalidateSize(180);
@@ -1191,16 +1287,201 @@
         state.charts = {};
     }
 
-    function pieChart(id, labels, data) {
-        var ctx = document.getElementById(id);
-        if (!ctx) return;
-        state.charts[id] = new Chart(ctx, { type: 'pie', data: { labels: labels, datasets: [{ data: data }] }, options: { responsive: true } });
+    function chartColors(count) {
+        if (window.analyticsproChartTheme && typeof window.analyticsproChartTheme.seriesColors === 'function') {
+            return window.analyticsproChartTheme.seriesColors(count);
+        }
+        return ['#2A519F', '#f28e0e', '#12b76a', '#0ba5ec', '#7a5af8', '#f97066'].slice(0, count);
     }
 
-    function barChart(id, labels, data, label) {
+    function pieChart(id, labels, data, options) {
+        options = options || {};
         var ctx = document.getElementById(id);
         if (!ctx) return;
-        state.charts[id] = new Chart(ctx, { type: 'bar', data: { labels: labels, datasets: [{ label: label, data: data, backgroundColor: '#0d6efd' }] }, options: { responsive: true, plugins: { legend: { display: false } } } });
+        state.charts[id] = new Chart(ctx, {
+            type: options.type || 'doughnut',
+            data: {
+                labels: labels,
+                datasets: [{
+                    data: data,
+                    backgroundColor: chartColors(data.length),
+                    borderWidth: 0,
+                    hoverOffset: 4
+                }]
+            },
+            options: {
+                cutout: options.type === 'pie' ? 0 : '62%',
+                plugins: {
+                    legend: { position: 'bottom' }
+                }
+            }
+        });
+    }
+
+    function barChart(id, labels, data, label, options) {
+        options = options || {};
+        var ctx = document.getElementById(id);
+        if (!ctx) return;
+        state.charts[id] = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: label,
+                    data: data,
+                    backgroundColor: options.backgroundColor || chartColors(1)[0]
+                }]
+            },
+            options: {
+                indexAxis: options.horizontal ? 'y' : 'x',
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    x: { grid: { display: !options.horizontal } },
+                    y: { grid: { display: options.horizontal ? false : true } }
+                }
+            }
+        });
+    }
+
+    function lineSparkline(id, values, color) {
+        var ctx = document.getElementById(id);
+        if (!ctx) return;
+        var key = 'spark:' + id;
+        if (state.charts[key]) {
+            state.charts[key].destroy();
+        }
+        state.charts[key] = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: values.map(function (_, index) { return index + 1; }),
+                datasets: [{
+                    data: values,
+                    borderColor: color || chartColors(1)[0],
+                    backgroundColor: 'transparent',
+                    fill: false
+                }]
+            },
+            options: {
+                plugins: { legend: { display: false }, tooltip: { enabled: false } },
+                scales: { x: { display: false }, y: { display: false } },
+                elements: { point: { radius: 0 } }
+            }
+        });
+    }
+
+    function setDashboardKpiValue(key, value, delta, sparkline) {
+        var el = document.querySelector('[data-kpi="' + key + '"]');
+        if (el) el.textContent = Number(value || 0).toLocaleString('it-IT');
+        var deltaEl = document.querySelector('[data-kpi-delta="' + key + '"]');
+        if (deltaEl && delta !== null && delta !== undefined) {
+            var deltaValue = Number(delta || 0);
+            deltaEl.textContent = (deltaValue > 0 ? '+' : '') + deltaValue.toLocaleString('it-IT', { maximumFractionDigits: 1 }) + '%';
+            deltaEl.classList.remove('ap-kpi-delta-positive', 'ap-kpi-delta-negative', 'ap-kpi-delta-neutral');
+            deltaEl.classList.add(deltaValue > 0 ? 'ap-kpi-delta-positive' : (deltaValue < 0 ? 'ap-kpi-delta-negative' : 'ap-kpi-delta-neutral'));
+        }
+        var sparkId = 'spark-' + key;
+        if (Array.isArray(sparkline) && sparkline.length && document.getElementById(sparkId)) {
+            lineSparkline(sparkId, sparkline, chartColors(1)[0]);
+        }
+    }
+
+    function renderDashboardMiniMap(points) {
+        var container = document.getElementById('dashboard-mini-map');
+        if (!container || !window.L) return;
+        if (!state.dashboardMiniMap) {
+            state.dashboardMiniMap = L.map(container, { zoomControl: true, attributionControl: false });
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(state.dashboardMiniMap);
+            state.dashboardMiniMarkers = L.markerClusterGroup();
+            state.dashboardMiniMap.addLayer(state.dashboardMiniMarkers);
+        }
+        state.dashboardMiniMarkers.clearLayers();
+        var bounds = [];
+        (points || []).forEach(function (point) {
+            if (!Number.isFinite(Number(point.lat)) || !Number.isFinite(Number(point.lng))) return;
+            var marker = L.circleMarker([Number(point.lat), Number(point.lng)], {
+                radius: 7,
+                weight: 2,
+                color: '#fff',
+                fillColor: '#2A519F',
+                fillOpacity: 0.85
+            });
+            var label = [point.comune || '', point.provincia ? '(' + point.provincia + ')' : '', point.categoria || ''].filter(Boolean).join(' · ');
+            if (label) marker.bindPopup(escapeHtml(label));
+            state.dashboardMiniMarkers.addLayer(marker);
+            bounds.push([Number(point.lat), Number(point.lng)]);
+        });
+        if (bounds.length) {
+            state.dashboardMiniMap.fitBounds(bounds, { padding: [24, 24] });
+        } else {
+            state.dashboardMiniMap.setView([41.9028, 12.4964], 5);
+        }
+        window.setTimeout(function () {
+            if (state.dashboardMiniMap) state.dashboardMiniMap.invalidateSize();
+        }, 300);
+    }
+
+    function renderDashboardMiniMapFromProperties() {
+        var points = (state.properties || []).filter(function (property) {
+            return Number.isFinite(Number(property.lat)) && Number.isFinite(Number(property.lng));
+        }).slice(0, 250).map(function (property) {
+            return {
+                lat: Number(property.lat),
+                lng: Number(property.lng),
+                comune: property.comune || '',
+                provincia: property.provincia || '',
+                categoria: property.categoria || ''
+            };
+        });
+        renderDashboardMiniMap(points);
+    }
+
+    function renderDashboardStats(stats) {
+        var kpis = stats.kpis || {};
+        renderAggregatedCharts(stats.series || {});
+        ['properties', 'owners', 'phones', 'assigned'].forEach(function (key) {
+            if (kpis[key]) {
+                setDashboardKpiValue(key, kpis[key].value, kpis[key].delta, kpis[key].sparkline);
+            }
+        });
+        if (state.dashboardPage === 'analytics') {
+            ['total', 'phone', 'email', 'piva'].forEach(function (key) {
+                var sourceKey = key === 'total' ? 'owners' : key;
+                var el = document.querySelector('[data-kpi-analytics="' + key + '"]');
+                if (el && kpis[sourceKey]) {
+                    el.textContent = Number(kpis[sourceKey].value || 0).toLocaleString('it-IT');
+                }
+            });
+        }
+        if (state.dashboardPage === 'home') {
+            renderDashboardMiniMap(stats.map_points || []);
+        }
+    }
+
+    function renderAggregatedCharts(series) {
+        destroyCharts();
+        if (series.contacts && (series.contacts.labels || []).length) {
+            pieChart('chart-contacts', series.contacts.labels || [], series.contacts.values || [], { type: 'doughnut' });
+        }
+        if (series.gender && (series.gender.labels || []).length) {
+            pieChart('chart-gender', series.gender.labels || [], series.gender.values || [], { type: 'doughnut' });
+        }
+        if (series.age && (series.age.labels || []).length) {
+            barChart('chart-age', series.age.labels || [], series.age.values || [], 'Intestatari');
+        }
+        if (series.province && (series.province.labels || []).length) {
+            pieChart('chart-province', series.province.labels || [], series.province.values || [], { type: 'doughnut' });
+        }
+        if (series.comune && (series.comune.labels || []).length) {
+            barChart('chart-comune', series.comune.labels || [], series.comune.values || [], 'Immobili', { horizontal: true, backgroundColor: chartColors(2)[1] });
+        }
+        if (series.categoria && (series.categoria.labels || []).length) {
+            pieChart('chart-categoria', series.categoria.labels || [], series.categoria.values || [], { type: 'doughnut' });
+        }
+        if (series.titolarita && (series.titolarita.labels || []).length) {
+            pieChart('chart-titolarita', series.titolarita.labels || [], series.titolarita.values || [], { type: 'doughnut' });
+        }
     }
 
     function renderCharts() {
@@ -1243,9 +1524,12 @@
         pieChart('chart-gender',    Object.keys(genders),    Object.keys(genders).map(function(k){return genders[k];}));
         barChart('chart-age',       Object.keys(ages),       Object.keys(ages).map(function(k){return ages[k];}), 'Intestatari');
         pieChart('chart-province',  Object.keys(provinces),  Object.keys(provinces).map(function(k){return provinces[k];}));
-        barChart('chart-comune',    Object.keys(comuni).slice(0,10), Object.keys(comuni).slice(0,10).map(function(k){return comuni[k];}), 'Immobili');
+        barChart('chart-comune',    Object.keys(comuni).slice(0,10), Object.keys(comuni).slice(0,10).map(function(k){return comuni[k];}), 'Immobili', { horizontal: true, backgroundColor: chartColors(2)[1] });
         pieChart('chart-categoria', Object.keys(categories), Object.keys(categories).map(function(k){return categories[k];}));
         pieChart('chart-titolarita',Object.keys(ownership),  Object.keys(ownership).map(function(k){return ownership[k];}));
+        if (state.dashboardPage === 'home') {
+            renderDashboardMiniMapFromProperties();
+        }
     }
 
     function populateAssignedSubuserFilter() {
@@ -3357,6 +3641,75 @@
     if (assignedSaveBtn) assignedSaveBtn.addEventListener('click', async function () { await loadProperties(); });
     ['report-filter-comune','report-filter-foglio','report-filter-assigned'].forEach(function (id) { var el = document.getElementById(id); if (el) el.addEventListener('input', function () { applyReportFilters(); }); });
 
+    document.querySelectorAll('[data-dashboard-tab]').forEach(function (button) {
+        button.addEventListener('click', function () {
+            var tab = button.getAttribute('data-dashboard-tab') || 'all';
+            document.querySelectorAll('[data-dashboard-tab]').forEach(function (item) {
+                item.classList.toggle('active', item === button);
+            });
+            document.querySelectorAll('[data-dashboard-section]').forEach(function (section) {
+                var tokens = String(section.getAttribute('data-dashboard-section') || '').split(/\s+/);
+                section.classList.toggle('d-none', tab !== 'all' && tokens.indexOf(tab) === -1);
+            });
+            if (state.dashboardMiniMap) {
+                window.setTimeout(function () {
+                    if (state.dashboardMiniMap) state.dashboardMiniMap.invalidateSize();
+                }, 160);
+            }
+        });
+    });
+
+    document.querySelectorAll('[data-dashboard-period-control]').forEach(function (control) {
+        control.addEventListener('change', function () {
+            state.dashboardPeriod = control.value || '30d';
+            syncPeriodControls(state.dashboardPeriod);
+            if (state.dashboardPage) {
+                loadDashboardStats(true).catch(function () {});
+            }
+        });
+    });
+
+    document.querySelectorAll('[data-dashboard-filter-control]').forEach(function (control) {
+        control.addEventListener('change', function () {
+            if (state.dashboardPage) {
+                loadDashboardStats(true).catch(function () {});
+            }
+        });
+    });
+
+    var dashboardExportBtn = document.getElementById('dashboard-export');
+    if (dashboardExportBtn) {
+        dashboardExportBtn.addEventListener('click', function () {
+            var rows = (state.properties || []).map(function (property) {
+                var owners = (property.owners || []).map(function (owner) {
+                    return ((owner.cognome || '') + ' ' + (owner.nome || '')).trim();
+                }).filter(Boolean).join(' | ');
+                return [
+                    property.provincia || '',
+                    property.comune || '',
+                    property.indirizzo || '',
+                    property.foglio || '',
+                    property.particella || '',
+                    property.subalterno || '',
+                    property.categoria || '',
+                    property.titolarita || '',
+                    owners
+                ];
+            });
+            var csv = [['Provincia','Comune','Indirizzo','Foglio','Particella','Subalterno','Categoria','Titolarità','Intestatari']].concat(rows).map(function (row) {
+                return row.map(function (value) {
+                    return '\"' + String(value === null || value === undefined ? '' : value).replace(/\"/g, '\"\"') + '\"';
+                }).join(';');
+            }).join('\\n');
+            var blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            var link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = 'analyticspro-export.csv';
+            link.click();
+            window.setTimeout(function () { URL.revokeObjectURL(link.href); }, 250);
+        });
+    }
+
     (function () {
         var zone = document.getElementById('import-drop-zone');
         if (!zone) return;
@@ -3415,4 +3768,19 @@
             btn.innerHTML = '<i class="bi bi-geo-alt me-1"></i>Rigenera coordinate mancanti';
         });
     })();
+
+    window.addEventListener('analyticspro:theme-change', function () {
+        if (window.analyticsproChartTheme && typeof window.analyticsproChartTheme.apply === 'function') {
+            window.analyticsproChartTheme.apply();
+        }
+        if (state.dashboardPage) {
+            loadDashboardStats(false).catch(function () {
+                if (state.canViewAnalytics || state.role !== 'subuser') renderCharts();
+            });
+            return;
+        }
+        if (state.canViewAnalytics || state.role !== 'subuser') {
+            renderCharts();
+        }
+    });
 })();

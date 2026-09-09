@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/../includes/bootstrap.php';
 require_once __DIR__ . '/../includes/layout.php';
+require_once __DIR__ . '/../includes/ui/helpers.php';
 require __DIR__ . '/_admin_check.php';
 
 $user = analyticspro_current_user();
@@ -38,10 +39,14 @@ $pendingRegistrations = analyticspro_db()
 analyticspro_render_header('Registrazioni pendenti');
 require __DIR__ . '/_admin_subnav.php';
 ?>
-<h1 class="h3 mb-4">Registrazioni in attesa</h1>
+<?= analyticspro_ui_page_header('Registrazioni in attesa', 'Approva o rifiuta rapidamente le richieste di nuovi tenant mantenendo il flusso esistente.', '', ['eyebrow' => 'Admin']) ?>
 
 <?php if (!$pendingRegistrations): ?>
-    <div class="alert alert-info">Nessuna registrazione in attesa.</div>
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-body">
+            <?= analyticspro_ui_empty_state(['icon' => 'bi-person-check', 'title' => 'Nessuna registrazione in attesa', 'message' => 'Quando arriveranno nuove richieste di attivazione compariranno qui.']) ?>
+        </div>
+    </div>
 <?php endif; ?>
 
 <?php foreach ($pendingRegistrations as $pending): ?>
