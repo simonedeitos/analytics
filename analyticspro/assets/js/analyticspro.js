@@ -77,7 +77,6 @@
         findAreaMarker: null,
         findAreaBoundsLayer: null,
         findAreaAutocompleteItems: [],
-        baseLayers: null,
         cadastralLayer: null,
         cadastralLayerEnabled: false,
         cadastralClickBound: false,
@@ -206,6 +205,7 @@
             if (savedValue === null) return DEFAULT_CATASTRAL_OPACITY;
             var saved = parseFloat(savedValue);
             if (!Number.isFinite(saved)) return DEFAULT_CATASTRAL_OPACITY;
+            if (saved < 0.15) return DEFAULT_CATASTRAL_OPACITY;
             return Math.min(1, Math.max(0, saved));
         } catch (error) {
             return DEFAULT_CATASTRAL_OPACITY;
@@ -930,7 +930,6 @@
                 { attribution: 'Tiles &copy; Esri', maxZoom: 19 }
             );
             layerStreets.addTo(state.map);
-            state.baseLayers = [layerStreets, layerSatellite];
             L.control.layers({ 'Strade': layerStreets, 'Satellite': layerSatellite }, {}, { position: 'topright' }).addTo(state.map);
 
             state.markers = L.markerClusterGroup({
@@ -981,8 +980,12 @@
 
             state.markers.on('spiderfied', function () { state.map.closePopup(); });
             state.map.addLayer(state.markers);
-            state.map.on('zoomend', updateCadastralZoomHint);
             setCadastralLayerEnabled(state.cadastralLayerEnabled);
+            window.setTimeout(function () {
+                if (state.map) {
+                    state.map.invalidateSize();
+                }
+            }, 60);
         }
 
         var statiFilter = getStatiFilter();
@@ -1025,7 +1028,6 @@
         } else if (points.length) {
             state.map.fitBounds(state.markers.getBounds().pad(0.2));
         }
-        updateCadastralZoomHint();
         scheduleMapInvalidateSize(120);
     }
 
@@ -2078,21 +2080,6 @@
             + '</div></div>';
     }
 
-    function updateCadastralZoomHint() {
-        var hint = document.getElementById('map-cadastral-zoom-hint');
-        if (!hint) return;
-        var shouldShow = !!state.cadastralLayerEnabled && state.map && state.map.getZoom() < CATASTRAL_MIN_ZOOM;
-        hint.classList.toggle('d-none', !shouldShow);
-    }
-
-    function applyBasemapTransparency(opacity) {
-        (state.baseLayers || []).forEach(function (layer) {
-            if (layer && typeof layer.setOpacity === 'function') {
-                layer.setOpacity(state.cadastralLayerEnabled ? opacity : 1);
-            }
-        });
-    }
-
     function syncCadastralOpacityControl() {
         var wrap = document.getElementById('cadastral-opacity-control');
         var slider = document.getElementById('cadastral-opacity-slider');
@@ -2102,7 +2089,9 @@
         var initialValue = Math.round(initialOpacity * 100);
         slider.value = String(initialValue);
         valueEl.textContent = initialValue + '%';
-        applyBasemapTransparency(initialOpacity);
+        if (state.cadastralLayer) {
+            state.cadastralLayer.setOpacity(initialOpacity);
+        }
         if (wrap) {
             wrap.classList.toggle('d-none', !state.cadastralLayerEnabled);
         }
@@ -2255,7 +2244,7 @@
             transparent: true,
             version: '1.3.0',
             crs: L.CRS.EPSG4258,
-            opacity: 1,
+            opacity: getStoredCadastralOpacity(),
             zIndex: 200,
             minZoom: CATASTRAL_MIN_ZOOM,
             maxZoom: 22,
@@ -2271,7 +2260,7 @@
         };
         layer.on('add', function () {
             clearCadastralTileWarning();
-            layer.setOpacity(1);
+            layer.setOpacity(getStoredCadastralOpacity());
             syncCadastralOpacityControl();
         });
         layer.on('tileload', handleCadastralTileLoad);
@@ -2305,7 +2294,7 @@
                 state.cadastralLayer.addTo(state.map);
             }
             if (state.cadastralLayer) {
-                state.cadastralLayer.setOpacity(1);
+                state.cadastralLayer.setOpacity(getStoredCadastralOpacity());
             }
         } else if (state.cadastralLayer && state.map && state.map.hasLayer(state.cadastralLayer)) {
             state.map.removeLayer(state.cadastralLayer);
@@ -2313,7 +2302,6 @@
         }
         syncCadastralClickBinding();
         syncCadastralOpacityControl();
-        updateCadastralZoomHint();
     }
 
     function extractCadastralDetailsFromAjax(payload) {
@@ -2406,7 +2394,6 @@
         if (!state.cadastralLayerEnabled || !state.map) return;
         if (state.map.getZoom() < CATASTRAL_MIN_ZOOM) {
             showMapFeedback('Ingrandisci la mappa almeno al livello 10 per interrogare il layer catastale.', 'warning', 2600);
-            updateCadastralZoomHint();
             return;
         }
         showMapFeedback('Recupero dati catastali in corso…', 'info');
@@ -2641,14 +2628,15 @@
         if (slider && valueEl) {
             slider.addEventListener('input', function () {
                 var nextValue = parseInt(slider.value, 10);
-                var opacity = Number.isFinite(nextValue) ? Math.max(0, Math.min(100, nextValue)) / 100 : DEFAULT_CATASTRAL_OPACITY;
+                var opacity = Number.isFinite(nextValue) ? Math.max(15, Math.min(100, nextValue)) / 100 : DEFAULT_CATASTRAL_OPACITY;
                 valueEl.textContent = Math.round(opacity * 100) + '%';
-                applyBasemapTransparency(opacity);
+                if (state.cadastralLayer) {
+                    state.cadastralLayer.setOpacity(opacity);
+                }
                 setStoredCadastralOpacity(opacity);
             });
         }
         syncCadastralOpacityControl();
-        updateCadastralZoomHint();
     }
 
     function confirmOwnerPhoneRemoval(phone) {

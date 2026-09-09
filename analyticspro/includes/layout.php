@@ -33,6 +33,13 @@ function analyticspro_current_page(): string
     return $base . '/' . $file;
 }
 
+function analyticspro_asset_url(string $relative): string
+{
+    $fsPath = ANALYTICSPRO_ROOT . '/' . ltrim($relative, '/');
+    $version = is_file($fsPath) ? (string) filemtime($fsPath) : '1';
+    return analyticspro_base_url($relative) . '?v=' . $version;
+}
+
 function analyticspro_render_header(string $title, array $options = []): void
 {
     $user            = analyticspro_current_user();
@@ -73,7 +80,7 @@ function analyticspro_render_header(string $title, array $options = []): void
         <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
         <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
         <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
-        <link rel="stylesheet" href="<?= analyticspro_h(analyticspro_base_url('assets/css/app.css')) ?>">
+        <link rel="stylesheet" href="<?= analyticspro_h(analyticspro_asset_url('assets/css/app.css')) ?>">
         <?php if (!empty($options['extra_head'])) echo $options['extra_head']; ?>
     </head>
     <body class="<?= analyticspro_h($bodyClass) ?>">
@@ -261,7 +268,7 @@ function analyticspro_render_footer(bool $includeAppAssets = false): void
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
     <?php if ($includeAppAssets): ?>
-        <script src="<?= analyticspro_h(analyticspro_base_url('assets/js/analyticspro.js')) ?>"></script>
+        <script src="<?= analyticspro_h(analyticspro_asset_url('assets/js/analyticspro.js')) ?>"></script>
     <?php endif; ?>
     <?php if ($user): ?>
     <script>

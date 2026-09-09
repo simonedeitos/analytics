@@ -159,16 +159,12 @@ analyticspro_render_header('Mappa', [
             <input type="range"
                    id="cadastral-opacity-slider"
                    class="form-range"
-                   min="0"
+                   min="15"
                    max="100"
                    step="1"
                    value="50"
-                   aria-label="Trasparenza mappa base">
+                   aria-label="Opacità layer catastale">
             <span id="cadastral-opacity-value" class="small text-muted">50%</span>
-        </div>
-
-        <div id="map-cadastral-zoom-hint" class="alert alert-warning shadow-sm d-none analyticspro-map-hint" role="status">
-            <i class="bi bi-zoom-in me-1"></i>Ingrandisci la mappa almeno al livello 10 per vedere il layer catastale.
         </div>
         <div id="map-cadastral-feedback" class="alert alert-light border shadow-sm d-none analyticspro-map-feedback" role="status"></div>
     </div>
