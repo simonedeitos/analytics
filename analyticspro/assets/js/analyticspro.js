@@ -2160,9 +2160,9 @@
     }
 
     function showCadastralTileWarning(status) {
-        if (state.cadastralTileWarningShown) return;
-        state.cadastralTileWarningShown = true;
-        showMapFeedback('Layer catastale non disponibile' + (status || '') + '.', 'warning', 3200);
+    //    if (state.cadastralTileWarningShown) return;
+    //    state.cadastralTileWarningShown = true;
+    //    showMapFeedback('Layer catastale non disponibile' + (status || '') + '.', 'warning', 3200);
     }
 
     function handleCadastralTileLoad(event) {
