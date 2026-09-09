@@ -28,6 +28,7 @@
         { label: 'Viola · P8', value: '#6f42c1' }
     ];
     const CATASTRAL_WMS_BASE_URL = 'https://wms.cartografia.agenziaentrate.gov.it/inspire/wms/ows01.php?language=ita';
+    const CATASTRAL_ADE_AJAX_URL = 'https://wms.cartografia.agenziaentrate.gov.it/inspire/ajax/ajax.php?op=getDatiOggetto';
     const CATASTRAL_OPACITY_STORAGE_KEY = 'cadastral-layer-opacity';
     const DEFAULT_CATASTRAL_OPACITY = 0.5;
     const CATASTRAL_MIN_ZOOM = 10;
@@ -2240,7 +2241,7 @@
     function createCadastralLayer() {
         if (!state.map) return null;
         ensureLeafletEpsg4258();
-        var layer = L.tileLayer.wms(cadastralLayerBaseUrl(), {
+        var layer = L.tileLayer.wms(cadastralLayerBaseUrl(true), {
             layers: 'province,CP.CadastralZoning,CP.CadastralParcel,fabbricati,strade,vestizioni,acque',
             styles: '',
             format: 'image/png',
@@ -2308,6 +2309,18 @@
     }
 
     function extractCadastralDetailsFromAjax(payload) {
+        if (Array.isArray(payload)) {
+            payload = payload.find(function (entry) { return entry && typeof entry === 'object'; }) || null;
+        }
+        if (payload && typeof payload === 'object') {
+            if (payload.data && typeof payload.data === 'object') {
+                payload = payload.data;
+            } else if (payload.result && typeof payload.result === 'object') {
+                payload = payload.result;
+            } else if (payload.feature && typeof payload.feature === 'object') {
+                payload = payload.feature;
+            }
+        }
         if (!payload || typeof payload !== 'object') return null;
         var comune = payload.COMUNE || payload.comune || payload.DESCR_COMUNE || '';
         var foglio = payload.FOGLIO || payload.foglio || '';
@@ -2332,8 +2345,51 @@
         };
     }
 
+    function buildDirectCadastralLookupUrl(latlng) {
+        return CATASTRAL_ADE_AJAX_URL
+            + '&lon=' + encodeURIComponent(String(latlng.lng))
+            + '&lat=' + encodeURIComponent(String(latlng.lat));
+    }
+
+    function appendCadastralResolveFields(query, fields) {
+        if (!fields || typeof fields !== 'object') {
+            return query;
+        }
+        [['provincia', fields.provincia], ['comune', fields.comune], ['cod_catastale', fields.cod_catastale], ['sezione', fields.sezione], ['foglio', fields.foglio], ['particella', fields.particella], ['subalterno', fields.subalterno], ['categoria', fields.categoria], ['indirizzo', fields.indirizzo], ['civico', fields.civico]].forEach(function (entry) {
+            if (String(entry[1] || '').trim() === '') return;
+            query += '&' + encodeURIComponent(entry[0]) + '=' + encodeURIComponent(String(entry[1]));
+        });
+        return query;
+    }
+
     async function tryDirectCadastralLookup(latlng) {
-        return requestCadastralFeatureInfo(latlng);
+        var response;
+        try {
+            response = await fetch(buildDirectCadastralLookupUrl(latlng), {
+                method: 'GET',
+                mode: 'cors',
+                signal: window.AbortSignal && typeof window.AbortSignal.timeout === 'function'
+                    ? window.AbortSignal.timeout(CATASTRAL_LOOKUP_TIMEOUT_MS)
+                    : undefined,
+            });
+        } catch (error) {
+            if (error && (error.name === 'AbortError' || error.name === 'TimeoutError' || /timed out|timeout/i.test(String(error.message || '')))) {
+                throw new Error('Timeout nel recupero dei dati catastali AdE. Riprova tra poco.');
+            }
+            throw new Error('Impossibile contattare il servizio catastale AdE dal browser. Riprova tra poco.');
+        }
+        var rawBody = '';
+        var payload = null;
+        try {
+            rawBody = String(await response.text() || '').replace(/^\uFEFF/, '').trim();
+            payload = rawBody ? JSON.parse(rawBody) : null;
+        } catch (error) {
+            throw new Error('Risposta non valida dal servizio catastale. Riprova tra poco.');
+        }
+        if (!response.ok) {
+            throw new Error('Il servizio catastale AdE non ha risposto correttamente.');
+        }
+        return extractCadastralDetailsFromAjax(payload);
     }
 
     async function requestCadastralFeatureInfo(latlng, options) {
@@ -2349,6 +2405,7 @@
             + '&zoom=' + encodeURIComponent(String(zoom));
         if (resolveLocation) {
             query += '&resolve_location=1';
+            query = appendCadastralResolveFields(query, options.fields || null);
         }
         var response;
         try {
@@ -2402,7 +2459,7 @@
         showMapFeedback('Recupero dati catastali in corso…', 'info');
         var details = null;
         try {
-            details = await requestCadastralFeatureInfo(event.latlng);
+            details = await tryDirectCadastralLookup(event.latlng);
         } catch (error) {
             showMapFeedback(error.message || 'Impossibile recuperare i dati catastali.', 'danger', 3200);
             return;
@@ -3015,6 +3072,18 @@
                 lng: Number(cadastralAddBtn.dataset.lng || 0),
             }, {
                 resolveLocation: true,
+                fields: {
+                    provincia: cadastralAddBtn.dataset.provincia || '',
+                    comune: cadastralAddBtn.dataset.comune || '',
+                    cod_catastale: cadastralAddBtn.dataset.codCatastale || '',
+                    sezione: cadastralAddBtn.dataset.sezione || '',
+                    foglio: cadastralAddBtn.dataset.foglio || '',
+                    particella: cadastralAddBtn.dataset.particella || '',
+                    subalterno: cadastralAddBtn.dataset.subalterno || '',
+                    categoria: cadastralAddBtn.dataset.categoria || '',
+                    indirizzo: cadastralAddBtn.dataset.indirizzo || '',
+                    civico: cadastralAddBtn.dataset.civico || '',
+                },
             })
                 .then(function (payload) {
                     var resolvedValues = mergeCadastralManualRecordValues(autoFillValues, payload || {});

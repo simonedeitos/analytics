@@ -310,6 +310,22 @@ function analyticspro_feature_info_from_gml(string $body): ?array
     return analyticspro_feature_info_from_text_pairs($pairs);
 }
 
+function analyticspro_feature_info_request_fields(array $source): ?array
+{
+    return analyticspro_feature_info_normalize([
+        'comune' => (string) ($source['comune'] ?? ''),
+        'provincia' => (string) ($source['provincia'] ?? ''),
+        'cod_catastale' => (string) ($source['cod_catastale'] ?? ''),
+        'sezione' => (string) ($source['sezione'] ?? ''),
+        'foglio' => (string) ($source['foglio'] ?? ''),
+        'particella' => (string) ($source['particella'] ?? ''),
+        'subalterno' => (string) ($source['subalterno'] ?? ''),
+        'categoria' => (string) ($source['categoria'] ?? ''),
+        'indirizzo' => (string) ($source['indirizzo'] ?? ''),
+        'civico' => (string) ($source['civico'] ?? ''),
+    ]);
+}
+
 function analyticspro_feature_info_getfeatureinfo_profiles(float $lat, float $lng, float $radius): array
 {
     return [
@@ -378,6 +394,22 @@ try {
             'resolve_location' => $resolveLocation ? '1' : '0',
         ]);
     };
+    $submittedFields = analyticspro_feature_info_request_fields($_GET);
+    if ($resolveLocation && $submittedFields !== null) {
+        $resolveOnlyStartedAt = microtime(true);
+        $resolvedFields = analyticspro_feature_info_complete_fields($submittedFields, $lat, $lng, true, $trace);
+        $trace('resolve_location_prefilled', (int) round((microtime(true) - $resolveOnlyStartedAt) * 1000), [
+            'found' => $resolvedFields !== null ? '1' : '0',
+        ]);
+        if ($resolvedFields !== null) {
+            analyticspro_json(['ok' => true, 'found' => true] + $resolvedFields + [
+                'source' => 'resolve_location',
+                'zoom' => $zoom,
+                'parcel_found' => analyticspro_feature_info_has_parcel($resolvedFields),
+                'resolve_location' => true,
+            ]);
+        }
+    }
     $diagnostics = [
         'successful_responses' => 0,
         'timeouts' => 0,
