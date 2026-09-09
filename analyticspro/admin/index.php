@@ -13,7 +13,16 @@ $totalUsers     = (int) $pdo->query("SELECT COUNT(*) FROM users WHERE role != 'a
 $pendingCount   = (int) $pdo->query("SELECT COUNT(*) FROM users WHERE status = 'pending'")->fetchColumn();
 $activeUsers    = (int) $pdo->query("SELECT COUNT(*) FROM users WHERE status = 'active' AND role = 'user'")->fetchColumn();
 $activeSubusers = (int) $pdo->query("SELECT COUNT(*) FROM users WHERE status = 'active' AND role = 'subuser'")->fetchColumn();
-$runningJobs    = (int) $pdo->query("SELECT COUNT(*) FROM ade_import_jobs WHERE status IN ('queued','extracting','importing','verifying')")->fetchColumn();
+$hasAdeImportJobsTable = analyticspro_table_exists($pdo, 'ade_import_jobs');
+$runningJobs = 0;
+if ($hasAdeImportJobsTable) {
+    try {
+        $runningJobs = (int) $pdo->query("SELECT COUNT(*) FROM ade_import_jobs WHERE status IN ('queued','extracting','importing','verifying')")->fetchColumn();
+    } catch (Throwable) {
+        $hasAdeImportJobsTable = false;
+        $runningJobs = 0;
+    }
+}
 
 analyticspro_render_header('Amministrazione');
 require __DIR__ . '/_admin_subnav.php';
@@ -53,6 +62,9 @@ require __DIR__ . '/_admin_subnav.php';
             <div class="card-body">
                 <div class="text-muted small">Job ADE in corso</div>
                 <div class="display-6"><?= $runningJobs ?></div>
+                <?php if (!$hasAdeImportJobsTable): ?>
+                    <div class="text-muted small mt-2">Tabelle ADE non disponibili in questa installazione.</div>
+                <?php endif; ?>
             </div>
         </div>
     </div>

@@ -69,6 +69,7 @@ try {
             $sql .= ' AND user_id = :tenant_id';
             $params['tenant_id'] = $tenantId;
         }
+        analyticspro_debug_assert_sql_params_match($sql, $params);
         $stmt = $pdo->prepare($sql);
         $stmt->execute($params);
         $batch = $stmt->fetch();

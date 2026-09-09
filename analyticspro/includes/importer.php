@@ -251,6 +251,19 @@ function analyticspro_properties_has_column(string $column): bool
         $stmt->execute(['column' => $column]);
         $cache[$column] = (bool) $stmt->fetch();
     } catch (Throwable) {
+        try {
+            $pdo = analyticspro_db();
+            if (strtolower((string) $pdo->getAttribute(PDO::ATTR_DRIVER_NAME)) === 'sqlite') {
+                $pragma = $pdo->query('PRAGMA table_info(properties)');
+                foreach ($pragma ? ($pragma->fetchAll() ?: []) : [] as $row) {
+                    if (strcasecmp((string) ($row['name'] ?? ''), $column) === 0) {
+                        $cache[$column] = true;
+                        return true;
+                    }
+                }
+            }
+        } catch (Throwable) {
+        }
         $cache[$column] = false;
     }
 
@@ -285,6 +298,80 @@ function analyticspro_properties_has_enrichment_attempt_columns(): bool
 function analyticspro_properties_has_provincia_originale_column(): bool
 {
     return analyticspro_properties_has_column('provincia_originale');
+}
+
+function analyticspro_debug_sql_validation_enabled(): bool
+{
+    if (defined('APP_DEBUG')) {
+        return (bool) APP_DEBUG;
+    }
+
+    $raw = trim((string) ($_ENV['APP_DEBUG'] ?? $_SERVER['APP_DEBUG'] ?? ''));
+    return in_array(strtolower($raw), ['1', 'true', 'yes', 'on'], true);
+}
+
+/**
+ * @return array<int,string>
+ */
+function analyticspro_sql_named_placeholders(string $sql): array
+{
+    preg_match_all('/:([a-z_][a-z0-9_]*)/i', $sql, $matches);
+    return array_map(static fn (string $name): string => strtolower($name), $matches[1] ?? []);
+}
+
+function analyticspro_sql_concat(array $parts, ?PDO $pdo = null): string
+{
+    try {
+        $pdo ??= analyticspro_db();
+        if (strtolower((string) $pdo->getAttribute(PDO::ATTR_DRIVER_NAME)) === 'sqlite') {
+            return implode(' || ', $parts);
+        }
+    } catch (Throwable) {
+    }
+
+    return 'CONCAT(' . implode(', ', $parts) . ')';
+}
+
+/**
+ * @param array<string,mixed> $params
+ */
+function analyticspro_debug_assert_sql_params_match(string $sql, array $params): void
+{
+    if (!analyticspro_debug_sql_validation_enabled()) {
+        return;
+    }
+
+    $placeholders = analyticspro_sql_named_placeholders($sql);
+    $counts = array_count_values($placeholders);
+    $duplicates = array_keys(array_filter($counts, static fn (int $count): bool => $count > 1));
+    if ($duplicates !== []) {
+        throw new RuntimeException('Placeholder SQL duplicato: :' . implode(', :', $duplicates));
+    }
+
+    $paramNames = [];
+    foreach (array_keys($params) as $name) {
+        $paramNames[] = strtolower(ltrim((string) $name, ':'));
+    }
+    $paramNames = array_values(array_unique($paramNames));
+    $expected = array_keys($counts);
+    sort($expected);
+    sort($paramNames);
+
+    $missing = array_values(array_diff($expected, $paramNames));
+    $extra = array_values(array_diff($paramNames, $expected));
+    if ($missing === [] && $extra === []) {
+        return;
+    }
+
+    $parts = [];
+    if ($missing !== []) {
+        $parts[] = 'mancano :' . implode(', :', $missing);
+    }
+    if ($extra !== []) {
+        $parts[] = 'parametri in eccesso :' . implode(', :', $extra);
+    }
+
+    throw new RuntimeException('Placeholder SQL/params non coerenti: ' . implode('; ', $parts));
 }
 
 /**
@@ -795,6 +882,7 @@ function analyticspro_enrichment_count_unique_parcels(PDO $pdo, int $batchId, ?i
         WHERE ' . $where . '
         GROUP BY ' . analyticspro_enrichment_parcel_group_by($batchId === 0) . '
     ) t';
+    analyticspro_debug_assert_sql_params_match($sql, $params);
     $stmt = $pdo->prepare($sql);
     foreach ($params as $name => $value) {
         $stmt->bindValue(':' . $name, $value, PDO::PARAM_INT);
@@ -821,6 +909,7 @@ function analyticspro_enrichment_fetch_unique_parcels(PDO $pdo, int $batchId, in
         GROUP BY ' . analyticspro_enrichment_parcel_group_by($globalMode) . '
         ORDER BY ' . ($globalMode ? 'user_id ASC, ' : '') . 'provincia ASC, comune ASC, foglio ASC, particella ASC
         LIMIT :lim';
+    analyticspro_debug_assert_sql_params_match($sql, $params + ['lim' => max(1, $limit)]);
     $stmt = $pdo->prepare($sql);
     foreach ($params as $name => $value) {
         $stmt->bindValue(':' . $name, $value, PDO::PARAM_INT);
@@ -923,11 +1012,11 @@ function analyticspro_enrichment_fetch_attempt_count(PDO $pdo, int $batchId, arr
     }
 
     $params = analyticspro_enrichment_parcel_match_params($parcel, $batchId, $tenantId);
-    $stmt = $pdo->prepare(
-        'SELECT COALESCE(MAX(enrichment_attempts), 0)
+    $sql = 'SELECT COALESCE(MAX(enrichment_attempts), 0)
          FROM properties
-         WHERE ' . analyticspro_enrichment_parcel_match_where($batchId, $tenantId, $batchId === 0 && $tenantId === null)
-    );
+         WHERE ' . analyticspro_enrichment_parcel_match_where($batchId, $tenantId, $batchId === 0 && $tenantId === null);
+    analyticspro_debug_assert_sql_params_match($sql, $params);
+    $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
 
     return (int) $stmt->fetchColumn();
@@ -962,10 +1051,10 @@ function analyticspro_enrichment_mark_parcel_failure(PDO $pdo, int $batchId, arr
     }
 
     if ($sets !== []) {
-        $pdo->prepare(
-            'UPDATE properties SET ' . implode(', ', $sets) . '
-             WHERE ' . analyticspro_enrichment_parcel_match_where($batchId, $tenantId, $batchId === 0 && $tenantId === null)
-        )->execute($params);
+        $sql = 'UPDATE properties SET ' . implode(', ', $sets) . '
+             WHERE ' . analyticspro_enrichment_parcel_match_where($batchId, $tenantId, $batchId === 0 && $tenantId === null);
+        analyticspro_debug_assert_sql_params_match($sql, $params);
+        $pdo->prepare($sql)->execute($params);
     }
 
     return $transition['mark_unresolved'] || ($hasCoordSource && !$hasAttempts);
@@ -976,7 +1065,14 @@ function analyticspro_enrichment_mark_parcel_failure(PDO $pdo, int $batchId, arr
  */
 function analyticspro_fetch_missing_coordinate_stats(?int $tenantId = null): array
 {
-    $pdo = analyticspro_db();
+    return analyticspro_fetch_missing_coordinate_stats_for_pdo(analyticspro_db(), $tenantId);
+}
+
+/**
+ * @return array{total:int,recoverable:int,exhausted:int,unique_parcels:int,unique_parcels_recoverable:int}
+ */
+function analyticspro_fetch_missing_coordinate_stats_for_pdo(PDO $pdo, ?int $tenantId = null): array
+{
     $clauses = ['lat IS NULL'];
     $params = [];
     if ($tenantId !== null) {
@@ -985,10 +1081,7 @@ function analyticspro_fetch_missing_coordinate_stats(?int $tenantId = null): arr
     }
     $where = implode(' AND ', $clauses);
 
-    $recoverable = ['lat IS NULL'];
-    if ($tenantId !== null) {
-        $recoverable[] = 'user_id = :tenant_id';
-    }
+    $recoverable = [];
     if (analyticspro_properties_has_coord_source_column()) {
         $recoverable[] = "(coord_source IS NULL OR coord_source <> 'unresolved')";
     }
@@ -997,13 +1090,13 @@ function analyticspro_fetch_missing_coordinate_stats(?int $tenantId = null): arr
         $params['max_attempts'] = (int) ANALYTICSPRO_ENRICH_MAX_ATTEMPTS;
     }
 
-    $stmt = $pdo->prepare(
-        'SELECT
+    $sql = 'SELECT
             COUNT(*) AS total,
-            SUM(CASE WHEN ' . implode(' AND ', $recoverable) . ' THEN 1 ELSE 0 END) AS recoverable
+            SUM(CASE WHEN ' . implode(' AND ', $recoverable !== [] ? $recoverable : ['1=1']) . ' THEN 1 ELSE 0 END) AS recoverable
          FROM properties
-         WHERE ' . $where
-    );
+         WHERE ' . $where;
+    analyticspro_debug_assert_sql_params_match($sql, $params);
+    $stmt = $pdo->prepare($sql);
     foreach ($params as $name => $value) {
         $stmt->bindValue(':' . $name, $value, PDO::PARAM_INT);
     }
@@ -1034,8 +1127,22 @@ function analyticspro_enrichment_recoverable_condition_sql(string $alias = ''): 
 function analyticspro_enrichment_unique_parcel_expr(string $alias = ''): string
 {
     $prefix = $alias !== '' ? rtrim($alias, '.') . '.' : '';
+    $parts = [
+        "COALESCE({$prefix}provincia, '')",
+        "COALESCE({$prefix}comune, '')",
+        "COALESCE({$prefix}cod_catastale, '')",
+        "COALESCE({$prefix}sezione, '')",
+        "COALESCE({$prefix}foglio, '')",
+        "COALESCE({$prefix}particella, '')",
+    ];
+    try {
+        if (strtolower((string) analyticspro_db()->getAttribute(PDO::ATTR_DRIVER_NAME)) === 'sqlite') {
+            return implode(" || '|' || ", $parts);
+        }
+    } catch (Throwable) {
+    }
 
-    return "CONCAT_WS('|', COALESCE({$prefix}provincia, ''), COALESCE({$prefix}comune, ''), COALESCE({$prefix}cod_catastale, ''), COALESCE({$prefix}sezione, ''), COALESCE({$prefix}foglio, ''), COALESCE({$prefix}particella, ''))";
+    return "CONCAT_WS('|', " . implode(', ', $parts) . ')';
 }
 
 function analyticspro_enrichment_count_unresolved_unique_parcels(PDO $pdo, int $batchId, ?int $tenantId = null): int
@@ -1058,6 +1165,7 @@ function analyticspro_enrichment_count_unresolved_unique_parcels(PDO $pdo, int $
         WHERE ' . implode(' AND ', $clauses) . '
         GROUP BY ' . analyticspro_enrichment_parcel_group_by($batchId === 0) . '
     ) t';
+    analyticspro_debug_assert_sql_params_match($sql, $params);
     $stmt = $pdo->prepare($sql);
     foreach ($params as $name => $value) {
         $stmt->bindValue(':' . $name, $value, PDO::PARAM_INT);
@@ -1065,6 +1173,95 @@ function analyticspro_enrichment_count_unresolved_unique_parcels(PDO $pdo, int $
     $stmt->execute();
 
     return (int) $stmt->fetchColumn();
+}
+
+/**
+ * @return array{ok:true,scope:'tenant'|'admin',stats:array{total:int,recoverable:int,exhausted:int,unique_parcels:int,unique_parcels_recoverable:int},tenants?:array<int,array<string,mixed>>}
+ */
+function analyticspro_missing_coordinates_stats_payload(PDO $pdo, bool $isAdmin, ?int $tenantId): array
+{
+    if (!$isAdmin) {
+        if ($tenantId === null) {
+            throw new RuntimeException('Tenant non disponibile.');
+        }
+
+        return [
+            'ok' => true,
+            'scope' => 'tenant',
+            'stats' => analyticspro_fetch_missing_coordinate_stats_for_pdo($pdo, $tenantId),
+        ];
+    }
+
+    $overall = analyticspro_fetch_missing_coordinate_stats_for_pdo($pdo, null);
+    $recoverableCondition = analyticspro_enrichment_recoverable_condition_sql('p');
+    $uniqueParcelExpr = analyticspro_enrichment_unique_parcel_expr('p');
+    $tenantNameExpr = 'TRIM(' . analyticspro_sql_concat(['u.nome', "' '", 'u.cognome'], $pdo) . ')';
+    $detailSql = 'SELECT
+            u.id AS tenant_id,
+            ' . $tenantNameExpr . ' AS tenant_name,
+            u.email AS tenant_email,
+            COUNT(p.id) AS total,
+            SUM(CASE WHEN p.id IS NOT NULL AND (' . $recoverableCondition . ') THEN 1 ELSE 0 END) AS recoverable,
+            COUNT(DISTINCT CASE WHEN p.id IS NOT NULL THEN ' . $uniqueParcelExpr . ' ELSE NULL END) AS unique_parcels,
+            COUNT(DISTINCT CASE WHEN p.id IS NOT NULL AND (' . $recoverableCondition . ') THEN ' . $uniqueParcelExpr . ' ELSE NULL END) AS unique_parcels_recoverable
+        FROM users u
+        LEFT JOIN properties p
+          ON p.user_id = u.id
+         AND p.lat IS NULL
+        WHERE u.role = \'user\'
+        GROUP BY u.id, u.nome, u.cognome, u.email
+        ORDER BY total DESC, u.id ASC';
+    analyticspro_debug_assert_sql_params_match($detailSql, []);
+    $rows = $pdo->query($detailSql)->fetchAll() ?: [];
+
+    $tenants = array_map(static function (array $row): array {
+        $stats = analyticspro_missing_coordinate_stats_normalize(
+            (int) ($row['total'] ?? 0),
+            (int) ($row['recoverable'] ?? 0),
+            (int) ($row['unique_parcels'] ?? 0),
+            (int) ($row['unique_parcels_recoverable'] ?? 0)
+        );
+        return array_merge([
+            'tenant_id' => (int) ($row['tenant_id'] ?? 0),
+            'tenant_name' => trim((string) ($row['tenant_name'] ?? '')) !== ''
+                ? trim((string) ($row['tenant_name'] ?? ''))
+                : ('Tenant #' . (int) ($row['tenant_id'] ?? 0)),
+            'tenant_email' => (string) ($row['tenant_email'] ?? ''),
+        ], $stats);
+    }, $rows);
+
+    $tenantTotals = [
+        'total' => 0,
+        'recoverable' => 0,
+        'unique_parcels' => 0,
+        'unique_parcels_recoverable' => 0,
+    ];
+    foreach ($tenants as $tenant) {
+        $tenantTotals['total'] += (int) ($tenant['total'] ?? 0);
+        $tenantTotals['recoverable'] += (int) ($tenant['recoverable'] ?? 0);
+        $tenantTotals['unique_parcels'] += (int) ($tenant['unique_parcels'] ?? 0);
+        $tenantTotals['unique_parcels_recoverable'] += (int) ($tenant['unique_parcels_recoverable'] ?? 0);
+    }
+    $otherStats = analyticspro_missing_coordinate_stats_normalize(
+        max(0, (int) ($overall['total'] ?? 0) - $tenantTotals['total']),
+        max(0, (int) ($overall['recoverable'] ?? 0) - $tenantTotals['recoverable']),
+        max(0, (int) ($overall['unique_parcels'] ?? 0) - $tenantTotals['unique_parcels']),
+        max(0, (int) ($overall['unique_parcels_recoverable'] ?? 0) - $tenantTotals['unique_parcels_recoverable'])
+    );
+    if ($otherStats['total'] > 0 || $otherStats['unique_parcels'] > 0) {
+        $tenants[] = array_merge([
+            'tenant_id' => 0,
+            'tenant_name' => 'Altri',
+            'tenant_email' => '',
+        ], $otherStats);
+    }
+
+    return [
+        'ok' => true,
+        'scope' => 'admin',
+        'stats' => $overall,
+        'tenants' => $tenants,
+    ];
 }
 
 /**

@@ -65,6 +65,12 @@ try {
             SET ' . implode(', ', $setClauses) . '
             WHERE ' . implode(' AND ', $whereParts) . '
             LIMIT ' . $maxRows;
+        analyticspro_debug_assert_sql_params_match(
+            $sql,
+            analyticspro_properties_has_enrichment_attempt_columns() && !analyticspro_properties_has_coord_source_column()
+                ? ['max_attempts' => (int) ANALYTICSPRO_ENRICH_MAX_ATTEMPTS]
+                : []
+        );
         $stmt = $pdo->prepare($sql);
         if (analyticspro_properties_has_enrichment_attempt_columns() && !analyticspro_properties_has_coord_source_column()) {
             $stmt->bindValue(':max_attempts', (int) ANALYTICSPRO_ENRICH_MAX_ATTEMPTS, PDO::PARAM_INT);

@@ -24,6 +24,7 @@ try {
         $params['tenant_id'] = $tenantId;
     }
 
+    analyticspro_debug_assert_sql_params_match($sql, $params);
     $stmt = analyticspro_db()->prepare($sql);
     $stmt->execute($params);
     $batch = $stmt->fetch();
