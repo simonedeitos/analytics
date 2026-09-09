@@ -43,7 +43,7 @@ analyticspro_render_header('Importa dati', ['app_assets' => true]);
 
     <?= analyticspro_ui_page_header(
         'Importa dati',
-        'Carica file catastali, inserisci record manuali e monitora l\'arricchimento delle coordinate con uno stile coerente con la nuova app.',
+        'Carica file catastali provenienti da EasyCatasto, inserisci record manuali e monitora l\'arricchimento delle coordinate con uno stile coerente con la nuova app.',
         '',
         ['eyebrow' => 'Import & enrichment']
     ) ?>
