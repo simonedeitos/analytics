@@ -78,9 +78,18 @@ analyticspro_render_header('Importa dati', ['app_assets' => true]);
         <div class="card-body">
             <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
                 <div>
-                    <h2 class="h5 mb-1">Coordinate mancanti</h2>
-                    <p class="text-muted small mb-0">Rilancia la geolocalizzazione per tutti gli immobili con coordinate non ancora risolte (lat / lng = NULL).</p>
-                </div>
+    <h2 class="h5 mb-1">Coordinate mancanti</h2>
+
+    <p class="text-muted small mb-0">
+        Rilancia la geolocalizzazione per tutti gli immobili con coordinate non ancora risolte (lat / lng = NULL).
+    </p>
+
+    <p class="text-muted small mb-0 mt-1">
+        <strong>NB:</strong> Il Catasto Nazionale viene aggiornato indicativamente ogni 6 mesi.
+        Se alcuni immobili non vengono localizzati, si consiglia di riprovare successivamente,
+        in seguito ai prossimi aggiornamenti dei dati.
+    </p>
+</div>
                 <div class="d-flex align-items-center gap-2 flex-wrap">
                     <div id="missing-coordinates-manual-action-slot" class="d-flex gap-2"></div>
                     <button id="rigenera-coordinate-btn" class="btn btn-outline-secondary">
