@@ -30,7 +30,7 @@ ob_start();
                     <div class="col-12">
                         <label for="find-area-comune" class="form-label small mb-1">Comune</label>
                         <div class="position-relative">
-                            <input id="find-area-comune" class="form-control form-control-sm" autocomplete="off" placeholder="Digita almeno 3 lettere">
+                            <input id="find-area-comune" class="form-control form-control-sm" autocomplete="off" placeholder="Digita il Comune">
                             <div id="find-area-comune-results" class="list-group analyticspro-autocomplete d-none" role="listbox" aria-label="Suggerimenti comuni"></div>
                         </div>
                     </div>
