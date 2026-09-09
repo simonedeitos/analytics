@@ -42,7 +42,7 @@ analyticspro_render_header('Login', ['body_class' => 'bg-auth', 'auth_page' => t
             <div>
                 <div class="ap-page-eyebrow text-white-50">Bentornato</div>
                 <h1>Accedi alla tua dashboard immobiliare</h1>
-                <p>Controlla mappa, report, import e analitiche da una sola interfaccia moderna mantenendo il workflow AnalyticsPRO.</p>
+                <p>Controlla dashboard, mappa, report e import da una sola interfaccia moderna mantenendo il workflow AnalyticsPRO.</p>
             </div>
             <ul class="mb-0 ps-3 small">
                 <li>Dashboard unificata con KPI, territorio e attività recenti.</li>

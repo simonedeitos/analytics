@@ -5,6 +5,7 @@ declare(strict_types=1);
 require __DIR__ . '/includes/bootstrap.php';
 require_once __DIR__ . '/includes/layout.php';
 require_once __DIR__ . '/includes/ui/helpers.php';
+require_once __DIR__ . '/includes/dashboard_stats.php';
 
 analyticspro_require_auth();
 $user = analyticspro_current_user();
@@ -22,28 +23,69 @@ $canViewAnalytics   = !analyticspro_is_subuser() || !empty($subuserPermissions['
 $canViewReports     = !analyticspro_is_subuser() || !empty($subuserPermissions['can_view_reports']);
 $canExport          = !analyticspro_is_subuser() || !empty($subuserPermissions['can_export']);
 $canViewPhone       = analyticspro_tenant_phone_visibility($tenantId);
+$selectedProvince   = trim((string) analyticspro_get('province', ''));
+$selectedCategory   = trim((string) analyticspro_get('category', ''));
+$provinceOptions    = [];
+$categoryOptions    = [];
 
-$importsSql = 'SELECT filename, status, processed_rows, total_rows, created_at FROM import_batches';
-$importsParams = [];
-if ($tenantId !== null) {
-    $importsSql .= ' WHERE user_id = :tenant_id';
-    $importsParams['tenant_id'] = $tenantId;
+try {
+    $importsSql = 'SELECT filename, status, processed_rows, total_rows, created_at FROM import_batches';
+    $importsParams = [];
+    if ($tenantId !== null) {
+        $importsSql .= ' WHERE user_id = :tenant_id';
+        $importsParams['tenant_id'] = $tenantId;
+    }
+    $importsSql .= ' ORDER BY created_at DESC LIMIT 5';
+    $importsStmt = analyticspro_db()->prepare($importsSql);
+    $importsStmt->execute($importsParams);
+    $recentImports = $importsStmt->fetchAll() ?: [];
+} catch (Throwable) {
+    $recentImports = [];
 }
-$importsSql .= ' ORDER BY created_at DESC LIMIT 5';
-$importsStmt = analyticspro_db()->prepare($importsSql);
-$importsStmt->execute($importsParams);
-$recentImports = $importsStmt->fetchAll() ?: [];
 
-$activitySql = 'SELECT comune, provincia, foglio, particella, updated_at FROM properties';
-$activityParams = [];
-if ($tenantId !== null) {
-    $activitySql .= ' WHERE user_id = :tenant_id';
-    $activityParams['tenant_id'] = $tenantId;
+try {
+    $activitySql = 'SELECT comune, provincia, foglio, particella, updated_at FROM properties';
+    $activityParams = [];
+    if ($tenantId !== null) {
+        $activitySql .= ' WHERE user_id = :tenant_id';
+        $activityParams['tenant_id'] = $tenantId;
+    }
+    $activitySql .= ' ORDER BY updated_at DESC LIMIT 5';
+    $activityStmt = analyticspro_db()->prepare($activitySql);
+    $activityStmt->execute($activityParams);
+    $recentActivity = $activityStmt->fetchAll() ?: [];
+} catch (Throwable) {
+    $recentActivity = [];
 }
-$activitySql .= ' ORDER BY updated_at DESC LIMIT 5';
-$activityStmt = analyticspro_db()->prepare($activitySql);
-$activityStmt->execute($activityParams);
-$recentActivity = $activityStmt->fetchAll() ?: [];
+
+if ($canViewAnalytics) {
+    try {
+        $scopeSql = 'SELECT DISTINCT provincia, categoria FROM properties';
+        $scopeParams = [];
+        if ($tenantId !== null) {
+            $scopeSql .= ' WHERE user_id = :tenant_id';
+            $scopeParams['tenant_id'] = $tenantId;
+        }
+        $scopeSql .= ' ORDER BY provincia, categoria';
+        $scopeStmt = analyticspro_db()->prepare($scopeSql);
+        $scopeStmt->execute($scopeParams);
+        foreach ($scopeStmt->fetchAll() ?: [] as $row) {
+            $province = trim((string) ($row['provincia'] ?? ''));
+            $category = trim((string) ($row['categoria'] ?? ''));
+            if ($province !== '') {
+                $provinceOptions[$province] = $province;
+            }
+            if ($category !== '') {
+                $categoryOptions[$category] = $category;
+            }
+        }
+        ksort($provinceOptions);
+        ksort($categoryOptions);
+    } catch (Throwable) {
+        $provinceOptions = [];
+        $categoryOptions = [];
+    }
+}
 
 ob_start();
 ?>
@@ -74,16 +116,29 @@ ob_start();
         <option value="all" <?= $period === 'all' ? 'selected' : '' ?>>Sempre</option>
     </select>
     <?php if (analyticspro_is_admin()): ?>
-        <form method="get" class="d-flex align-items-center gap-2">
-            <input type="hidden" name="period" value="<?= analyticspro_h($period) ?>">
-            <label class="small text-muted fw-semibold" for="dashboard-tenant-select">Tenant</label>
-            <select id="dashboard-tenant-select" class="form-select form-select-sm" name="tenant_id" onchange="this.form.submit()">
-                <option value="all" <?= $selectedTenant === 'all' ? 'selected' : '' ?>>Tutti i tenant</option>
-                <?php foreach ($tenants as $tenant): ?>
-                    <option value="<?= analyticspro_h((string) $tenant['id']) ?>" <?= $selectedTenant === (string) $tenant['id'] ? 'selected' : '' ?>><?= analyticspro_h(analyticspro_full_name($tenant)) ?></option>
-                <?php endforeach; ?>
-            </select>
-        </form>
+        <label class="small text-muted fw-semibold" for="dashboard-tenant-select">Tenant</label>
+        <select id="dashboard-tenant-select" class="form-select form-select-sm" onchange="var url = new URL(window.location.href); url.searchParams.set('tenant_id', this.value || 'all'); window.location.href = url.toString();">
+            <option value="all" <?= $selectedTenant === 'all' ? 'selected' : '' ?>>Tutti i tenant</option>
+            <?php foreach ($tenants as $tenant): ?>
+                <option value="<?= analyticspro_h((string) $tenant['id']) ?>" <?= $selectedTenant === (string) $tenant['id'] ? 'selected' : '' ?>><?= analyticspro_h(analyticspro_full_name($tenant)) ?></option>
+            <?php endforeach; ?>
+        </select>
+    <?php endif; ?>
+    <?php if ($canViewAnalytics): ?>
+        <label class="small text-muted fw-semibold" for="dashboard-province-select">Provincia</label>
+        <select id="dashboard-province-select" class="form-select form-select-sm" data-dashboard-filter-control="province">
+            <option value="">Tutte</option>
+            <?php foreach ($provinceOptions as $province): ?>
+                <option value="<?= analyticspro_h($province) ?>" <?= $selectedProvince === $province ? 'selected' : '' ?>><?= analyticspro_h($province) ?></option>
+            <?php endforeach; ?>
+        </select>
+        <label class="small text-muted fw-semibold" for="dashboard-category-select">Categoria</label>
+        <select id="dashboard-category-select" class="form-select form-select-sm" data-dashboard-filter-control="category">
+            <option value="">Tutte</option>
+            <?php foreach ($categoryOptions as $category): ?>
+                <option value="<?= analyticspro_h($category) ?>" <?= $selectedCategory === $category ? 'selected' : '' ?>><?= analyticspro_h($category) ?></option>
+            <?php endforeach; ?>
+        </select>
     <?php endif; ?>
     <?php if ($canExport): ?>
         <button type="button" class="btn btn-outline-primary btn-sm" id="dashboard-export"><i class="bi bi-download me-1"></i>Export</button>
@@ -100,7 +155,6 @@ $quickActions = [
     ['visible' => true, 'url' => 'assegnati.php', 'icon' => 'bi-pin-map', 'title' => 'Marker assegnati', 'desc' => 'Controlla la tua coda operativa'],
     ['visible' => $canImport, 'url' => 'importa.php', 'icon' => 'bi-upload', 'title' => 'Importa dati', 'desc' => 'Carica CSV o Excel'],
     ['visible' => $canViewReports, 'url' => 'report.php', 'icon' => 'bi-table', 'title' => 'Report', 'desc' => 'Apri la vista tabellare'],
-    ['visible' => $canViewAnalytics, 'url' => 'analitiche.php', 'icon' => 'bi-bar-chart-line', 'title' => 'Analitiche avanzate', 'desc' => 'Approfondisci i grafici'],
     ['visible' => analyticspro_is_main_user(), 'url' => 'subutenti.php', 'icon' => 'bi-people', 'title' => 'Subutenti', 'desc' => 'Gestisci permessi e inviti'],
 ];
 ?>
@@ -122,6 +176,8 @@ $quickActions = [
      data-ade-jobs-endpoint="<?= analyticspro_h(analyticspro_base_url('api/admin/ade_jobs.php')) ?>"
      data-dashboard-stats-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/dashboard_stats.php')) ?>"
      data-dashboard-period="<?= analyticspro_h($period) ?>"
+     data-dashboard-province="<?= analyticspro_h($selectedProvince) ?>"
+     data-dashboard-category="<?= analyticspro_h($selectedCategory) ?>"
      data-dashboard-page="home"
      data-dashboard-map-url="<?= analyticspro_h(analyticspro_base_url('mappa.php')) ?>">
 
@@ -181,8 +237,9 @@ $quickActions = [
             <div class="col-12 col-xl-6"><?= analyticspro_ui_chart_card(['title' => 'Top 10 comuni', 'icon' => 'bi-geo-alt', 'canvas_id' => 'chart-comune', 'height' => '300']) ?></div>
         </section>
         <section class="row g-4 mb-4" data-dashboard-section="all territorio immobili">
-            <div class="col-12 col-xl-6"><?= analyticspro_ui_chart_card(['title' => 'Distribuzione per provincia', 'icon' => 'bi-pin-map', 'canvas_id' => 'chart-province', 'height' => '300']) ?></div>
-            <div class="col-12 col-xl-6"><?= analyticspro_ui_chart_card(['title' => 'Tipologie immobili', 'icon' => 'bi-house', 'canvas_id' => 'chart-categoria', 'height' => '300']) ?></div>
+            <div class="col-12 col-xl-4"><?= analyticspro_ui_chart_card(['title' => 'Distribuzione sesso', 'icon' => 'bi-gender-ambiguous', 'canvas_id' => 'chart-gender', 'height' => '300']) ?></div>
+            <div class="col-12 col-xl-4"><?= analyticspro_ui_chart_card(['title' => 'Distribuzione per provincia', 'icon' => 'bi-pin-map', 'canvas_id' => 'chart-province', 'height' => '300']) ?></div>
+            <div class="col-12 col-xl-4"><?= analyticspro_ui_chart_card(['title' => 'Tipologie immobili', 'icon' => 'bi-house', 'canvas_id' => 'chart-categoria', 'height' => '300']) ?></div>
         </section>
     <?php else: ?>
         <section class="mb-4" data-dashboard-section="all anagrafica territorio immobili">

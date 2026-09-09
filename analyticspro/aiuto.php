@@ -193,7 +193,7 @@ analyticspro_render_header('Aiuto');
                     <div class="accordion-item guide-item">
                         <h2 class="accordion-header">
                             <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#g4">
-                                <i class="bi bi-table me-2 text-primary"></i>Report e analitiche
+                                <i class="bi bi-table me-2 text-primary"></i>Report e dashboard
                             </button>
                         </h2>
                         <div id="g4" class="accordion-collapse collapse" data-bs-parent="#guideAccordion">
@@ -204,8 +204,8 @@ analyticspro_render_header('Aiuto');
                                 <h6 class="mt-3">Sezione "Report in griglia"</h6>
                                 <p>Vista generale dell'intero patrimonio del tenant con <strong>filtri avanzati</strong> su tutte le colonne. A differenza di "Marker assegnati", mostra tutti gli immobili del tenant (non solo quelli assegnati al subutente corrente). Utile per analisi comparative, selezioni multi-criteri e panoramiche globali. L'utente principale può anche eliminare singole righe non più necessarie direttamente dalla tabella, con conferma esplicita.</p>
 
-                                <h6 class="mt-3">Sezione Analitiche</h6>
-                                <p>Dashboard con <strong>KPI numerici</strong> (totale immobili, distribuzioni, conteggi per stato) e <strong>grafici</strong> (distribuzione per comune, provincia, categoria catastale, genere intestatari, fasce d'età, titolarità). I dati si aggiornano in tempo reale in base agli import effettuati.</p>
+                                <h6 class="mt-3">Blocchi analitici in dashboard</h6>
+                                <p>La dashboard raccoglie <strong>KPI numerici</strong> (totale immobili, distribuzioni, conteggi per stato) e <strong>grafici</strong> (distribuzione per comune, provincia, categoria catastale, genere intestatari, fasce d'età, titolarità). I dati si aggiornano in tempo reale in base agli import effettuati e possono essere filtrati per periodo, provincia e categoria.</p>
                             </div>
                         </div>
                     </div>
@@ -231,7 +231,7 @@ analyticspro_render_header('Aiuto');
                                 <ul>
                                     <li><strong>Modifica marker</strong>: scegli se il subutente può modificare <em>tutti</em> i marker del tenant o <em>solo quelli assegnati a lui</em>.</li>
                                     <li><strong>Import dati</strong>: se disabilitato, la voce "Import dati" non appare nel menu del subutente.</li>
-                                    <li><strong>Analitiche</strong>: abilita o disabilita la sezione analitiche.</li>
+                                    <li><strong>Analitiche</strong>: abilita o disabilita i blocchi analitici della dashboard.</li>
                                     <li><strong>Report in griglia</strong>: abilita o disabilita la sezione report.</li>
                                     <li><strong>Export</strong>: abilita o disabilita l'esportazione CSV/Excel dalla sezione "Marker assegnati".</li>
                                 </ul>
@@ -359,11 +359,11 @@ analyticspro_render_header('Aiuto');
                         ],
                         [
                             'q' => 'Posso configurare i permessi di un subutente dopo l\'invito?',
-                            'a' => 'Sì. Dalla gestione subutenti puoi modificare in qualsiasi momento i permessi: modifica tutti i marker o solo assegnati, accesso all\'import, alle analitiche, al report e all\'export.',
+                            'a' => 'Sì. Dalla gestione subutenti puoi modificare in qualsiasi momento i permessi: modifica tutti i marker o solo assegnati, accesso all\'import, ai blocchi analitici della dashboard, al report e all\'export.',
                         ],
                         [
                             'q' => 'Un subutente può vedere le analitiche?',
-                            'a' => 'Solo se l\'utente principale ha abilitato il permesso "Analitiche" per quel subutente. In caso contrario la sezione non appare nel menu.',
+                            'a' => 'Solo se l\'utente principale ha abilitato il permesso "Analitiche" per quel subutente. In caso contrario i blocchi analitici della dashboard restano nascosti.',
                         ],
                         [
                             'q' => 'Come filtrare per colore o stato nella tabella?',

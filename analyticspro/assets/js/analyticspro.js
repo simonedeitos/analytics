@@ -1445,15 +1445,6 @@
                 setDashboardKpiValue(key, kpis[key].value, kpis[key].delta, kpis[key].sparkline);
             }
         });
-        if (state.dashboardPage === 'analytics') {
-            ['total', 'phone', 'email', 'piva'].forEach(function (key) {
-                var sourceKey = key === 'total' ? 'owners' : key;
-                var el = document.querySelector('[data-kpi-analytics="' + key + '"]');
-                if (el && kpis[sourceKey]) {
-                    el.textContent = Number(kpis[sourceKey].value || 0).toLocaleString('it-IT');
-                }
-            });
-        }
         if (state.dashboardPage === 'home') {
             renderDashboardMiniMap(stats.map_points || []);
         }
@@ -3769,18 +3760,4 @@
         });
     })();
 
-    window.addEventListener('analyticspro:theme-change', function () {
-        if (window.analyticsproChartTheme && typeof window.analyticsproChartTheme.apply === 'function') {
-            window.analyticsproChartTheme.apply();
-        }
-        if (state.dashboardPage) {
-            loadDashboardStats(false).catch(function () {
-                if (state.canViewAnalytics || state.role !== 'subuser') renderCharts();
-            });
-            return;
-        }
-        if (state.canViewAnalytics || state.role !== 'subuser') {
-            renderCharts();
-        }
-    });
 })();

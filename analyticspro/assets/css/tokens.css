@@ -33,14 +33,3 @@
     --ap-sidebar-bg:#0F172A;
     --ap-sidebar-bg-2:#1e293b;
 }
-
-[data-theme="dark"]{
-    --ap-bg:#0b1220;
-    --ap-surface:#101828;
-    --ap-surface-2:#182230;
-    --ap-text:#f8fafc;
-    --ap-muted:#98a2b3;
-    --ap-border:#243244;
-    --ap-blue-light:rgba(42,81,159,.18);
-    color-scheme:dark;
-}

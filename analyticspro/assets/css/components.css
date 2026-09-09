@@ -13,27 +13,6 @@
     background: var(--ap-surface);
 }
 
-[data-theme="dark"] .card,
-[data-theme="dark"] .modal-content,
-[data-theme="dark"] .dropdown-menu,
-[data-theme="dark"] .accordion-item,
-[data-theme="dark"] .alert,
-[data-theme="dark"] .report-filter-bar,
-[data-theme="dark"] .manual-record-autofill-hint,
-[data-theme="dark"] .drop-zone,
-[data-theme="dark"] .map-popup-card,
-[data-theme="dark"] .dataTables_wrapper .dataTables_length select,
-[data-theme="dark"] .dataTables_wrapper .dataTables_filter input,
-[data-theme="dark"] .form-control,
-[data-theme="dark"] .form-select,
-[data-theme="dark"] .input-group-text,
-[data-theme="dark"] .table,
-[data-theme="dark"] .table td,
-[data-theme="dark"] .table th {
-    background: var(--ap-surface);
-    color: var(--ap-text);
-}
-
 .btn-primary {
     background: var(--ap-blue);
     border-color: var(--ap-blue);
@@ -94,9 +73,6 @@
 .ap-hero-card {
     padding: 1.75rem;
     background: linear-gradient(135deg, rgba(42,81,159,.08) 0%, rgba(242,142,14,.08) 100%);
-}
-[data-theme="dark"] .ap-hero-card {
-    background: linear-gradient(135deg, rgba(42,81,159,.22) 0%, rgba(242,142,14,.15) 100%);
 }
 
 .ap-dashboard-tabs,

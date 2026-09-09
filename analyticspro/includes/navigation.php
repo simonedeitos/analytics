@@ -66,7 +66,7 @@ function analyticspro_nav_items(?array $user = null, ?array $subuserPermissions 
         ],
         [
             'label' => 'Analisi',
-            'visible' => !analyticspro_is_subuser() || !empty($subuserPermissions['can_view_reports']) || !empty($subuserPermissions['can_view_analytics']),
+            'visible' => !analyticspro_is_subuser() || !empty($subuserPermissions['can_view_reports']),
             'items' => [
                 [
                     'label' => 'Report in griglia',
@@ -74,14 +74,6 @@ function analyticspro_nav_items(?array $user = null, ?array $subuserPermissions 
                     'url' => analyticspro_base_url('report.php'),
                     'page' => ['report.php'],
                     'visible' => !analyticspro_is_subuser() || !empty($subuserPermissions['can_view_reports']),
-                    'badge' => 0,
-                ],
-                [
-                    'label' => 'Analitiche avanzate',
-                    'icon' => 'bi-bar-chart-line',
-                    'url' => analyticspro_base_url('analitiche.php'),
-                    'page' => ['analitiche.php'],
-                    'visible' => !analyticspro_is_subuser() || !empty($subuserPermissions['can_view_analytics']),
                     'badge' => 0,
                 ],
             ],

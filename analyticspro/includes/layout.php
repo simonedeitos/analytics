@@ -81,7 +81,6 @@ function analyticspro_render_header(string $title, array $options = []): void
         : [];
     $currentPage = analyticspro_current_page();
     $navSections = $user ? analyticspro_nav_items($user, $subuserPermissions) : [];
-    $selectedTenant = $user && analyticspro_is_admin() ? (string) analyticspro_get('tenant_id', 'all') : '';
     ?>
     <!DOCTYPE html>
     <html lang="it">
@@ -95,16 +94,6 @@ function analyticspro_render_header(string $title, array $options = []): void
         <link rel="apple-touch-icon" href="<?= analyticspro_h(analyticspro_base_url('favicon.php?v=2')) ?>">
         <link rel="preconnect" href="https://fonts.googleapis.com">
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-        <script>
-        (function () {
-            try {
-                var theme = window.localStorage.getItem('analyticspro:theme') || 'light';
-                document.documentElement.setAttribute('data-theme', theme);
-            } catch (error) {
-                document.documentElement.setAttribute('data-theme', 'light');
-            }
-        })();
-        </script>
         <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
         <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
         <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
@@ -141,14 +130,6 @@ function analyticspro_render_header(string $title, array $options = []): void
                     </span>
                 </a>
 
-                <div class="ap-sidebar-search-wrap">
-                    <label class="visually-hidden" for="apSidebarSearch">Cerca nel menu</label>
-                    <div class="ap-sidebar-search">
-                        <i class="bi bi-search" aria-hidden="true"></i>
-                        <input type="search" id="apSidebarSearch" class="form-control" placeholder="Cerca nel menu...">
-                    </div>
-                </div>
-
                 <nav class="ap-sidebar-nav">
                     <?php foreach ($navSections as $section): ?>
                         <?php
@@ -172,7 +153,7 @@ function analyticspro_render_header(string $title, array $options = []): void
                             <ul class="list-unstyled mb-0">
                                 <?php foreach ($items as $item): ?>
                                     <?php $active = analyticspro_page_matches($currentPage, (array) ($item['page'] ?? [])); ?>
-                                    <li data-nav-item data-nav-label="<?= analyticspro_h(mb_strtolower((string) $item['label'], 'UTF-8')) ?>">
+                                    <li>
                                         <a href="<?= analyticspro_h((string) $item['url']) ?>"
                                            class="ap-nav-link<?= $active ? ' active' : '' ?>"
                                            <?= $active ? ' aria-current="page"' : '' ?>
@@ -231,24 +212,10 @@ function analyticspro_render_header(string $title, array $options = []): void
                     <span class="ap-topbar-title"><?= analyticspro_h($title) ?></span>
                 </div>
             </div>
-            <div class="ap-topbar-middle">
-                <form method="get" action="<?= analyticspro_h(analyticspro_base_url('report.php')) ?>" class="ap-topbar-search" role="search">
-                    <?php if ($selectedTenant !== ''): ?>
-                        <input type="hidden" name="tenant_id" value="<?= analyticspro_h($selectedTenant) ?>">
-                    <?php endif; ?>
-                    <label class="visually-hidden" for="apGlobalSearch">Ricerca globale</label>
-                    <i class="bi bi-search" aria-hidden="true"></i>
-                    <input id="apGlobalSearch" type="search" name="q" value="<?= analyticspro_h((string) analyticspro_get('q', '')) ?>" class="form-control" placeholder="Cerca comune, indirizzo, intestatario...">
-                </form>
-            </div>
             <div class="ap-topbar-end">
                 <?php if ($topbarContent !== ''): ?>
                     <div class="ap-topbar-slot"><?= $topbarContent ?></div>
                 <?php endif; ?>
-                <button class="ap-theme-toggle" id="apThemeToggle" type="button" aria-label="Cambia tema" aria-pressed="false">
-                    <i class="bi bi-moon-stars"></i>
-                    <span class="d-none d-sm-inline">Tema</span>
-                </button>
             </div>
         </header>
 
@@ -302,11 +269,8 @@ function analyticspro_render_footer(bool $includeAppAssets = false): void
         var hamburger = document.getElementById('apHamburger');
         var collapseToggle = document.getElementById('apSidebarCollapseToggle');
         var topbar = document.querySelector('.ap-topbar');
-        var themeToggle = document.getElementById('apThemeToggle');
-        var sidebarSearch = document.getElementById('apSidebarSearch');
         var storagePrefix = 'analyticspro:';
         var collapseKey = storagePrefix + 'sidebar-collapsed';
-        var themeKey = storagePrefix + 'theme';
         var lastHeight = 0;
 
         function readFlag(key) {
@@ -360,32 +324,6 @@ function analyticspro_render_footer(bool $includeAppAssets = false): void
             }
         }
 
-        function applyTheme(theme) {
-            root.setAttribute('data-theme', theme);
-            try { window.localStorage.setItem(themeKey, theme); } catch (error) {}
-            if (themeToggle) {
-                themeToggle.setAttribute('aria-pressed', theme === 'dark' ? 'true' : 'false');
-                themeToggle.innerHTML = theme === 'dark'
-                    ? '<i class="bi bi-sunrise"></i><span class="d-none d-sm-inline">Chiaro</span>'
-                    : '<i class="bi bi-moon-stars"></i><span class="d-none d-sm-inline">Scuro</span>';
-            }
-            window.dispatchEvent(new CustomEvent('analyticspro:theme-change', { detail: { theme: theme } }));
-        }
-
-        function filterSidebar(query) {
-            var q = String(query || '').trim().toLowerCase();
-            document.querySelectorAll('[data-nav-section]').forEach(function (section) {
-                var visibleCount = 0;
-                section.querySelectorAll('[data-nav-item]').forEach(function (item) {
-                    var label = item.getAttribute('data-nav-label') || '';
-                    var visible = q === '' || label.indexOf(q) !== -1;
-                    item.classList.toggle('d-none', !visible);
-                    if (visible) visibleCount += 1;
-                });
-                section.classList.toggle('d-none', visibleCount === 0);
-            });
-        }
-
         if (hamburger) {
             hamburger.addEventListener('click', function () {
                 if (sidebar && sidebar.classList.contains('open')) {
@@ -403,16 +341,6 @@ function analyticspro_render_footer(bool $includeAppAssets = false): void
                 setSidebarCollapsed(!body.classList.contains('ap-sidebar-collapsed'));
             });
         }
-        if (sidebarSearch) {
-            sidebarSearch.addEventListener('input', function () {
-                filterSidebar(sidebarSearch.value);
-            });
-        }
-        if (themeToggle) {
-            themeToggle.addEventListener('click', function () {
-                applyTheme(root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
-            });
-        }
         if (topbar) {
             document.addEventListener('scroll', function () {
                 topbar.classList.toggle('is-scrolled', window.scrollY > 8);
@@ -425,7 +353,6 @@ function analyticspro_render_footer(bool $includeAppAssets = false): void
         if (window.matchMedia('(min-width: 992px)').matches) {
             setSidebarCollapsed(readFlag(collapseKey));
         }
-        applyTheme(root.getAttribute('data-theme') || 'light');
         syncTopbarOffset();
         window.addEventListener('load', syncTopbarOffset);
         window.addEventListener('resize', function () {
