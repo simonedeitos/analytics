@@ -85,6 +85,7 @@
         manualRecordModal: null,
         cadastralTileWarningShown: false,
         mapInvalidateTimer: 0,
+        pendingCadastralLatLng: null,
     };
 
     state.mapStatiFilter = Object.keys(STATE_OPTIONS).slice();
@@ -95,6 +96,36 @@
         return (candidateFields || []).filter(function (fieldName) {
             return String(values && values[fieldName] !== undefined && values[fieldName] !== null ? values[fieldName] : '').trim() !== '';
         });
+    }
+
+    function parseCoordinateValue(value) {
+        var normalized = String(value === null || value === undefined ? '' : value).trim().replace(',', '.');
+        if (normalized === '') return null;
+        var parsed = parseFloat(normalized);
+        return Number.isFinite(parsed) ? parsed : null;
+    }
+
+    function isValidItalianLatLng(lat, lng) {
+        return Number.isFinite(lat) && Number.isFinite(lng)
+            && lat >= 35 && lat <= 48
+            && lng >= 6 && lng <= 19;
+    }
+
+    function cloneLatLng(latLng) {
+        if (!latLng || !isValidItalianLatLng(Number(latLng.lat), Number(latLng.lng))) return null;
+        return { lat: Number(latLng.lat), lng: Number(latLng.lng) };
+    }
+
+    function restorePendingCadastralLatLng(form) {
+        if (!form || !state.pendingCadastralLatLng) return;
+        var latField = form.elements.namedItem('Latitudine');
+        var lngField = form.elements.namedItem('Longitudine');
+        if (latField && String(latField.value || '').trim() === '') {
+            latField.value = String(state.pendingCadastralLatLng.lat);
+        }
+        if (lngField && String(lngField.value || '').trim() === '') {
+            lngField.value = String(state.pendingCadastralLatLng.lng);
+        }
     }
 
     function getStatiFilter() {
@@ -136,11 +167,20 @@
                 merged[entry[0]] = String(entry[1]);
             }
         });
+        if (String(merged['Latitudine'] || '').trim() === '' && state.pendingCadastralLatLng) {
+            merged['Latitudine'] = String(state.pendingCadastralLatLng.lat);
+        }
+        if (String(merged['Longitudine'] || '').trim() === '' && state.pendingCadastralLatLng) {
+            merged['Longitudine'] = String(state.pendingCadastralLatLng.lng);
+        }
         return merged;
     }
 
     function openCadastralManualRecord(values, lockResolvedLocation, noticeMessage) {
         var candidateFields = ['Codice Catastale', 'Sezione', 'Foglio', 'Particella', 'Subalterno', 'Categoria', 'Indirizzo', 'Civico'];
+        var lat = parseCoordinateValue(values && values['Latitudine']);
+        var lng = parseCoordinateValue(values && values['Longitudine']);
+        state.pendingCadastralLatLng = isValidItalianLatLng(lat, lng) ? { lat: lat, lng: lng } : null;
         if (lockResolvedLocation) {
             candidateFields = ['Provincia', 'Comune'].concat(candidateFields);
         }
@@ -1331,6 +1371,14 @@
             if (field.name.indexOf('__manual_record_locked__') === 0) return;
             data[field.name] = String(field.value || '').trim();
         });
+        if (state.pendingCadastralLatLng) {
+            if (String(data['Latitudine'] || '').trim() === '') {
+                data['Latitudine'] = String(state.pendingCadastralLatLng.lat);
+            }
+            if (String(data['Longitudine'] || '').trim() === '') {
+                data['Longitudine'] = String(state.pendingCadastralLatLng.lng);
+            }
+        }
         return data;
     }
 
@@ -1435,6 +1483,7 @@
         Object.keys(values || {}).forEach(function (key) {
             setManualRecordFieldValue(form, key, values[key]);
         });
+        restorePendingCadastralLatLng(form);
         Array.from(document.querySelectorAll('.manual-record-lockable')).forEach(function (field) {
             var shouldLock = Array.isArray(lockedFields) && lockedFields.indexOf(field.name) !== -1;
             setManualRecordFieldLocked(form, field, shouldLock);
@@ -1462,6 +1511,32 @@
         feedback.textContent = message;
     }
 
+    function focusMarkerAtLatLng(lat, lng) {
+        if (!state.markers || typeof state.markers.eachLayer !== 'function') return false;
+        var targetMarker = null;
+        state.markers.eachLayer(function (layer) {
+            if (targetMarker || !layer || typeof layer.getLatLng !== 'function') return;
+            var point = layer.getLatLng();
+            if (!point) return;
+            if (Math.abs(Number(point.lat) - Number(lat)) <= 0.00001 && Math.abs(Number(point.lng) - Number(lng)) <= 0.00001) {
+                targetMarker = layer;
+            }
+        });
+        if (!targetMarker) return false;
+        if (typeof state.markers.zoomToShowLayer === 'function') {
+            state.markers.zoomToShowLayer(targetMarker, function () {
+                if (typeof targetMarker.openPopup === 'function') {
+                    targetMarker.openPopup();
+                }
+            });
+            return true;
+        }
+        if (typeof targetMarker.openPopup === 'function') {
+            targetMarker.openPopup();
+        }
+        return true;
+    }
+
     function initManualRecordModal() {
         var modalEl = document.getElementById('manual-record-modal');
         var openBtn = document.getElementById('open-manual-record-modal');
@@ -1470,9 +1545,12 @@
         var modal = bootstrap.Modal.getOrCreateInstance(modalEl);
         state.manualRecordModal = modal;
         var allowClose = false;
+        var savedWithSuccess = false;
         if (openBtn) {
             openBtn.addEventListener('click', function () {
                 allowClose = false;
+                savedWithSuccess = false;
+                state.pendingCadastralLatLng = null;
                 openManualRecordModal({}, []);
             });
         }
@@ -1487,12 +1565,19 @@
         modalEl.addEventListener('hidden.bs.modal', function () {
             if (allowClose) {
                 resetManualRecordForm();
+                if (!savedWithSuccess) {
+                    state.pendingCadastralLatLng = null;
+                }
                 allowClose = false;
+                savedWithSuccess = false;
             }
         });
         saveBtn.addEventListener('click', async function () {
             var feedback = document.getElementById('manual-record-feedback');
             var row = manualRecordFormData();
+            var modalOpenedFromMap = !!state.pendingCadastralLatLng || String(row['Latitudine'] || '').trim() !== '' || String(row['Longitudine'] || '').trim() !== '';
+            var rowLat = parseCoordinateValue(row['Latitudine']);
+            var rowLng = parseCoordinateValue(row['Longitudine']);
             if (!Object.keys(row).some(function (key) { return row[key] !== ''; })) {
                 if (feedback) {
                     feedback.className = 'alert alert-warning py-2';
@@ -1500,6 +1585,14 @@
                 }
                 return;
             }
+            if (modalOpenedFromMap && !isValidItalianLatLng(rowLat, rowLng)) {
+                if (feedback) {
+                    feedback.className = 'alert alert-danger py-2';
+                    feedback.textContent = 'Coordinate mancanti: riapri il popup catastale sulla mappa e riprova.';
+                }
+                return;
+            }
+            var createdLatLng = cloneLatLng(state.pendingCadastralLatLng) || (isValidItalianLatLng(rowLat, rowLng) ? { lat: rowLat, lng: rowLng } : null);
             saveBtn.disabled = true;
             if (feedback) {
                 feedback.className = 'alert d-none py-2';
@@ -1513,16 +1606,27 @@
                         csrf_token: state.csrfToken,
                         mode: 'manual_create',
                         filename: 'inserimento_manuale',
+                        source: modalOpenedFromMap ? 'map_click' : 'manual',
                         row: row
                     })
                 });
                 if (!Number(response.saved_rows || 0)) {
                     throw new Error('Il record non è stato salvato: verifica i campi catastali minimi obbligatori.');
                 }
+                savedWithSuccess = true;
                 allowClose = true;
                 modal.hide();
-                await loadProperties({ preserveMapView: true });
-                window.alert('Record salvato correttamente.');
+                await loadProperties();
+                if (state.map) {
+                    state.map.closePopup();
+                }
+                state.cadastralPopup = null;
+                if (createdLatLng && state.map) {
+                    state.map.setView([createdLatLng.lat, createdLatLng.lng], Math.max(state.map.getZoom(), 17), { animate: true });
+                    focusMarkerAtLatLng(createdLatLng.lat, createdLatLng.lng);
+                }
+                state.pendingCadastralLatLng = null;
+                showAppToast('Marker creato correttamente e salvato con le coordinate della mappa.', 'success');
             } catch (error) {
                 if (feedback) {
                     feedback.className = 'alert alert-danger py-2';
@@ -2019,6 +2123,37 @@
                 }
             }, timeout);
         }
+    }
+
+    function showAppToast(message, type, timeout) {
+        if (!message || !window.bootstrap || typeof bootstrap.Toast !== 'function') return;
+        var toastContainer = document.querySelector('.toast-container.analyticspro-app-toast-container');
+        if (!toastContainer) {
+            toastContainer = document.createElement('div');
+            toastContainer.className = 'toast-container position-fixed bottom-0 end-0 p-3 analyticspro-app-toast-container';
+            toastContainer.style.zIndex = '1090';
+            document.body.appendChild(toastContainer);
+        }
+        var variant = String(type || 'info').trim() || 'info';
+        var classNameMap = {
+            success: 'text-bg-success',
+            danger: 'text-bg-danger',
+            warning: 'bg-warning text-dark',
+            info: 'text-bg-info'
+        };
+        var closeClass = variant === 'warning' ? 'btn-close' : 'btn-close btn-close-white';
+        var delay = typeof timeout === 'number' ? timeout : 3500;
+        var toastEl = document.createElement('div');
+        toastEl.className = 'toast align-items-center border-0 ' + (classNameMap[variant] || 'text-bg-secondary');
+        toastEl.setAttribute('role', 'alert');
+        toastEl.setAttribute('aria-live', 'assertive');
+        toastEl.setAttribute('aria-atomic', 'true');
+        toastEl.innerHTML = '<div class="d-flex"><div class="toast-body">' + escapeHtml(message) + '</div><button type="button" class="' + closeClass + ' me-2 m-auto" data-bs-dismiss="toast" aria-label="Chiudi"></button></div>';
+        toastContainer.appendChild(toastEl);
+        toastEl.addEventListener('hidden.bs.toast', function () {
+            toastEl.remove();
+        });
+        bootstrap.Toast.getOrCreateInstance(toastEl, { autohide: delay > 0, delay: delay }).show();
     }
 
     function ensureLeafletEpsg4258() {

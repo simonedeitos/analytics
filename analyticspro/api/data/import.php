@@ -33,12 +33,15 @@ try {
     }
 
     if ($mode === 'process' || $mode === 'manual_create') {
+        $manualSource = trim((string) ($input['source'] ?? ''));
+        $manualEnrichmentSummary = null;
         if ($mode === 'manual_create') {
             $manualRow = is_array($input['row'] ?? null) ? $input['row'] : [];
             if ($manualRow === []) {
                 throw new RuntimeException('Record manuale non valido.');
             }
             $rows = [$manualRow];
+            $manualEnrichmentSummary = analyticspro_manual_create_enrichment_summary($manualRow, $manualSource);
         }
 
         $filename = trim((string) ($input['filename'] ?? ($mode === 'manual_create' ? 'inserimento_manuale' : 'import.csv')));
@@ -59,6 +62,7 @@ try {
             'uploaded_by_name' => analyticspro_full_name($user),
             'rows' => $rows,
             'decisions' => $decisions,
+            'source' => $manualSource,
         ];
 
         // Write the payload to disk so the cron script can be used for manual/diagnostic
@@ -82,7 +86,30 @@ try {
         if (function_exists('set_time_limit')) {
             @set_time_limit(30);
         }
-        $enrichment = analyticspro_enrich_batch_coordinates_sync($batchId, $syncLimit);
+        if ($manualEnrichmentSummary !== null) {
+            $report = [
+                'coord_source' => $manualEnrichmentSummary['coord_source'],
+                'failure_codes' => [],
+                'unresolved_rows' => [],
+                'truncated' => false,
+            ];
+            $pdo->prepare(
+                'UPDATE import_batches
+                 SET enrichment_status = :status,
+                     enrichment_processed = 0,
+                     enrichment_total = 0,
+                     enrichment_sync = 0,
+                     enrichment_report = :report
+                 WHERE id = :id'
+            )->execute([
+                'status' => 'completed',
+                'report' => json_encode($report, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                'id' => $batchId,
+            ]);
+            $enrichment = $manualEnrichmentSummary;
+        } else {
+            $enrichment = analyticspro_enrich_batch_coordinates_sync($batchId, $syncLimit);
+        }
 
         analyticspro_json([
             'ok' => true,

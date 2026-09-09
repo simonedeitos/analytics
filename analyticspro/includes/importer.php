@@ -82,6 +82,72 @@ function analyticspro_parse_coordinate(?string $value): ?float
     return (float) $normalized;
 }
 
+function analyticspro_is_valid_italian_lat_lng(?float $lat, ?float $lng): bool
+{
+    return $lat !== null
+        && $lng !== null
+        && $lat >= 35.0
+        && $lat <= 48.0
+        && $lng >= 6.0
+        && $lng <= 19.0;
+}
+
+/**
+ * @return array{lat:?float,lng:?float,posizione_verificata:int,coord_source:?string}
+ */
+function analyticspro_resolve_manual_property_coordinates(array $property, ?string $source = null): array
+{
+    $lat = isset($property['lat']) && is_numeric($property['lat']) ? (float) $property['lat'] : null;
+    $lng = isset($property['lng']) && is_numeric($property['lng']) ? (float) $property['lng'] : null;
+    if (!analyticspro_is_valid_italian_lat_lng($lat, $lng)) {
+        return [
+            'lat' => null,
+            'lng' => null,
+            'posizione_verificata' => 0,
+            'coord_source' => null,
+        ];
+    }
+
+    $normalizedSource = strtolower(trim((string) $source));
+
+    return [
+        'lat' => $lat,
+        'lng' => $lng,
+        'posizione_verificata' => 1,
+        'coord_source' => $normalizedSource === 'map_click' ? 'map_click' : 'manual',
+    ];
+}
+
+/**
+ * @return array{saved_rows:int,geolocated:int,total_unique:int,processed_unique:int,remaining_unique:int,done:bool,enrichment_sync:bool,coord_source:array<string,int>,failure_codes:array<string,int>,unresolved_rows:array<int,string>,truncated:bool}|null
+ */
+function analyticspro_manual_create_enrichment_summary(array $row, ?string $source = null): ?array
+{
+    if (strtolower(trim((string) $source)) !== 'map_click') {
+        return null;
+    }
+
+    $payload = analyticspro_extract_row_payload($row);
+    $coordinates = analyticspro_resolve_manual_property_coordinates($payload['property'] ?? [], $source);
+    if (($coordinates['coord_source'] ?? null) !== 'map_click') {
+        return null;
+    }
+
+    return [
+        'saved_rows' => 1,
+        'geolocated' => 0,
+        'total_unique' => 0,
+        'processed_unique' => 0,
+        'remaining_unique' => 0,
+        'done' => true,
+        'enrichment_sync' => false,
+        'coord_source' => ['map_click' => 1],
+        'failure_codes' => [],
+        'unresolved_rows' => [],
+        'truncated' => false,
+    ];
+}
+
 function analyticspro_guess_gender(?string $cf): ?string
 {
     $cf = strtoupper(trim((string) $cf));
@@ -815,6 +881,7 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
     $uploaderId = (int) ($payload['uploaded_by'] ?? 0);
     $uploaderName = trim((string) ($payload['uploaded_by_name'] ?? 'Import automatico'));
     $decisions = $payload['decisions'] ?? [];
+    $manualSource = (string) ($payload['source'] ?? '');
 
     $hasPianoColumn = analyticspro_properties_has_piano_column();
     $findProperty = $pdo->prepare('SELECT * FROM properties WHERE user_id = :user_id AND provincia = :provincia AND comune = :comune AND sezione <=> :sezione AND foglio = :foglio AND particella = :particella AND subalterno <=> :subalterno LIMIT 1');
@@ -849,6 +916,9 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
         foreach ($rows as $index => $row) {
             $entry = analyticspro_extract_row_payload($row);
             $property = $entry['property'];
+            $manualCoordinates = analyticspro_resolve_manual_property_coordinates($property, $manualSource);
+            $property['lat'] = $manualCoordinates['lat'];
+            $property['lng'] = $manualCoordinates['lng'];
             if ($property['provincia'] === '' || $property['comune'] === '' || $property['foglio'] === '' || $property['particella'] === '') {
                 $processed++;
                 $skippedRows++;
@@ -870,7 +940,7 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
 
             if ($existingProperty) {
                 $propertyId = (int) $existingProperty['id'];
-                $hasManualCoords = $property['lat'] !== null && $property['lng'] !== null;
+                $hasManualCoords = $manualCoordinates['coord_source'] !== null;
                 $updateParams = [
                     'import_batch_id' => $batchId,
                     'cod_catastale' => $property['cod_catastale'] !== '' ? $property['cod_catastale'] : null,
@@ -889,8 +959,8 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
                     $updatePropertyWithCoords->execute($updateParams + [
                         'lat' => $property['lat'],
                         'lng' => $property['lng'],
-                        'posizione_verificata' => 1,
-                        'coord_source' => 'manual',
+                        'posizione_verificata' => $manualCoordinates['posizione_verificata'],
+                        'coord_source' => $manualCoordinates['coord_source'],
                     ]);
                 } else {
                     $updateProperty->execute($updateParams);
@@ -955,8 +1025,8 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
                     'quota' => $property['quota'] !== '' ? $property['quota'] : null,
                     'lat' => $property['lat'],
                     'lng' => $property['lng'],
-                    'posizione_verificata' => ($property['lat'] !== null && $property['lng'] !== null) ? 1 : 0,
-                    'coord_source' => ($property['lat'] !== null && $property['lng'] !== null) ? 'manual' : null,
+                    'posizione_verificata' => $manualCoordinates['posizione_verificata'],
+                    'coord_source' => $manualCoordinates['coord_source'],
                     'stato' => null,
                     'stato_personalizzato' => null,
                     'colore_marker' => '#0d6efd',

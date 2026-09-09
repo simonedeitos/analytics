@@ -148,6 +148,55 @@ if (abs((float) ($manualCoordinatePayload['property']['lat'] ?? 0) - 45.489) > 0
     $pass = false;
     $errors[] = 'Coordinate manuali non mappate correttamente: ' . json_encode($manualCoordinatePayload['property']);
 }
+$manualMapClickCoordinates = analyticspro_resolve_manual_property_coordinates($manualCoordinatePayload['property'] ?? [], 'map_click');
+if (($manualMapClickCoordinates['lat'] ?? null) === null || ($manualMapClickCoordinates['lng'] ?? null) === null || (int) ($manualMapClickCoordinates['posizione_verificata'] ?? 0) !== 1) {
+    $pass = false;
+    $errors[] = 'Percorso manual_create con coordinate mappa deve mantenere lat/lng e posizione_verificata=1: ' . json_encode($manualMapClickCoordinates);
+}
+if (($manualMapClickCoordinates['coord_source'] ?? null) !== 'map_click') {
+    $pass = false;
+    $errors[] = 'Le coordinate da click mappa devono impostare coord_source=map_click: ' . json_encode($manualMapClickCoordinates);
+}
+$manualMapClickEnrichment = analyticspro_manual_create_enrichment_summary([
+    'Comune' => 'Calcinato',
+    'Provincia' => 'BS',
+    'Codice Catastale' => 'B394',
+    'Foglio' => '34',
+    'Particella' => '351',
+    'Latitudine' => '45.489',
+    'Longitudine' => '10.410',
+], 'map_click');
+if (($manualMapClickEnrichment['coord_source']['map_click'] ?? 0) !== 1 || (bool) ($manualMapClickEnrichment['done'] ?? false) !== true) {
+    $pass = false;
+    $errors[] = 'Il manual_create da mappa deve saltare l\'enrichment con summary map_click: ' . json_encode($manualMapClickEnrichment);
+}
+
+$invalidCoordinatePayload = analyticspro_extract_row_payload([
+    'Comune' => 'Calcinato',
+    'Provincia' => 'BS',
+    'Codice Catastale' => 'B394',
+    'Foglio' => '34',
+    'Particella' => '351',
+    'Latitudine' => '55.000',
+    'Longitudine' => '10.410',
+]);
+$invalidManualCoordinates = analyticspro_resolve_manual_property_coordinates($invalidCoordinatePayload['property'] ?? [], 'map_click');
+if (($invalidManualCoordinates['lat'] ?? 'not-null') !== null || ($invalidManualCoordinates['lng'] ?? 'not-null') !== null || (int) ($invalidManualCoordinates['posizione_verificata'] ?? 1) !== 0) {
+    $pass = false;
+    $errors[] = 'Coordinate fuori dai bounds Italia devono essere scartate: ' . json_encode($invalidManualCoordinates);
+}
+if (analyticspro_manual_create_enrichment_summary([
+    'Comune' => 'Calcinato',
+    'Provincia' => 'BS',
+    'Codice Catastale' => 'B394',
+    'Foglio' => '34',
+    'Particella' => '351',
+    'Latitudine' => '55.000',
+    'Longitudine' => '10.410',
+], 'map_click') !== null) {
+    $pass = false;
+    $errors[] = 'Coordinate fuori dai bounds non devono saltare l\'enrichment.';
+}
 
 if ($pass) {
     echo "PASS: contatti multipli e nomi multipli OK\n";

@@ -157,7 +157,12 @@ La provincia viene sempre normalizzata in sigla a 2 lettere; il click sulla mapp
 reverse geocoding. Se la risoluzione differita va in timeout o fallisce, il modale si apre comunque
 con avviso non bloccante e con i campi `Comune` / `Provincia` lasciati editabili; quando la
 risoluzione riesce, quei campi vengono precompilati e bloccati insieme agli altri valori
-catastali recuperati dal popup.
+catastali recuperati dal popup. Le coordinate `Latitudine` / `Longitudine` del click vengono ora
+persistite nel modale manuale fino al salvataggio, così il record viene creato subito con
+`lat`, `lng`, `posizione_verificata = 1` e `coord_source = 'map_click'` senza passare da
+“Importa dati” → “Rigenera coordinate mancanti”. Dopo il salvataggio il modale mostra un toast
+Bootstrap non bloccante, ricarica la mappa e centra automaticamente il nuovo marker aprendone il
+popup quando disponibile.
 
 ### Lookup coordinate
 
@@ -410,6 +415,10 @@ tutte le righe con `lat IS NULL` indipendentemente dal batch di origine. Utile d
 - aver caricato nuovi file GML e costruito l'indice
 - aver configurato Zornade o WFS
 - un arricchimento parziale interrotto
+
+Per i marker creati dal popup catastale della mappa l’arricchimento sincrono viene saltato quando
+il client invia già coordinate italiane valide: il server salva direttamente `coord_source = 'map_click'`
+e marca il batch come già completato senza chiamate WFS aggiuntive.
 
 ### Diagnostica: health check Zornade
 

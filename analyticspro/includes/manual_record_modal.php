@@ -12,8 +12,8 @@ declare(strict_types=1);
             <div class="modal-body">
                 <div id="manual-record-feedback" class="alert d-none py-2"></div>
                 <form id="manual-record-form" class="row g-3">
-                    <input type="hidden" name="Latitudine">
-                    <input type="hidden" name="Longitudine">
+                    <input type="hidden" name="Latitudine" data-preserve-on-reset="1">
+                    <input type="hidden" name="Longitudine" data-preserve-on-reset="1">
                     <div class="col-12"><h3 class="h6 mb-0">Dati catastali</h3></div>
                     <div class="col-12">
                         <div id="manual-record-autofill-hint" class="manual-record-autofill-hint small text-muted d-none">
