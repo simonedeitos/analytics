@@ -403,21 +403,46 @@ Il cron seleziona tutti i batch con `enrichment_status = 'pending'` (worker non 
 o `enrichment_status = 'processing'` da più di 15 minuti (worker morto a metà) e li elabora
 in sequenza. Un batch che fallisce non blocca quelli successivi (error isolation).
 
+### Nuovi cron coordinate mancanti
+
+Per mantenere aggiornata la mappa senza interventi manuali, configura anche:
+
+```bash
+*/15 * * * * php /percorso/assoluto/analyticspro/cron/enrich_missing_coordinates_all_tenants.php >> /percorso/log/enrich_missing_all_tenants.log 2>&1
+15 3 * * *   php /percorso/assoluto/analyticspro/cron/retry_unresolved_coordinates.php >> /percorso/log/retry_unresolved_coordinates.log 2>&1
+```
+
+- `cron/enrich_missing_coordinates_all_tenants.php` elabora ogni 15 minuti le particelle ancora recuperabili per tutti i tenant, con lock anti-sovrapposizione, budget di tempo massimo e round-robin per tenant.
+- `cron/retry_unresolved_coordinates.php` sblocca una volta al giorno le particelle marcate `unresolved`, azzera i tentativi e rilancia un giro di geolocalizzazione con limite massimo di lavoro.
+- Entrambi i cron girano da CLI oppure, se necessario, via HTTP protetta da `ANALYTICSPRO_CRON_TOKEN`.
+
 ### Stato di arricchimento nella UI
 
 Dopo il completamento dell'import, nella pagina **Importa** compare automaticamente una
-barra di avanzamento con il testo "Geolocalizzazione: X/Y marker" che si aggiorna in
-tempo reale. In caso di errore compare il messaggio d'errore specifico con indicazioni per
-il recupero.
+barra di avanzamento a fasi pesate (lettura file, analisi duplicati, salvataggio, geolocalizzazione).
+La fase finale è sempre esplicita:
+
+- `Completato` se tutti gli immobili sono geolocalizzati
+- `Completato con avvisi` se restano immobili senza coordinate
+- `Errore` su timeout/eccezioni/stati terminali falliti
+
+La barra smette sempre di essere animata al termine e il messaggio finale usa i conteggi
+riconciliati dal database (`N/M immobili geolocalizzati, K senza coordinate`).
 
 ### Recupero delle coordinate mancanti
 
 La pagina **Importa** espone un pulsante **"Rigenera coordinate mancanti"** che richiama
-`api/data/enrich_chunk.php?batch_id=0` (modalità globale) a chunk ripetuti, elaborando
-tutte le righe con `lat IS NULL` indipendentemente dal batch di origine. Utile dopo:
+`api/data/enrich_chunk.php?batch_id=0` (modalità globale, limitata al tenant corrente per utenti/subutenti)
+a chunk ripetuti, elaborando tutte le righe con `lat IS NULL`. Utile dopo:
 - aver caricato nuovi file GML e costruito l'indice
 - aver configurato Zornade o WFS
 - un arricchimento parziale interrotto
+
+La stessa card mostra anche il contatore degli immobili senza coordinate tramite
+`api/data/missing_coordinates_stats.php`:
+
+- utenti normali / subutenti: solo il proprio tenant
+- admin: totale globale + dettaglio per tenant con righe recuperabili vs esaurite
 
 ### Diagnostica: health check Zornade
 
@@ -476,12 +501,21 @@ Se una particella non viene risolta, il batch registra anche un report struttura
 `import_batches.enrichment_report` con:
 
 - conteggi per `coord_source`
-- conteggi per motivo di fallimento (`comune_non_risolto`, `dati_incompleti`, `gml_mancante`,
-  `comune_non_indicizzato`, `foglio_inesistente`, `particella_inesistente`, `provider_remoto_fallito`)
+- conteggi `attempt_failures` per i tentativi provider falliti (debug/info, non mostrati come errore utente)
+- conteggi `failure_codes` solo per le particelle definitivamente irrisolte dopo `ANALYTICSPRO_ENRICH_MAX_ATTEMPTS` tentativi
 - elenco troncato delle righe non risolte nel formato `Comune F.x P.y — motivo`
 
-Il report è esposto da `api/data/import_progress.php` ed è mostrato nella UI di `importa.php`
-accanto alla barra di avanzamento dell'arricchimento.
+Le particelle definitivamente irrisolvibili vengono marcate con:
+
+- `properties.enrichment_attempts`
+- `properties.enrichment_last_attempt_at`
+- `properties.enrichment_last_error_code`
+- `properties.enrichment_last_error_note`
+- `properties.coord_source = 'unresolved'`
+
+Il report è esposto da `api/data/import.php`, `api/data/import_progress.php` e
+`api/data/enrich_chunk.php`, insieme ai conteggi riconciliati `geolocated_rows` e
+`missing_rows`, ed è mostrato nella UI di `importa.php` accanto alla barra di avanzamento.
 
 La sorgente è salvata nel campo `coord_source` della tabella `properties`
 (aggiunto dalla migration `004_add_coord_source_to_properties.sql`).
@@ -525,6 +559,7 @@ I job di indicizzazione GML sono gestiti dalle tabelle `gml_index_jobs` / `gml_i
 - `005_add_gml_index_jobs.sql`
 - `006_add_enrichment_report.sql`
 - `007_add_enrichment_sync_flag.sql`
+- `012_add_enrichment_attempts.sql`
 
 ### Protezione HTTP
 
@@ -651,7 +686,7 @@ Quando `analyticspro_tenant_phone_visibility()` restituisce `false`:
 
 ## Migration MySQL 8
 
-Le migration 006 e 007 sono state riscritte in forma portabile per MySQL 8 (la sintassi
+Le migration 006, 007 e 012 usano procedure portabili per MySQL 8 (la sintassi
 `ADD COLUMN IF NOT EXISTS` è MariaDB-only):
 
 ```sql
@@ -679,7 +714,7 @@ DROP PROCEDURE IF EXISTS _analyticspro_migration_006;
 
 `analyticspro/admin/diagnostica_import.php` (solo admin) permette di:
 
-- Verificare la presenza di ogni colonna/tabella attesa dalle migration 001-007.
+- Verificare la presenza di ogni colonna/tabella attesa dalle migration 001-012.
 - Testare la risoluzione `nome comune → Belfiore` mostrando quale livello della catena ha risposto.
 - Eseguire `enrich_chunk` in-process per un batch specifico, mostrando l'eccezione completa
   con stack trace invece del 422 opaco.

@@ -100,9 +100,12 @@ try {
             'enrichment_done' => (bool) ($enrichment['done'] ?? false),
             'enrichment_sync' => (bool) ($enrichment['enrichment_sync'] ?? false),
             'coord_source' => $enrichment['coord_source'] ?? [],
+            'attempt_failures' => $enrichment['attempt_failures'] ?? [],
             'failure_codes' => $enrichment['failure_codes'] ?? [],
             'unresolved_rows' => $enrichment['unresolved_rows'] ?? [],
             'unresolved_truncated' => (bool) ($enrichment['truncated'] ?? false),
+            'geolocated_rows' => (int) ($enrichment['geolocated_rows'] ?? 0),
+            'missing_rows' => (int) ($enrichment['missing_rows'] ?? 0),
         ]);
     }
 

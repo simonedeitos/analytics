@@ -30,6 +30,10 @@ if (isset($_GET['run_chunk']) && $_GET['run_chunk'] === '1') {
 
 $columns = [
     'properties.coord_source' => false,
+    'properties.enrichment_attempts' => false,
+    'properties.enrichment_last_attempt_at' => false,
+    'properties.enrichment_last_error_code' => false,
+    'properties.enrichment_last_error_note' => false,
     'import_batches.enrichment_status' => false,
     'import_batches.enrichment_processed' => false,
     'import_batches.enrichment_total' => false,

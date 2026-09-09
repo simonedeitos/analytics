@@ -84,6 +84,10 @@ CREATE TABLE properties (
     lng DECIMAL(10,7) NULL,
     posizione_verificata TINYINT(1) NOT NULL DEFAULT 0,
     coord_source VARCHAR(20) NULL,
+    enrichment_attempts SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+    enrichment_last_attempt_at DATETIME NULL,
+    enrichment_last_error_code VARCHAR(64) NULL,
+    enrichment_last_error_note VARCHAR(255) NULL,
     stato ENUM('non_interessato','interessato','contattato','da_contattare','non_raggiungibile','in_vendita_noi','in_vendita_altri','altro') DEFAULT NULL,
     stato_personalizzato VARCHAR(100) NULL,
     colore_marker VARCHAR(7) NOT NULL DEFAULT '#0d6efd',
@@ -94,7 +98,8 @@ CREATE TABLE properties (
     UNIQUE KEY uniq_estremi_catastali (user_id, provincia, comune, sezione, foglio, particella, subalterno),
     INDEX idx_user (user_id),
     INDEX idx_stato (stato),
-    INDEX idx_coords (lat, lng)
+    INDEX idx_coords (lat, lng),
+    INDEX idx_import_enrich_attempts (import_batch_id, lat, enrichment_attempts, coord_source)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE property_owners (
