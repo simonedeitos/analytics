@@ -112,12 +112,12 @@ bordo inferiore del viewport senza fascia bianca né valori hardcoded.
   `LAYERS=province,CP.CadastralZoning,CP.CadastralParcel,fabbricati,strade,vestizioni,acque`,
   `FORMAT=image/png`, `TRANSPARENT=true`, `STYLES=`, `CRS=EPSG:4258`, tile `WIDTH/HEIGHT=256`
   e BBOX con ordine assi **latitudine,longitudine** come richiesto da WMS 1.3.0 in EPSG:4258;
-- `api/data/wms_proxy.php` fa da proxy server-side per le tile AdE, con whitelist host,
-  passthrough completo della query string, header `User-Agent`/`Referer`, cache breve,
-  log diagnostici `error_log()` su URL upstream/status/content-type e passthrough di eventuali
-  risposte XML/non-image per facilitare il debug;
-- in caso di `tileerror`, il client effettua retry e fallback all’URL WMS diretto non proxato,
-  così da aggirare rapidamente eventuali errori intermedi del proxy;
+- il layer catastale usa direttamente dal browser l’URL WMS AdE (senza proxy PHP) per evitare
+  blocchi WAF/mod_security dell’hosting; in caso di `tileerror`, il client effettua retry sullo
+  stesso endpoint diretto;
+- `api/data/wms_proxy.php` rimane disponibile come utility diagnostica/server-side con whitelist
+  host, passthrough completo della query string, header `User-Agent`/`Referer`, cache breve e log
+  `error_log()` su URL upstream/status/content-type;
 - il toggle mostra il layer solo a zoom ≥ `10`; lo slider `#cadastral-opacity-slider`
   appare come overlay compatto in basso a sinistra della mappa solo quando il layer
   catastale è attivo, aggiorna la percentuale, salva il valore in `localStorage` e
@@ -140,12 +140,13 @@ bordo inferiore del viewport senza fascia bianca né valori hardcoded.
 
 Il click sulla mappa usa `api/data/feature_info.php` con un flusso a **due fasi**:
 
-1. **Fase A (rapida, default)**: senza parametro `resolve_location`, l’endpoint restituisce
-   solo i dati catastali AdE (endpoint AJAX / `GetFeatureInfo` in ordine `text/html` →
-   `application/vnd.ogc.gml` → `text/plain`) e non chiama mai Nominatim; il popup della
-   particella compare subito dopo il click.
+1. **Fase A (rapida, default)**: il browser chiama direttamente
+   `https://wms.cartografia.agenziaentrate.gov.it/inspire/ajax/ajax.php?op=getDatiOggetto`
+   senza alcun proxy PHP; il popup della particella compare subito dopo il click e il server
+   AnalyticsPRO non interroga AdE durante l’interazione standard sulla mappa.
 2. **Fase B (deferred)**: quando nel popup si clicca “Crea nuovo marker”, il client richiama
-   `api/data/feature_info.php?resolve_location=1`; solo allora il server completa
+   `api/data/feature_info.php?resolve_location=1`; se il popup contiene già foglio/particella o
+   altri campi catastali, li inoltra all’endpoint locale così il server completa
    comune/provincia/codice catastale con lookup Belfiore su `data/comuni_catastali.json`
    / tabella `cadastral_comuni` e, se serve, fallback di reverse geocoding server-side via
    Nominatim (con cache file locale tramite
