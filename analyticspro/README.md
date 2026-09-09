@@ -158,6 +158,14 @@ reverse geocoding. Se la risoluzione differita va in timeout o fallisce, il moda
 con avviso non bloccante e con i campi `Comune` / `Provincia` lasciati editabili; quando la
 risoluzione riesce, quei campi vengono precompilati e bloccati insieme agli altri valori
 catastali recuperati dal popup.
+- Se l’AdE non restituisce particella/comune/provincia, il popup viene comunque aperto con le
+  coordinate del click già agganciate al pulsante **Crea nuovo marker**: l’utente può completare
+  i campi manualmente senza perdere il punto selezionato.
+- Nel modale di inserimento da mappa, `Latitudine`/`Longitudine` sono valorizzate e mostrate in un
+  riepilogo read-only; il salvataggio è bloccato se le coordinate non sono finite.
+- Dopo il salvataggio il sistema chiude il popup catastale aperto, ricarica i dati mappa,
+  centra a zoom alto sul marker appena salvato, apre il relativo popup e mostra un modal di
+  conferma con riepilogo (Comune/Provincia, Foglio/Particella/Subalterno, indirizzo, coordinate).
 
 ### Lookup coordinate
 
@@ -706,6 +714,18 @@ Quando il worker background non può essere avviato (hosting con `proc_open` / `
 ### Nuova UI dell'importatore
 
 L'esito della persistenza non viene più mostrato con `alert()`: il numero di righe salvate viene scritto nel riquadro di stato enrichment, che poi continua con polling background o chunk sincroni. Questo evita popup bloccanti e mantiene tutta la telemetria del flusso nello stesso punto della pagina.
+
+### Rilevazione Genere da Codice Fiscale / P.IVA
+
+`analyticspro_guess_gender()` ora distingue i casi:
+
+- **P.IVA numerica a 11 cifre** (`^\d{11}$`) → `Società`;
+- **Codice fiscale persona fisica** (`^[A-Z]{6}\d{2}[A-Z]\d{2}[A-Z]\d{3}[A-Z]$`) → `M`/`F`
+  in base al giorno (valori > 40 = femmina);
+- valore vuoto/non riconoscibile → `null`.
+
+Il campo DB `property_owners.genere` è stato esteso a `VARCHAR(16)` per mantenere i valori storici
+`M`/`F` e supportare `Società`.
 
 ### Pagina Marker assegnati
 
