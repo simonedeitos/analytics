@@ -121,12 +121,18 @@ bordo inferiore del viewport senza fascia bianca né valori hardcoded.
 - il toggle mostra il layer solo a zoom ≥ `10`; lo slider `#cadastral-opacity-slider`
   appare come overlay compatto in basso a sinistra della mappa solo quando il layer
   catastale è attivo, aggiorna la percentuale, salva il valore in `localStorage` e
-  regola l’opacità della basemap (OSM / Satellite) lasciando pienamente visibile il
-  layer catastale AdE;
-- gli unici overlay sopra la mappa sono `#map-cadastral-zoom-hint` e
-  `#map-cadastral-feedback`; `assets/js/analyticspro.js` richiama `map.invalidateSize()`
+  regola l’opacità del layer catastale AdE lasciando sempre pienamente visibile la
+  basemap (OSM / Satellite); valori residui in `localStorage` sotto il 15% vengono
+  riportati difensivamente al default 50% per evitare layer invisibili;
+- l’unico overlay persistente sopra la mappa è `#map-cadastral-feedback`; non viene
+  più mostrato alcun banner fisso che invita a zoomare, anche se il layer continua a
+  caricarsi solo da zoom 10 in su;
+- `assets/js/analyticspro.js` richiama `map.invalidateSize()`
   dopo il render e su `resize` / `analyticspro:topbar-resize` con debounce per evitare
   tile grigie dopo il reflow;
+- `includes/layout.php` applica cache-busting basato su `filemtime()` agli asset locali
+  `assets/css/app.css` e `assets/js/analyticspro.js`, così i deploy non servono più
+  copie obsolete da cache browser.
 - timeout definitivi del click catastale: client `CATASTRAL_LOOKUP_TIMEOUT_MS = 30000`,
   client deferred `CATASTRAL_RESOLVE_LOCATION_TIMEOUT_MS = 40000`, server-side
   `connect_timeout = 5s` e `timeout = 12s` sia per `ajax.php?op=getDatiOggetto` sia

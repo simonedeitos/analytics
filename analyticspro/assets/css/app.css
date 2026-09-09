@@ -353,7 +353,6 @@ body {
     width: 96px;
     margin-bottom: 0;
 }
-.analyticspro-map-hint,
 .analyticspro-map-feedback {
     position: absolute;
     left: 50%;
@@ -361,9 +360,6 @@ body {
     z-index: 520;
     width: min(520px, calc(100% - 2rem));
     pointer-events: none;
-}
-.analyticspro-map-hint {
-    top: 1rem;
 }
 .analyticspro-map-feedback {
     bottom: 1rem;
