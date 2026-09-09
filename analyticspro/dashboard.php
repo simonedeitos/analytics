@@ -155,7 +155,7 @@ $quickActions = [
         <div class="card-body">
             <?= analyticspro_ui_page_header(
                 'Ciao, ' . analyticspro_full_name($user),
-                'Una home unificata per monitorare KPI, territorio e attività, tutto a portata di mano!',
+                'Una home unificata per monitorare territorio e attività, tutto a portata di mano!',
                 $pageActions,
                 ['eyebrow' => 'Dashboard']
             ) ?>
