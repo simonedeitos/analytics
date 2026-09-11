@@ -1733,11 +1733,19 @@
             + state.subusers.map(function (s) { return '<option value="' + s.id + '">' + escapeHtml(s.nome + ' ' + s.cognome) + '</option>'; }).join('');
     }
 
-    function findPropertyById(propertyId) {
+    function findPropertyByIdInCollection(propertyId, collection) {
         var id = Number(propertyId);
-        for (var i = 0; i < state.properties.length; i++) { if (Number(state.properties[i].id) === id) return state.properties[i]; }
+        var items = collection || [];
+        for (var i = 0; i < items.length; i++) { if (Number(items[i].id) === id) return items[i]; }
+        return null;
+    }
+
+    function findPropertyById(propertyId) {
         var assigned = state.assignedProperties || [];
-        for (var j = 0; j < assigned.length; j++) { if (Number(assigned[j].id) === id) return assigned[j]; }
+        var property = findPropertyByIdInCollection(propertyId, state.properties);
+        if (property) return property;
+        property = findPropertyByIdInCollection(propertyId, assigned);
+        if (property) return property;
         return null;
     }
 
@@ -1790,7 +1798,8 @@
             throw new Error('Non puoi modificare questo marker.');
         }
         for (var i = 0; i < targetIds.length; i++) {
-            var candidate = findPropertyById(targetIds[i]);
+            var candidate = findPropertyByIdInCollection(targetIds[i], state.properties)
+                || findPropertyByIdInCollection(targetIds[i], state.assignedProperties || []);
             if (!candidate || !candidate.can_edit) {
                 throw new Error('Non puoi applicare questa modifica a tutti gli immobili del gruppo.');
             }
