@@ -1817,10 +1817,10 @@
                 throw new Error('Non puoi applicare questa modifica a tutti gli immobili del gruppo.');
             }
         }
-        for (var i = 0; i < targetIds.length; i++) {
-            await savePropertyPayload(Object.assign({}, payload, { property_id: targetIds[i] }), { reload: false });
-        }
-        await loadProperties({ preserveMapView: true });
+        await savePropertyPayload(Object.assign({}, payload, {
+            property_id: targetIds[0],
+            property_ids: targetIds,
+        }));
     }
 
     async function removeOwnerPhone(propertyId, ownerId, phone) {
