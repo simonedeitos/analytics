@@ -335,6 +335,14 @@
         return !!(property && property.can_edit);
     }
 
+    function ownerGroupKey(owner, fallbackIndex) {
+        var ownerCf = String(owner && owner.codice_fiscale ? owner.codice_fiscale : '').trim();
+        if (ownerCf) return ownerCf;
+        var ownerId = Number(owner && owner.id ? owner.id : 0);
+        if (ownerId > 0) return 'ID:' + ownerId;
+        return '__idx_' + String(Number(fallbackIndex) || 0);
+    }
+
     function paletteEntryByColor(color) {
         return MARKER_COLOR_PALETTE.find(function (item) { return item.value.toLowerCase() === String(color || '').toLowerCase(); }) || null;
     }
@@ -1112,13 +1120,14 @@
                 var sourceProperty = group.properties[pi];
                 var owners = sourceProperty.owners || [];
                 for (var oi = 0; oi < owners.length; oi++) {
-                    var ownerKey = owners[oi].codice_fiscale || (Number(owners[oi].id || 0) > 0 ? ('ID:' + owners[oi].id) : ('__idx_' + allOwners.length));
+                    var ownerKey = ownerGroupKey(owners[oi], allOwners.length);
                     if (!seenOwners[ownerKey]) {
                         var mergedOwner = Object.assign({}, owners[oi]);
                         mergedOwner.quota = mergedOwner.quota || sourceProperty.quota || '';
                         mergedOwner.titolarita = mergedOwner.titolarita || sourceProperty.titolarita || '';
                         mergedOwner._sourcePropertyId = Number(sourceProperty.id || 0);
                         mergedOwner._canEdit = !!sourceProperty.can_edit;
+                        mergedOwner._groupOwnerKey = ownerKey;
                         seenOwners[ownerKey] = mergedOwner;
                         allOwners.push(mergedOwner);
                     } else if (!seenOwners[ownerKey]._canEdit && sourceProperty.can_edit) {
@@ -1782,7 +1791,7 @@
         }
         for (var i = 0; i < targetIds.length; i++) {
             var candidate = findPropertyById(targetIds[i]);
-            if (candidate && !candidate.can_edit) {
+            if (!candidate || !candidate.can_edit) {
                 throw new Error('Non puoi applicare questa modifica a tutti gli immobili del gruppo.');
             }
         }
@@ -2901,16 +2910,20 @@
         return fiscalCode ? (fullName + ' — ' + fiscalCode) : fullName;
     }
 
+    function editorOwnerSelectionKey(owner, fallbackIndex) {
+        return String((owner && owner._groupOwnerKey) || ownerGroupKey(owner, fallbackIndex));
+    }
+
     function resolveEditorOwnerSelection(property, selectedOwnerId) {
         var owners = property && property.owners ? property.owners : [];
         if (owners.length <= 1) {
-            return owners.length ? String(owners[0].id || 'all') : 'all';
+            return owners.length ? editorOwnerSelectionKey(owners[0], 0) : 'all';
         }
         if (String(selectedOwnerId || 'all') === 'all') {
             return 'all';
         }
         for (var i = 0; i < owners.length; i++) {
-            if (String(owners[i].id || 0) === String(selectedOwnerId)) {
+            if (editorOwnerSelectionKey(owners[i], i) === String(selectedOwnerId)) {
                 return String(selectedOwnerId);
             }
         }
@@ -2931,9 +2944,10 @@
         }
         var selection = resolveEditorOwnerSelection(property, selectedOwnerId);
         select.innerHTML = '<option value="all"' + (selection === 'all' ? ' selected' : '') + '>Tutti gli intestatari</option>'
-            + owners.map(function (owner) {
-                return '<option value="' + escapeHtml(String(owner.id || 0)) + '"'
-                    + (selection === String(owner.id || 0) ? ' selected' : '')
+            + owners.map(function (owner, index) {
+                var ownerKey = editorOwnerSelectionKey(owner, index);
+                return '<option value="' + escapeHtml(ownerKey) + '"'
+                    + (selection === ownerKey ? ' selected' : '')
                     + (ownerCanEdit(owner, property) ? '' : ' disabled')
                     + '>' + escapeHtml(buildEditorOwnerOptionLabel(owner) + (ownerCanEdit(owner, property) ? '' : ' (sola lettura)')) + '</option>';
             }).join('');
@@ -2949,8 +2963,8 @@
             return '<div class="text-muted small">Nessun intestatario disponibile.</div>';
         }
         if (selection !== 'all') {
-            owners = owners.filter(function (owner) {
-                return String(owner.id || 0) === selection;
+            owners = owners.filter(function (owner, index) {
+                return editorOwnerSelectionKey(owner, index) === selection;
             });
         }
         return owners.map(function (owner) {

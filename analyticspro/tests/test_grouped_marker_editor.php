@@ -35,13 +35,11 @@ function group_properties_by_unit(array $properties): array
         $seen = [];
         foreach ($propertiesInGroup as $property) {
             foreach (($property['owners'] ?? []) as $owner) {
-                $ownerKey = trim((string) ($owner['codice_fiscale'] ?? ''));
-                if ($ownerKey === '') {
-                    $ownerKey = !empty($owner['id']) ? 'ID:' . (string) $owner['id'] : '__idx_' . count($owners);
-                }
+                $ownerKey = owner_group_key($owner, count($owners));
                 if (!isset($seen[$ownerKey])) {
                     $owner['_sourcePropertyId'] = (int) $property['id'];
                     $owner['_canEdit'] = !empty($property['can_edit']);
+                    $owner['_groupOwnerKey'] = $ownerKey;
                     $owners[] = $owner;
                     $seen[$ownerKey] = count($owners) - 1;
                     continue;
@@ -68,6 +66,18 @@ function group_properties_by_unit(array $properties): array
     }
 
     return $result;
+}
+
+function owner_group_key(array $owner, int $fallbackIndex): string
+{
+    $ownerCf = trim((string) ($owner['codice_fiscale'] ?? ''));
+    if ($ownerCf !== '') {
+        return $ownerCf;
+    }
+    if (!empty($owner['id'])) {
+        return 'ID:' . (string) $owner['id'];
+    }
+    return '__idx_' . (string) $fallbackIndex;
 }
 
 $properties = [
@@ -100,6 +110,7 @@ $properties = [
         'owners' => [
             ['id' => 22, 'nome' => 'Alice', 'cognome' => 'Rossi', 'codice_fiscale' => 'RSSLCA80A01F205X', 'telefono' => '222222'],
             ['id' => 23, 'nome' => 'Bruno', 'cognome' => 'Verdi', 'codice_fiscale' => 'VRDBRN80A01F205X', 'telefono' => '333333'],
+            ['id' => 0, 'nome' => 'Carla', 'cognome' => 'Senza ID', 'codice_fiscale' => '', 'telefono' => '444444'],
         ],
     ],
 ];
@@ -130,16 +141,19 @@ if ($group === null) {
         $pass = false;
         $errors[] = 'Il gruppo deve risultare modificabile quando almeno una property è editabile';
     }
-    if (count($group['owners'] ?? []) !== 2) {
+    if (count($group['owners'] ?? []) !== 3) {
         $pass = false;
-        $errors[] = 'Gli intestatari unificati attesi sono 2';
+        $errors[] = 'Gli intestatari unificati attesi sono 3';
     } else {
         $ownersByCf = [];
+        $ownersByName = [];
         foreach ($group['owners'] as $owner) {
             $ownersByCf[$owner['codice_fiscale']] = $owner;
+            $ownersByName[$owner['nome']] = $owner;
         }
         $alice = $ownersByCf['RSSLCA80A01F205X'] ?? null;
         $bruno = $ownersByCf['VRDBRN80A01F205X'] ?? null;
+        $carla = $ownersByName['Carla'] ?? null;
         if (($alice['_sourcePropertyId'] ?? null) !== 202 || ($alice['id'] ?? null) !== 22) {
             $pass = false;
             $errors[] = 'Alice deve usare la property modificabile 202 come sourcePropertyId';
@@ -151,6 +165,10 @@ if ($group === null) {
         if (($bruno['_sourcePropertyId'] ?? null) !== 202 || empty($bruno['_canEdit'])) {
             $pass = false;
             $errors[] = 'Bruno deve restare legato alla property 202 modificabile';
+        }
+        if (($carla['_groupOwnerKey'] ?? null) !== '__idx_2') {
+            $pass = false;
+            $errors[] = 'Gli owner senza id/CF devono ricevere una chiave stabile di fallback';
         }
     }
 }
