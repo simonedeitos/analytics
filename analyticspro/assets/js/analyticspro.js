@@ -1233,7 +1233,6 @@
             state.markers = L.markerClusterGroup({
                 spiderfyOnMaxZoom: true,
                 zoomToBoundsOnClick: false,
-                disableClusteringAtZoom: 19,
                 showCoverageOnHover: false,
                 maxClusterRadius: 40,
                 iconCreateFunction: function (cluster) {
@@ -1278,8 +1277,36 @@
             });
 
             state.markers.on('clusterclick', function (event) {
-                if (event && event.layer && typeof event.layer.zoomToBounds === 'function') {
-                    event.layer.zoomToBounds({ padding: [40, 40] });
+                if (!event || !event.layer) return;
+                var layer = event.layer;
+                var shouldSpiderfy = false;
+
+                if (state.map && typeof state.map.getZoom === 'function' && typeof state.map.getMaxZoom === 'function') {
+                    shouldSpiderfy = state.map.getZoom() >= state.map.getMaxZoom();
+                }
+
+                if (!shouldSpiderfy && typeof layer.getBounds === 'function') {
+                    var bounds = layer.getBounds();
+                    if (bounds && typeof bounds.getNorthEast === 'function' && typeof bounds.getSouthWest === 'function') {
+                        var ne = bounds.getNorthEast();
+                        var sw = bounds.getSouthWest();
+                        var neLat = ne && isFinite(Number(ne.lat)) ? Number(ne.lat) : null;
+                        var neLng = ne && isFinite(Number(ne.lng)) ? Number(ne.lng) : null;
+                        var swLat = sw && isFinite(Number(sw.lat)) ? Number(sw.lat) : null;
+                        var swLng = sw && isFinite(Number(sw.lng)) ? Number(sw.lng) : null;
+                        if (neLat !== null && neLng !== null && swLat !== null && swLng !== null) {
+                            shouldSpiderfy = Math.abs(neLat - swLat) <= 1e-7 && Math.abs(neLng - swLng) <= 1e-7;
+                        }
+                    }
+                }
+
+                if (shouldSpiderfy && typeof layer.spiderfy === 'function') {
+                    layer.spiderfy();
+                    return;
+                }
+
+                if (typeof layer.zoomToBounds === 'function') {
+                    layer.zoomToBounds({ padding: [40, 40] });
                 }
             });
             state.markers.on('spiderfied', function () { state.map.closePopup(); });
