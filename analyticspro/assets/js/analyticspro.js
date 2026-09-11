@@ -328,6 +328,13 @@
         return state.canViewPhone;
     }
 
+    function ownerCanEdit(owner, property) {
+        if (owner && Object.prototype.hasOwnProperty.call(owner, '_canEdit')) {
+            return !!owner._canEdit;
+        }
+        return !!(property && property.can_edit);
+    }
+
     function paletteEntryByColor(color) {
         return MARKER_COLOR_PALETTE.find(function (item) { return item.value.toLowerCase() === String(color || '').toLowerCase(); }) || null;
     }
@@ -1100,17 +1107,29 @@
 
             // Unifica owners da tutte le properties del gruppo (evita duplicati per CF)
             var allOwners = [];
-            var seenCf    = {};
+            var seenOwners = {};
             for (var pi = 0; pi < group.properties.length; pi++) {
-                var owners = group.properties[pi].owners || [];
+                var sourceProperty = group.properties[pi];
+                var owners = sourceProperty.owners || [];
                 for (var oi = 0; oi < owners.length; oi++) {
-                    var ownerCf = owners[oi].codice_fiscale || ('__idx_' + allOwners.length);
-                    if (!seenCf[ownerCf]) {
-                        seenCf[ownerCf] = true;
+                    var ownerKey = owners[oi].codice_fiscale || (Number(owners[oi].id || 0) > 0 ? ('ID:' + owners[oi].id) : ('__idx_' + allOwners.length));
+                    if (!seenOwners[ownerKey]) {
                         var mergedOwner = Object.assign({}, owners[oi]);
-                        mergedOwner.quota = mergedOwner.quota || group.properties[pi].quota || '';
-                        mergedOwner.titolarita = mergedOwner.titolarita || group.properties[pi].titolarita || '';
+                        mergedOwner.quota = mergedOwner.quota || sourceProperty.quota || '';
+                        mergedOwner.titolarita = mergedOwner.titolarita || sourceProperty.titolarita || '';
+                        mergedOwner._sourcePropertyId = Number(sourceProperty.id || 0);
+                        mergedOwner._canEdit = !!sourceProperty.can_edit;
+                        seenOwners[ownerKey] = mergedOwner;
                         allOwners.push(mergedOwner);
+                    } else if (!seenOwners[ownerKey]._canEdit && sourceProperty.can_edit) {
+                        seenOwners[ownerKey]._canEdit = true;
+                        seenOwners[ownerKey]._sourcePropertyId = Number(sourceProperty.id || 0);
+                        if (Number(owners[oi].id || 0) > 0) {
+                            seenOwners[ownerKey].id = owners[oi].id;
+                        }
+                        if (!seenOwners[ownerKey].telefono && owners[oi].telefono) {
+                            seenOwners[ownerKey].telefono = owners[oi].telefono;
+                        }
                     }
                 }
             }
@@ -1143,6 +1162,8 @@
 
             // Elenco degli id di tutte le properties nel gruppo (per uso futuro)
             prim._groupIds = group.properties.map(function (gp) { return gp.id; });
+            prim._editableGroupIds = group.properties.filter(function (gp) { return !!gp.can_edit; }).map(function (gp) { return gp.id; });
+            prim.can_edit = prim._editableGroupIds.length > 0;
 
             result.push(prim);
         }
@@ -1203,6 +1224,7 @@
             state.markers = L.markerClusterGroup({
                 spiderfyOnMaxZoom: true,
                 zoomToBoundsOnClick: false,
+                disableClusteringAtZoom: 19,
                 showCoverageOnHover: false,
                 maxClusterRadius: 40,
                 iconCreateFunction: function (cluster) {
@@ -1246,6 +1268,11 @@
                 },
             });
 
+            state.markers.on('clusterclick', function (event) {
+                if (event && event.layer && typeof event.layer.zoomToBounds === 'function') {
+                    event.layer.zoomToBounds({ padding: [40, 40] });
+                }
+            });
             state.markers.on('spiderfied', function () { state.map.closePopup(); });
             state.map.addLayer(state.markers);
             setCadastralLayerEnabled(state.cadastralLayerEnabled);
@@ -1705,12 +1732,63 @@
         return null;
     }
 
-    async function savePropertyPayload(payload) {
+    function normalizedPropertyGroupIds(property) {
+        var ids = property && Array.isArray(property._groupIds) && property._groupIds.length ? property._groupIds : [property && property.id];
+        var result = [];
+        for (var i = 0; i < ids.length; i++) {
+            var id = Number(ids[i] || 0);
+            if (!id || result.indexOf(id) !== -1) continue;
+            result.push(id);
+        }
+        return result;
+    }
+
+    function propertyGroupContainsId(property, propertyId) {
+        return normalizedPropertyGroupIds(property).indexOf(Number(propertyId || 0)) !== -1;
+    }
+
+    function findPropertyGroupInCollection(propertyId, collection) {
+        var groups = groupPropertiesByUnit(collection || []);
+        for (var i = 0; i < groups.length; i++) {
+            if (propertyGroupContainsId(groups[i], propertyId)) {
+                return groups[i];
+            }
+        }
+        return null;
+    }
+
+    function findPropertyGroupById(propertyId) {
+        return findPropertyGroupInCollection(propertyId, state.properties)
+            || findPropertyGroupInCollection(propertyId, state.assignedProperties || [])
+            || findPropertyById(propertyId);
+    }
+
+    async function savePropertyPayload(payload, options) {
+        options = options || {};
         await api(state.propertyUpdateEndpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(Object.assign({ csrf_token: state.csrfToken }, payload)),
         });
+        if (options.reload !== false) {
+            await loadProperties({ preserveMapView: options.preserveMapView !== false });
+        }
+    }
+
+    async function savePropertyGroupPayload(property, payload) {
+        var targetIds = normalizedPropertyGroupIds(property);
+        if (!targetIds.length) {
+            throw new Error('Non puoi modificare questo marker.');
+        }
+        for (var i = 0; i < targetIds.length; i++) {
+            var candidate = findPropertyById(targetIds[i]);
+            if (candidate && !candidate.can_edit) {
+                throw new Error('Non puoi applicare questa modifica a tutti gli immobili del gruppo.');
+            }
+        }
+        for (var i = 0; i < targetIds.length; i++) {
+            await savePropertyPayload(Object.assign({}, payload, { property_id: targetIds[i] }), { reload: false });
+        }
         await loadProperties({ preserveMapView: true });
     }
 
@@ -1765,6 +1843,7 @@
 
     function refreshOpenPropertyViews(propertyId) {
         var property = findPropertyById(propertyId);
+        var propertyGroup = findPropertyGroupById(propertyId);
         if (!property) return;
 
         var detailModal = document.getElementById('property-detail-modal');
@@ -1773,11 +1852,23 @@
             detailContent.innerHTML = buildPropertyCardHtml(property, { mapMode: false });
         }
 
+        var editorModal = document.getElementById('property-editor-modal');
+        if (editorModal && editorModal.classList.contains('show') && propertyGroup && propertyGroupContainsId(propertyGroup, editorModal.dataset.propertyId || 0)) {
+            var ownerSelect = document.getElementById('editor-owner-select');
+            var selectedOwnerId = ownerSelect ? ownerSelect.value : 'all';
+            renderEditorOwnerSelect(propertyGroup, selectedOwnerId);
+            renderEditorOwners(propertyGroup, selectedOwnerId);
+            refreshEditorAssignmentSummary(propertyGroup);
+        }
+
         if (state.markers && typeof state.markers.eachLayer === 'function') {
             state.markers.eachLayer(function (layer) {
-                if (Number(layer._analyticsPropertyId || 0) !== Number(propertyId)) return;
+                if (!propertyGroupContainsId(layer._analyticsPropertyData, propertyId)) return;
+                var layerProperty = findPropertyGroupById(layer._analyticsPropertyId || propertyId);
+                if (!layerProperty) return;
+                layer._analyticsPropertyData = layerProperty;
                 if (typeof layer.setPopupContent === 'function') {
-                    layer.setPopupContent(buildPopupHtml(property));
+                    layer.setPopupContent(buildPopupHtml(layerProperty));
                 }
             });
         }
@@ -2765,7 +2856,7 @@
     function ensureSharedModals() {
         if (!document.getElementById('property-editor-modal')) {
             var editorModal = document.createElement('div');
-            editorModal.innerHTML = '<div class="modal fade" id="property-editor-modal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Modifica marker</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button></div><div class="modal-body"><div id="property-editor-meta" class="small text-muted mb-3"></div><div id="property-editor-error" class="alert alert-danger py-2 px-3 small d-none mb-3"></div><div id="editor-owners-block" class="mb-3"><label id="editor-owners-label" class="form-label small mb-1">Intestatari e telefoni</label><div id="editor-owners-content"></div></div><div class="row g-2"><div class="col-md-6"><label class="form-label small mb-1">Stato</label><select id="editor-state" class="form-select form-select-sm"></select></div><div class="col-md-6"><label class="form-label small mb-1">Colore marker</label><div class="d-flex align-items-center gap-2"><span id="editor-color-preview" class="color-dot" style="width:18px;height:18px;"></span><select id="editor-color" class="form-select form-select-sm"></select></div></div><div class="col-12"><label class="form-label small mb-1">Stato personalizzato</label><input id="editor-custom-state" class="form-control form-control-sm" placeholder="Stato personalizzato"></div><div class="col-12"><label class="form-label small mb-1">Assegnazioni</label><div id="editor-assignments-summary" class="small"></div></div><div class="col-12"><button type="button" class="btn btn-outline-secondary btn-sm d-none" id="editor-assignments-open"><i class="bi bi-person-plus me-1"></i>Gestisci assegnazioni</button></div><div class="col-12"><label class="form-label small mb-1">Note (log)</label><div id="editor-note-log" class="border rounded p-2 bg-light-subtle small mb-2" style="max-height:170px;overflow:auto;"></div><input id="editor-note" class="form-control form-control-sm" placeholder="Scrivi una nota (una riga)"></div></div></div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Annulla</button><button type="button" class="btn btn-primary btn-sm" id="editor-save-btn">Salva</button></div></div></div></div>';
+            editorModal.innerHTML = '<div class="modal fade" id="property-editor-modal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><div class="d-flex align-items-start justify-content-between gap-2 flex-wrap w-100"><h5 class="modal-title mb-0">Modifica marker</h5><div class="d-flex align-items-start gap-2 ms-auto flex-wrap"><div id="editor-owner-select-wrap" class="d-none" style="min-width:260px;"><label for="editor-owner-select" class="form-label small mb-1 text-muted">Intestatario da modificare</label><select id="editor-owner-select" class="form-select form-select-sm"></select></div><button type="button" class="btn-close mt-1" data-bs-dismiss="modal" aria-label="Chiudi"></button></div></div></div><div class="modal-body"><div id="property-editor-meta" class="small text-muted mb-3"></div><div id="property-editor-error" class="alert alert-danger py-2 px-3 small d-none mb-3"></div><div id="editor-owners-block" class="mb-3"><label id="editor-owners-label" class="form-label small mb-1">Intestatari e telefoni</label><div id="editor-owners-content"></div></div><div class="row g-2"><div class="col-md-6"><label class="form-label small mb-1">Stato</label><select id="editor-state" class="form-select form-select-sm"></select></div><div class="col-md-6"><label class="form-label small mb-1">Colore marker</label><div class="d-flex align-items-center gap-2"><span id="editor-color-preview" class="color-dot" style="width:18px;height:18px;"></span><select id="editor-color" class="form-select form-select-sm"></select></div></div><div class="col-12"><label class="form-label small mb-1">Stato personalizzato</label><input id="editor-custom-state" class="form-control form-control-sm" placeholder="Stato personalizzato"></div><div class="col-12"><label class="form-label small mb-1">Assegnazioni</label><div id="editor-assignments-summary" class="small"></div></div><div class="col-12"><button type="button" class="btn btn-outline-secondary btn-sm d-none" id="editor-assignments-open"><i class="bi bi-person-plus me-1"></i>Gestisci assegnazioni</button></div><div class="col-12"><label class="form-label small mb-1">Note (log)</label><div id="editor-note-log" class="border rounded p-2 bg-light-subtle small mb-2" style="max-height:170px;overflow:auto;"></div><input id="editor-note" class="form-control form-control-sm" placeholder="Scrivi una nota (una riga)"></div></div></div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Annulla</button><button type="button" class="btn btn-primary btn-sm" id="editor-save-btn">Salva</button></div></div></div></div>';
             document.body.appendChild(editorModal.firstElementChild);
         }
         if (!document.getElementById('assignment-picker-modal')) {
@@ -2804,11 +2895,63 @@
         summary.innerHTML = buildAssignmentSummary(property);
     }
 
-    function buildEditorOwnersHtml(property) {
+    function buildEditorOwnerOptionLabel(owner) {
+        var fullName = ((owner.cognome || '') + ' ' + (owner.nome || '')).trim() || 'Intestatario';
+        var fiscalCode = String(owner.codice_fiscale || '').trim();
+        return fiscalCode ? (fullName + ' — ' + fiscalCode) : fullName;
+    }
+
+    function resolveEditorOwnerSelection(property, selectedOwnerId) {
+        var owners = property && property.owners ? property.owners : [];
+        if (owners.length <= 1) {
+            return owners.length ? String(owners[0].id || 'all') : 'all';
+        }
+        if (String(selectedOwnerId || 'all') === 'all') {
+            return 'all';
+        }
+        for (var i = 0; i < owners.length; i++) {
+            if (String(owners[i].id || 0) === String(selectedOwnerId)) {
+                return String(selectedOwnerId);
+            }
+        }
+        return 'all';
+    }
+
+    function renderEditorOwnerSelect(property, selectedOwnerId) {
+        var wrap = document.getElementById('editor-owner-select-wrap');
+        var select = document.getElementById('editor-owner-select');
+        var owners = property && property.owners ? property.owners : [];
+        if (!wrap || !select) return;
+        if (owners.length <= 1) {
+            wrap.classList.add('d-none');
+            select.innerHTML = '';
+            select.disabled = true;
+            select.value = '';
+            return;
+        }
+        var selection = resolveEditorOwnerSelection(property, selectedOwnerId);
+        select.innerHTML = '<option value="all"' + (selection === 'all' ? ' selected' : '') + '>Tutti gli intestatari</option>'
+            + owners.map(function (owner) {
+                return '<option value="' + escapeHtml(String(owner.id || 0)) + '"'
+                    + (selection === String(owner.id || 0) ? ' selected' : '')
+                    + (ownerCanEdit(owner, property) ? '' : ' disabled')
+                    + '>' + escapeHtml(buildEditorOwnerOptionLabel(owner) + (ownerCanEdit(owner, property) ? '' : ' (sola lettura)')) + '</option>';
+            }).join('');
+        select.disabled = false;
+        wrap.classList.remove('d-none');
+    }
+
+    function buildEditorOwnersHtml(property, selectedOwnerId) {
         var owners = property.owners || [];
         var canViewPhone = propertyCanViewPhone(property);
+        var selection = resolveEditorOwnerSelection(property, selectedOwnerId);
         if (!owners.length) {
             return '<div class="text-muted small">Nessun intestatario disponibile.</div>';
+        }
+        if (selection !== 'all') {
+            owners = owners.filter(function (owner) {
+                return String(owner.id || 0) === selection;
+            });
         }
         return owners.map(function (owner) {
             var fullName = ((owner.cognome || '') + ' ' + (owner.nome || '')).trim() || 'Intestatario';
@@ -2821,24 +2964,25 @@
             var titolarita = ownerTitolaritaLabel(owner, property);
             if (quota) ownershipParts.push(quota);
             if (titolarita) ownershipParts.push(titolarita);
+            var canManagePhone = selection !== 'all' && canViewPhone && ownerCanEdit(owner, property) && Number(owner.id || 0) > 0 && Number(owner._sourcePropertyId || property.id || 0) > 0;
             return '<div class="border rounded p-2 mb-2">'
                 + '<div class="fw-semibold small">' + escapeHtml(fullName) + '</div>'
                 + (ownershipParts.length ? '<div class="owner-meta small">' + escapeHtml(ownershipParts.join(' · ')) + '</div>' : '')
                 + (identityParts.length ? '<div class="owner-meta small">' + escapeHtml(identityParts.join(' | ')) + '</div>' : '')
                 + (canViewPhone
                     ? '<div class="mt-1"><span class="small text-muted">Telefoni</span>'
-                        + buildEditablePhoneChips(owner.telefono, property.id, owner.id || 0, !!property.can_edit && canViewPhone && Number(owner.id || 0) > 0)
+                        + buildEditablePhoneChips(owner.telefono, owner._sourcePropertyId || property.id, owner.id || 0, canManagePhone)
                         + '</div>'
                     : '')
                 + '</div>';
         }).join('');
     }
 
-    function renderEditorOwners(property) {
+    function renderEditorOwners(property, selectedOwnerId) {
         var container = document.getElementById('editor-owners-content');
         var label = document.getElementById('editor-owners-label');
         if (!container) return;
-        container.innerHTML = buildEditorOwnersHtml(property);
+        container.innerHTML = buildEditorOwnersHtml(property, selectedOwnerId);
         if (label) {
             label.textContent = propertyCanViewPhone(property) ? 'Intestatari e telefoni' : 'Intestatari';
         }
@@ -3613,7 +3757,7 @@
 
     function openEditorModal(propertyId) {
         ensureSharedModals();
-        var property = findPropertyById(propertyId);
+        var property = findPropertyGroupById(propertyId);
         if (!property) { alert('Immobile non trovato.'); return; }
         if (!property.can_edit) { alert('Non hai i permessi per modificare questo marker.'); return; }
         var modalEl = document.getElementById('property-editor-modal');
@@ -3640,8 +3784,10 @@
         updateColorSelectAppearance(colorEl);
         customStateEl.value = property.stato_personalizzato || '';
         noteEl.value = '';
+        modalEl.dataset.propertyId = String(property.id);
         saveBtn.dataset.propertyId = String(property.id);
-        renderEditorOwners(property);
+        renderEditorOwnerSelect(property, 'all');
+        renderEditorOwners(property, 'all');
         renderEditorNotesLog(property);
         refreshEditorAssignmentSummary(property);
         if (assignmentBtn) { assignmentBtn.classList.toggle('d-none', state.role === 'subuser'); assignmentBtn.dataset.propertyId = String(property.id); }
@@ -3661,7 +3807,7 @@
 
     function openAssignmentPicker(propertyId) {
         ensureSharedModals();
-        var property = findPropertyById(propertyId);
+        var property = findPropertyGroupById(propertyId);
         var modalEl  = document.getElementById('assignment-picker-modal');
         var listEl   = document.getElementById('assignment-picker-list');
         var metaEl   = document.getElementById('assignment-picker-meta');
@@ -3830,6 +3976,13 @@
             updateEditorColorPreview(event.target.value);
             updateColorSelectAppearance(event.target);
         }
+        if (event.target.id === 'editor-owner-select') {
+            var editorModal = document.getElementById('property-editor-modal');
+            var propertyGroup = findPropertyGroupById(editorModal ? Number(editorModal.dataset.propertyId || 0) : 0);
+            if (propertyGroup) {
+                renderEditorOwners(propertyGroup, event.target.value || 'all');
+            }
+        }
         if (event.target.id === 'assigned-subuser-filter') { var sid = event.target.value; api(withTenant(state.propertiesEndpoint + '?mode=assigned' + (sid ? '&subuser_id=' + sid : ''))).then(function (p) { state.assignedProperties = p.properties || []; renderAssignedTable(); }).catch(function (e) { alert(e.message); }); }
         if (event.target.id === 'assigned-assignment-filter') renderAssignedTable();
         if (event.target.id === 'report-filter-color') {
@@ -3877,10 +4030,6 @@
                 removeOwnerPhone(propertyId, ownerId, phone)
                     .then(function (payload) {
                         applyOwnerPhoneUpdate(propertyId, ownerId, payload.telefono || '');
-                        var property = findPropertyById(propertyId);
-                        if (property) {
-                            renderEditorOwners(property);
-                        }
                     })
                     .catch(function (error) { window.alert(error.message); })
                     .finally(function () { removePhoneBtn.disabled = false; });
@@ -3922,8 +4071,6 @@
             addOwnerPhone(addPropertyId, addOwnerId, newPhone)
                 .then(function (payload) {
                     applyOwnerPhoneUpdate(addPropertyId, addOwnerId, payload.telefono || '');
-                    var property = findPropertyById(addPropertyId);
-                    if (property) renderEditorOwners(property);
                 })
                 .catch(function (error) { window.alert(error.message); })
                 .finally(function () { addPhoneSaveBtn.disabled = false; });
@@ -3994,22 +4141,22 @@
         if (t.id === 'editor-assignments-open') { event.preventDefault(); openAssignmentPicker(Number(t.dataset.propertyId || 0)); return; }
         if (t.id === 'assignment-picker-save') {
             event.preventDefault();
-            var pid = Number(t.dataset.propertyId || 0), prop = findPropertyById(pid); if (!prop) return;
+            var pid = Number(t.dataset.propertyId || 0), prop = findPropertyGroupById(pid); if (!prop) return;
             var checks = Array.from(document.querySelectorAll('#assignment-picker-list .assignment-picker-check:checked'));
             var assignments = checks.map(function (c) { return Number(c.value); }).filter(Number.isFinite);
             t.disabled = true;
-            savePropertyPayload({ property_id: pid, stato: prop.stato, stato_personalizzato: prop.stato_personalizzato || '', colore_marker: prop.colore_marker, note: '', assignments: assignments })
-                .then(function () { var m = bootstrap.Modal.getInstance(document.getElementById('assignment-picker-modal')); if (m) m.hide(); var upd = findPropertyById(pid); if (upd) refreshEditorAssignmentSummary(upd); })
+            savePropertyGroupPayload(prop, { stato: prop.stato, stato_personalizzato: prop.stato_personalizzato || '', colore_marker: prop.colore_marker, note: '', assignments: assignments })
+                .then(function () { var m = bootstrap.Modal.getInstance(document.getElementById('assignment-picker-modal')); if (m) m.hide(); var upd = findPropertyGroupById(pid); if (upd) refreshEditorAssignmentSummary(upd); })
                 .catch(function (e) { setModalError('assignment-picker-error', e.message); })
                 .finally(function () { t.disabled = false; });
             return;
         }
         if (t.id === 'editor-save-btn') {
             event.preventDefault();
-            var pid2 = Number(t.dataset.propertyId || 0), prop2 = findPropertyById(pid2); if (!prop2) return;
+            var pid2 = Number(t.dataset.propertyId || 0), prop2 = findPropertyGroupById(pid2); if (!prop2) return;
             var se = document.getElementById('editor-state'), ce = document.getElementById('editor-color'), cse = document.getElementById('editor-custom-state'), ne = document.getElementById('editor-note');
             t.disabled = true; setModalError('property-editor-error', '');
-            savePropertyPayload({ property_id: pid2, stato: (se && se.value) || prop2.stato, stato_personalizzato: (cse && cse.value) || '', colore_marker: (ce && ce.value) || prop2.colore_marker, note: (ne && ne.value) || '' })
+            savePropertyGroupPayload(prop2, { stato: (se && se.value) || prop2.stato, stato_personalizzato: (cse && cse.value) || '', colore_marker: (ce && ce.value) || prop2.colore_marker, note: (ne && ne.value) || '' })
                 .then(function () { var m = bootstrap.Modal.getInstance(document.getElementById('property-editor-modal')); if (m) m.hide(); })
                 .catch(function (e) { setModalError('property-editor-error', e.message); })
                 .finally(function () { t.disabled = false; });

@@ -703,6 +703,10 @@ I cluster di marker sulla mappa usano un'icona **donut SVG inline** generata da
 
 - Ogni fetta è proporzionale al numero di marker del relativo colore nel cluster.
 - Il numero totale è mostrato al centro.
+- Il click sul cluster esegue `zoomToBounds()` con padding dedicato, così la mappa fa
+  zoom progressivo scomponendo il gruppo in sotto-cluster fino al marker singolo.
+- A zoom massimo (`disableClusteringAtZoom: 19`) i marker coincidenti possono essere
+  aperti in spiderfy, mantenendo `spiderfyOnMaxZoom: true`.
 - Nessuna libreria aggiuntiva richiesta.
 - I colori sono validati con regex `/^#[0-9a-fA-F]{3,8}$/` prima di essere inclusi nell'SVG.
 
@@ -770,6 +774,7 @@ in un'unica vista schema, batch recenti ed errori runtime.
 php analyticspro/tests/test_cointestatari_grouping.php    # raggruppamento per unità immobiliare
 php analyticspro/tests/test_assignment_reconciliation.php # riconciliazione assegnazioni
 php analyticspro/tests/test_cluster_fractions.php         # fette cluster SVG
+php analyticspro/tests/test_grouped_marker_editor.php     # metadata gruppo per editor mappa
 php analyticspro/tests/test_phone_visibility.php          # telefono assente con permesso OFF
 php analyticspro/tests/test_enrich_chunk_error.php        # error_code strutturato
 php analyticspro/tests/test_gml_catalog_auto_invalidate.php # auto-invalidazione catalogo GML
@@ -804,7 +809,7 @@ Il campo DB `property_owners.genere` è stato esteso a `VARCHAR(16)` per mantene
 
 ### Editor popup condiviso
 
-L'editor inline usato in tabella e nel popup mappa continua a condividere la stessa logica di modifica stato, colore, note e assegnazioni. Il payload proprietà espone anche `is_assigned` per distinguere rapidamente gli immobili già assegnati nella UI.
+L'editor inline usato in tabella e nel popup mappa continua a condividere la stessa logica di modifica stato, colore, note e assegnazioni. Per i marker raggruppati sullo stesso subalterno, il modal **Modifica marker** mostra anche un select "Intestatario da modificare": puoi vedere tutti gli intestatari del gruppo oppure selezionarne uno specifico per gestire i suoi telefoni con la coppia corretta `property_id`/`owner_id`. Le modifiche immobile (stato, colore, stato personalizzato, note, assegnazioni) vengono replicate su tutti gli id del gruppo con un solo reload finale. Il payload proprietà espone anche `is_assigned` per distinguere rapidamente gli immobili già assegnati nella UI.
 
 ### Cluster a torta
 
