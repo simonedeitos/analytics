@@ -159,8 +159,11 @@ analyticspro_render_header('Aiuto');
                                     <li>Dati catastali dell'immobile (Comune, Foglio, Particella, Subalterno, Indirizzo, Categoria) con intestazione rapida di <strong>Classe, Rendita, Piano, Consistenza</strong>.</li>
                                     <li>Elenco di tutti gli intestatari correnti con <strong><i class="bi bi-person"></i> icona persona</strong> per le persone fisiche o <strong><i class="bi bi-building"></i> icona azienda</strong> per le persone giuridiche.</li>
                                     <li>Stato attuale, colore, note, assegnazioni e pulsanti rapidi per copiare i numeri di telefono.</li>
-                                    <li>Nel modal <strong>Modifica marker</strong>, per ogni intestatario puoi eliminare i singoli numeri non più validi con il pulsante <strong>✕</strong> oppure aggiungerne di nuovi con il pulsante <strong>[+]</strong>.</li>
+                                    <li>Nel modal <strong>Modifica marker</strong> trovi in alto a destra il menu <strong>Intestatario da modificare</strong>: puoi vedere tutti gli intestatari del subalterno oppure selezionarne uno specifico per aggiungere/eliminare i suoi numeri con i pulsanti <strong>[+]</strong> e <strong>✕</strong>.</li>
                                 </ul>
+
+                                <h6 class="mt-3">Cluster mappa a torta</h6>
+                                <p>I cluster “donut” sulla mappa sono cliccabili: ogni click fa zoom progressivo sul gruppo, lo scompatta in sotto-cluster e, all'ultimo livello utile, apre i marker coincidenti in modalità <em>spiderfy</em>.</p>
 
                                 <h6 class="mt-3">Stato del marker</h6>
                                 <p>Puoi assegnare uno dei seguenti stati:</p>
@@ -318,8 +321,16 @@ analyticspro_render_header('Aiuto');
                             'a' => 'Sì. AnalyticsPRO conserva uno storico degli intestatari nel tempo. Ogni aggiornamento non cancella il dato precedente ma lo archivia con la data di sostituzione, così puoi sempre risalire alla storia della titolarità di ogni immobile.',
                         ],
                         [
+                            'q' => 'Cosa succede se clicco su un gruppo di marker sulla mappa?',
+                            'a' => 'Il cluster fa zoom automatico verso quell\'area con più passaggi progressivi: da gruppo grande a sotto-cluster fino ad arrivare al singolo marker. Se più immobili condividono la stessa posizione, all\'ultimo livello i marker si aprono a ventaglio/spiderfy.',
+                        ],
+                        [
                             'q' => 'Come posso cambiare il colore di un marker?',
                             'a' => 'Clicca sul marker sulla mappa per aprire il popup, poi scegli il colore da una palette predefinita di colori principali. Il colore è indipendente dallo stato: puoi cambiarlo liberamente in qualsiasi momento e resta memorizzato finché non lo modifichi di nuovo.',
+                        ],
+                        [
+                            'q' => 'Come scelgo quale intestatario modificare in un marker con più cointestatari?',
+                            'a' => 'Apri il popup del marker e clicca "Modifica": nel modal trovi in alto a destra il menu "Intestatario da modificare". L\'opzione "Tutti gli intestatari" serve solo per consultare il gruppo, mentre scegliendo un singolo intestatario puoi gestire i suoi telefoni senza toccare gli altri.',
                         ],
                         [
                             'q' => 'Perché un marker cambia colore quando cambio stato?',

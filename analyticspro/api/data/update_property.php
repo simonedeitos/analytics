@@ -14,27 +14,60 @@ try {
     $input = json_decode((string) file_get_contents('php://input'), true, 512, JSON_THROW_ON_ERROR);
     analyticspro_verify_csrf($input['csrf_token'] ?? null);
     $propertyId = (int) ($input['property_id'] ?? 0);
-    if ($propertyId <= 0) {
+    $action = trim((string) ($input['action'] ?? ''));
+    $propertyIds = [];
+    if ($action === '' && is_array($input['property_ids'] ?? null)) {
+        foreach ($input['property_ids'] as $candidateId) {
+            $candidateId = (int) $candidateId;
+            if ($candidateId > 0 && !in_array($candidateId, $propertyIds, true)) {
+                $propertyIds[] = $candidateId;
+            }
+        }
+    }
+    if ($action !== '' && $propertyId <= 0) {
         throw new RuntimeException('Immobile non valido.');
+    }
+    if ($action === '' && $propertyId <= 0 && $propertyIds === []) {
+        throw new RuntimeException('Immobile non valido.');
+    }
+    if ($action === '' && $propertyIds === []) {
+        $propertyIds = [$propertyId];
     }
 
     $user = analyticspro_current_user();
     $payload = analyticspro_fetch_properties_payload($user, 'all');
-    $property = null;
+    $propertiesById = [];
     foreach ($payload['properties'] as $candidate) {
-        if ((int) $candidate['id'] === $propertyId) {
-            $property = $candidate;
-            break;
-        }
-    }
-    if (!$property) {
-        throw new RuntimeException('Immobile non accessibile.');
-    }
-    if (!analyticspro_property_can_edit($user, $property)) {
-        throw new RuntimeException('Non puoi modificare questo marker.');
+        $propertiesById[(int) $candidate['id']] = $candidate;
     }
 
-    $action = trim((string) ($input['action'] ?? ''));
+    $property = null;
+    if ($propertyId > 0 && isset($propertiesById[$propertyId])) {
+        $property = $propertiesById[$propertyId];
+    }
+    if ($action === '') {
+        $validatedProperties = [];
+        foreach ($propertyIds as $targetPropertyId) {
+            if (!isset($propertiesById[$targetPropertyId])) {
+                throw new RuntimeException('Immobile non accessibile.');
+            }
+            $targetProperty = $propertiesById[$targetPropertyId];
+            if (!analyticspro_property_can_edit($user, $targetProperty)) {
+                throw new RuntimeException('Non puoi modificare questo marker.');
+            }
+            $validatedProperties[] = $targetProperty;
+        }
+        if ($validatedProperties === []) {
+            throw new RuntimeException('Immobile non accessibile.');
+        }
+        $property = $validatedProperties[0];
+    }
+    if ($action !== '' && !$property) {
+        throw new RuntimeException('Immobile non accessibile.');
+    }
+    if ($action !== '' && !analyticspro_property_can_edit($user, $property)) {
+        throw new RuntimeException('Non puoi modificare questo marker.');
+    }
     if ($action === 'add_owner_phone') {
         $ownerId = (int) ($input['owner_id'] ?? 0);
         $phoneToAdd = trim((string) ($input['phone'] ?? ''));
@@ -165,65 +198,94 @@ try {
 
     $pdo = analyticspro_db();
     $pdo->beginTransaction();
-    $pdo->prepare('UPDATE properties SET stato = :stato, stato_personalizzato = :stato_personalizzato, colore_marker = :colore_marker WHERE id = :id')
-        ->execute([
-            'stato' => $newState,
-            'stato_personalizzato' => trim((string) ($input['stato_personalizzato'] ?? '')) ?: null,
-            'colore_marker' => $newColor,
-            'id' => $propertyId,
-        ]);
+    try {
+        $updatePropertyStmt = $pdo->prepare('UPDATE properties SET stato = :stato, stato_personalizzato = :stato_personalizzato, colore_marker = :colore_marker WHERE id = :id');
+        $statusHistoryStmt = $pdo->prepare('INSERT INTO property_status_history (property_id, changed_by, stato_precedente, stato_nuovo) VALUES (:property_id, :changed_by, :stato_precedente, :stato_nuovo)');
+        $noteStmt = $pdo->prepare('INSERT INTO property_notes (property_id, author_id, author_name_snapshot, testo) VALUES (:property_id, :author_id, :author_name_snapshot, :testo)');
+        $deleteAssignmentsStmt = $pdo->prepare('DELETE FROM property_assignments WHERE property_id = :property_id');
+        $insertAssignmentStmt = $pdo->prepare('INSERT INTO property_assignments (property_id, subuser_id, assigned_by) VALUES (:property_id, :subuser_id, :assigned_by)');
 
-    $stateOptions = analyticspro_state_options();
-    if ($currentState !== $newState) {
-        $pdo->prepare('INSERT INTO property_status_history (property_id, changed_by, stato_precedente, stato_nuovo) VALUES (:property_id, :changed_by, :stato_precedente, :stato_nuovo)')
-            ->execute([
-                'property_id' => $propertyId,
-                'changed_by' => $user['id'],
-                'stato_precedente' => $currentState,
-                'stato_nuovo' => $newState ?? '',
-            ]);
+        $stateOptions = analyticspro_state_options();
         $stateLabel = $newState !== null ? ($stateOptions[$newState] ?? $newState) : 'Non impostato';
         $stateNote = analyticspro_note_log_state_change($stateLabel);
-        if ($stateNote !== '') {
-            $pdo->prepare('INSERT INTO property_notes (property_id, author_id, author_name_snapshot, testo) VALUES (:property_id, :author_id, :author_name_snapshot, :testo)')
-                ->execute([
-                    'property_id' => $propertyId,
+        $note = analyticspro_note_log_manual_note((string) ($input['note'] ?? ''));
+        $customState = trim((string) ($input['stato_personalizzato'] ?? '')) ?: null;
+
+        $incomingAssignments = null;
+        if (($user['role'] ?? '') !== 'subuser' && is_array($input['assignments'] ?? null)) {
+            $tenantOwnerId = (int) $property['user_id'];
+            foreach ($validatedProperties as $validatedProperty) {
+                if ((int) $validatedProperty['user_id'] !== $tenantOwnerId) {
+                    throw new RuntimeException('Le assegnazioni del gruppo devono appartenere allo stesso tenant.');
+                }
+            }
+            $tenantSubusers = analyticspro_fetch_subusers($tenantOwnerId);
+            $allowedSubusers = array_map(static fn ($subuser) => (int) $subuser['id'], $tenantSubusers);
+            $incomingAssignments = array_values(array_unique(array_map('intval', $input['assignments'])));
+            $incomingAssignments = array_values(array_filter($incomingAssignments, static fn ($subuserId) => in_array($subuserId, $allowedSubusers, true)));
+        }
+
+        foreach ($validatedProperties as $validatedProperty) {
+            $validatedPropertyId = (int) $validatedProperty['id'];
+            $validatedCurrentState = isset($validatedProperty['stato']) && $validatedProperty['stato'] !== '' ? (string) $validatedProperty['stato'] : null;
+            $validatedColor = $newColor;
+            if ($validatedColor === '') {
+                $validatedColor = $validatedCurrentState !== $newState ? analyticspro_default_color_for_state((string) ($newState ?? '')) : (string) $validatedProperty['colore_marker'];
+            }
+
+            $updatePropertyStmt->execute([
+                'stato' => $newState,
+                'stato_personalizzato' => $customState,
+                'colore_marker' => $validatedColor,
+                'id' => $validatedPropertyId,
+            ]);
+
+            if ($validatedCurrentState !== $newState) {
+                $statusHistoryStmt->execute([
+                    'property_id' => $validatedPropertyId,
+                    'changed_by' => $user['id'],
+                    'stato_precedente' => $validatedCurrentState,
+                    'stato_nuovo' => $newState ?? '',
+                ]);
+                if ($stateNote !== '') {
+                    $noteStmt->execute([
+                        'property_id' => $validatedPropertyId,
+                        'author_id' => $user['id'],
+                        'author_name_snapshot' => analyticspro_full_name($user),
+                        'testo' => $stateNote,
+                    ]);
+                }
+            }
+
+            if ($note !== '') {
+                $noteStmt->execute([
+                    'property_id' => $validatedPropertyId,
                     'author_id' => $user['id'],
                     'author_name_snapshot' => analyticspro_full_name($user),
-                    'testo' => $stateNote,
+                    'testo' => $note,
                 ]);
+            }
+
+            if (is_array($incomingAssignments)) {
+                $deleteAssignmentsStmt->execute(['property_id' => $validatedPropertyId]);
+                foreach ($incomingAssignments as $subuserId) {
+                    $insertAssignmentStmt->execute([
+                        'property_id' => $validatedPropertyId,
+                        'subuser_id' => $subuserId,
+                        'assigned_by' => $user['id'],
+                    ]);
+                }
+            }
         }
-    }
 
-    $note = analyticspro_note_log_manual_note((string) ($input['note'] ?? ''));
-    if ($note !== '') {
-        $pdo->prepare('INSERT INTO property_notes (property_id, author_id, author_name_snapshot, testo) VALUES (:property_id, :author_id, :author_name_snapshot, :testo)')
-            ->execute([
-                'property_id' => $propertyId,
-                'author_id' => $user['id'],
-                'author_name_snapshot' => analyticspro_full_name($user),
-                'testo' => $note,
-            ]);
-    }
-
-    if (($user['role'] ?? '') !== 'subuser' && is_array($input['assignments'] ?? null)) {
-        $tenantSubusers = analyticspro_fetch_subusers((int) $property['user_id']);
-        $allowedSubusers = array_map(static fn ($subuser) => (int) $subuser['id'], $tenantSubusers);
-        $incoming = array_values(array_unique(array_map('intval', $input['assignments'])));
-        $incoming = array_values(array_filter($incoming, static fn ($subuserId) => in_array($subuserId, $allowedSubusers, true)));
-        $pdo->prepare('DELETE FROM property_assignments WHERE property_id = :property_id')->execute(['property_id' => $propertyId]);
-        $insert = $pdo->prepare('INSERT INTO property_assignments (property_id, subuser_id, assigned_by) VALUES (:property_id, :subuser_id, :assigned_by)');
-        foreach ($incoming as $subuserId) {
-            $insert->execute([
-                'property_id' => $propertyId,
-                'subuser_id' => $subuserId,
-                'assigned_by' => $user['id'],
-            ]);
+        $pdo->commit();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
         }
+        throw $exception;
     }
-
-    $pdo->commit();
-    analyticspro_json(['ok' => true]);
+    analyticspro_json(['ok' => true, 'updated_ids' => $propertyIds]);
 } catch (Throwable $exception) {
     if (isset($pdo) && $pdo instanceof PDO && $pdo->inTransaction()) {
         $pdo->rollBack();
