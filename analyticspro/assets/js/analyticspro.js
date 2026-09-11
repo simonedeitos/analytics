@@ -1760,6 +1760,19 @@
         return result;
     }
 
+    function editablePropertyGroupIds(property) {
+        var ids = property && Array.isArray(property._editableGroupIds) && property._editableGroupIds.length
+            ? property._editableGroupIds
+            : (property && property.can_edit ? [property.id] : []);
+        var result = [];
+        for (var i = 0; i < ids.length; i++) {
+            var id = Number(ids[i] || 0);
+            if (!id || result.indexOf(id) !== -1) continue;
+            result.push(id);
+        }
+        return result;
+    }
+
     function propertyGroupContainsId(property, propertyId) {
         return normalizedPropertyGroupIds(property).indexOf(Number(propertyId || 0)) !== -1;
     }
@@ -1793,7 +1806,7 @@
     }
 
     async function savePropertyGroupPayload(property, payload) {
-        var targetIds = normalizedPropertyGroupIds(property);
+        var targetIds = editablePropertyGroupIds(property);
         if (!targetIds.length) {
             throw new Error('Non puoi modificare questo marker.');
         }

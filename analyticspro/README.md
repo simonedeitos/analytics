@@ -809,7 +809,7 @@ Il campo DB `property_owners.genere` è stato esteso a `VARCHAR(16)` per mantene
 
 ### Editor popup condiviso
 
-L'editor inline usato in tabella e nel popup mappa continua a condividere la stessa logica di modifica stato, colore, note e assegnazioni. Per i marker raggruppati sullo stesso subalterno, il modal **Modifica marker** mostra anche un select "Intestatario da modificare": puoi vedere tutti gli intestatari del gruppo oppure selezionarne uno specifico per gestire i suoi telefoni con la coppia corretta `property_id`/`owner_id`. Le modifiche immobile (stato, colore, stato personalizzato, note, assegnazioni) vengono replicate su tutti gli id del gruppo con un solo reload finale. Il payload proprietà espone anche `is_assigned` per distinguere rapidamente gli immobili già assegnati nella UI.
+L'editor inline usato in tabella e nel popup mappa continua a condividere la stessa logica di modifica stato, colore, note e assegnazioni. Per i marker raggruppati sullo stesso subalterno, il modal **Modifica marker** mostra anche un select "Intestatario da modificare": puoi vedere tutti gli intestatari del gruppo oppure selezionarne uno specifico per gestire i suoi telefoni con la coppia corretta `property_id`/`owner_id`. Le modifiche immobile (stato, colore, stato personalizzato, note, assegnazioni) vengono replicate su tutti gli id del gruppo che risultano modificabili, con un solo reload finale. Il payload proprietà espone anche `is_assigned` per distinguere rapidamente gli immobili già assegnati nella UI.
 
 ### Cluster a torta
 
