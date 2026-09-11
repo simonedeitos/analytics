@@ -163,7 +163,7 @@ analyticspro_render_header('Aiuto');
                                 </ul>
 
                                 <h6 class="mt-3">Cluster mappa a torta</h6>
-                                <p>I cluster “donut” sulla mappa sono cliccabili: ogni click fa zoom progressivo sul gruppo, lo scompatta in sotto-cluster e, all'ultimo livello utile, apre i marker coincidenti in modalità <em>spiderfy</em>.</p>
+                                <p>I cluster “donut” sulla mappa sono cliccabili: ogni click fa zoom progressivo sul gruppo e lo scompatta in sotto-cluster; quando il cluster non è ulteriormente zoomabile (marker sovrapposti o zoom massimo), i marker coincidenti si aprono in modalità <em>spiderfy</em>.</p>
 
                                 <h6 class="mt-3">Stato del marker</h6>
                                 <p>Puoi assegnare uno dei seguenti stati:</p>
@@ -322,7 +322,7 @@ analyticspro_render_header('Aiuto');
                         ],
                         [
                             'q' => 'Cosa succede se clicco su un gruppo di marker sulla mappa?',
-                            'a' => 'Il cluster fa zoom automatico verso quell\'area con più passaggi progressivi: da gruppo grande a sotto-cluster fino ad arrivare al singolo marker. Se più immobili condividono la stessa posizione, all\'ultimo livello i marker si aprono a ventaglio/spiderfy.',
+                            'a' => 'Il cluster fa zoom automatico verso quell\'area con più passaggi progressivi: da gruppo grande a sotto-cluster fino ad arrivare al singolo marker. Se il gruppo non è ulteriormente zoomabile (perché i marker condividono la stessa posizione o sei già allo zoom massimo), i marker si aprono a ventaglio/spiderfy.',
                         ],
                         [
                             'q' => 'Come posso cambiare il colore di un marker?',

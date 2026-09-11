@@ -705,8 +705,9 @@ I cluster di marker sulla mappa usano un'icona **donut SVG inline** generata da
 - Il numero totale è mostrato al centro.
 - Il click sul cluster esegue `zoomToBounds()` con padding dedicato, così la mappa fa
   zoom progressivo scomponendo il gruppo in sotto-cluster fino al marker singolo.
-- A zoom massimo (`disableClusteringAtZoom: 19`) i marker coincidenti possono essere
-  aperti in spiderfy, mantenendo `spiderfyOnMaxZoom: true`.
+- Il clustering resta attivo anche a zoom massimo: quando il cluster non è ulteriormente
+  zoomabile (marker sovrapposti o zoom massimo raggiunto), viene aperto in spiderfy
+  mantenendo `spiderfyOnMaxZoom: true`.
 - Nessuna libreria aggiuntiva richiesta.
 - I colori sono validati con regex `/^#[0-9a-fA-F]{3,8}$/` prima di essere inclusi nell'SVG.
 
