@@ -60,7 +60,7 @@ analyticspro_render_header('Manutenzione database', ['app_assets' => true]);
      data-apply-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/maintenance_duplicate_apply.php')) ?>"
      data-migrations-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/maintenance_migrations.php')) ?>"
      data-run-migration-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/maintenance_run_migration.php')) ?>"
-     data-log-download-template="<?= analyticspro_h(analyticspro_base_url('manutenzione.php?download_log=__FILE__')) ?>"
+     data-datatables-language-url="<?= analyticspro_h(analyticspro_asset_url('assets/i18n/datatables-it-IT.json')) ?>"
      data-batch-size="10">
 
     <?= analyticspro_ui_page_header(
@@ -249,7 +249,7 @@ window.addEventListener('load', function () {
         applyEndpoint: root.dataset.applyEndpoint || '',
         migrationsEndpoint: root.dataset.migrationsEndpoint || '',
         runMigrationEndpoint: root.dataset.runMigrationEndpoint || '',
-        logDownloadTemplate: root.dataset.logDownloadTemplate || '',
+        dataTablesLanguageUrl: root.dataset.datatablesLanguageUrl || '',
         batchSize: Math.max(1, parseInt(root.dataset.batchSize || '10', 10) || 10),
         ownershipReady: <?= $ownershipReady ? 'true' : 'false' ?>,
         initialDuplicateCount: <?= $duplicateClusterCount === null ? 'null' : (int) $duplicateClusterCount ?>,
@@ -405,7 +405,7 @@ window.addEventListener('load', function () {
             ],
             pageLength: 25,
             order: [],
-            language: { url: 'https://cdn.datatables.net/plug-ins/1.13.8/i18n/it-IT.json' }
+            language: state.dataTablesLanguageUrl ? { url: state.dataTablesLanguageUrl } : undefined
         });
         updateApplyButtonState();
     }
@@ -510,11 +510,15 @@ window.addEventListener('load', function () {
     }
 
     function startApply() {
+        if (state.applyRunning) {
+            return;
+        }
         if (!state.lastScan || !state.lastScan.total_clusters) {
             setAlert('duplicate-feedback', 'warning', 'Esegui prima il dry-run e verifica i cluster da fondere.');
             return;
         }
         state.applyRunning = true;
+        document.getElementById('duplicate-confirm-apply-btn').disabled = true;
         document.getElementById('duplicate-progress-card').classList.remove('d-none');
         document.getElementById('duplicate-progress-log').textContent = '';
         state.logFile = '';

@@ -182,6 +182,78 @@ function analyticspro_maintenance_find_migration(string $filename): array
     throw new RuntimeException('Migrazione non trovata.');
 }
 
+function analyticspro_maintenance_extract_statement_from_buffer(string &$buffer, string $delimiter): ?string
+{
+    $delimiterLength = strlen($delimiter);
+    $length = strlen($buffer);
+    $inSingleQuote = false;
+    $inDoubleQuote = false;
+    $inBacktick = false;
+
+    for ($index = 0; $index < $length; $index++) {
+        $char = $buffer[$index];
+        $nextChar = $buffer[$index + 1] ?? '';
+
+        if ($inSingleQuote) {
+            if ($char === '\\') {
+                $index++;
+                continue;
+            }
+            if ($char === "'" && $nextChar === "'") {
+                $index++;
+                continue;
+            }
+            if ($char === "'") {
+                $inSingleQuote = false;
+            }
+            continue;
+        }
+
+        if ($inDoubleQuote) {
+            if ($char === '\\') {
+                $index++;
+                continue;
+            }
+            if ($char === '"' && $nextChar === '"') {
+                $index++;
+                continue;
+            }
+            if ($char === '"') {
+                $inDoubleQuote = false;
+            }
+            continue;
+        }
+
+        if ($inBacktick) {
+            if ($char === '`') {
+                $inBacktick = false;
+            }
+            continue;
+        }
+
+        if ($char === "'") {
+            $inSingleQuote = true;
+            continue;
+        }
+        if ($char === '"') {
+            $inDoubleQuote = true;
+            continue;
+        }
+        if ($char === '`') {
+            $inBacktick = true;
+            continue;
+        }
+
+        if ($delimiterLength > 0 && substr($buffer, $index, $delimiterLength) === $delimiter) {
+            $statement = trim(substr($buffer, 0, $index));
+            $buffer = ltrim(substr($buffer, $index + $delimiterLength));
+            return $statement;
+        }
+    }
+
+    return null;
+}
+
 function analyticspro_maintenance_parse_sql_statements(string $sql): array
 {
     $delimiter = ';';
@@ -199,12 +271,10 @@ function analyticspro_maintenance_parse_sql_statements(string $sql): array
         }
 
         $buffer .= $line . "\n";
-        while (($position = strpos($buffer, $delimiter)) !== false) {
-            $statement = trim(substr($buffer, 0, $position));
+        while (($statement = analyticspro_maintenance_extract_statement_from_buffer($buffer, $delimiter)) !== null) {
             if ($statement !== '') {
                 $statements[] = $statement;
             }
-            $buffer = ltrim(substr($buffer, $position + strlen($delimiter)));
         }
     }
 
@@ -214,6 +284,17 @@ function analyticspro_maintenance_parse_sql_statements(string $sql): array
     }
 
     return $statements;
+}
+
+function analyticspro_maintenance_statements_are_transaction_safe(array $statements): bool
+{
+    foreach ($statements as $statement) {
+        if (preg_match('/^\s*(ALTER|CREATE|DROP|RENAME|TRUNCATE)\b/i', (string) $statement) === 1) {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 function analyticspro_maintenance_resolve_log_download(string $filename): string
@@ -252,9 +333,26 @@ function analyticspro_maintenance_run_migration(string $filename): array
 
     $pdo = analyticspro_db();
     $executed = 0;
-    foreach ($statements as $statement) {
-        $pdo->exec($statement);
-        $executed++;
+    $transactionSafe = analyticspro_maintenance_statements_are_transaction_safe($statements);
+
+    try {
+        if ($transactionSafe) {
+            $pdo->beginTransaction();
+        }
+
+        foreach ($statements as $statement) {
+            $pdo->exec($statement);
+            $executed++;
+        }
+
+        if ($transactionSafe && $pdo->inTransaction()) {
+            $pdo->commit();
+        }
+    } catch (Throwable $exception) {
+        if ($transactionSafe && $pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        throw $exception;
     }
 
     $statusAfter = analyticspro_maintenance_get_migration_status($migration);
@@ -264,6 +362,9 @@ function analyticspro_maintenance_run_migration(string $filename): array
         'status_before' => (string) ($statusBefore['status'] ?? 'unknown'),
         'status_after' => (string) ($statusAfter['status'] ?? 'unknown'),
         'executed_statements' => $executed,
-        'message' => 'Migrazione eseguita correttamente.',
+        'transaction_safe' => $transactionSafe,
+        'message' => $transactionSafe
+            ? 'Migrazione eseguita correttamente.'
+            : 'Migrazione eseguita correttamente. Gli statement DDL/procedurali non sono transazionali e sono stati eseguiti in sequenza.',
     ];
 }

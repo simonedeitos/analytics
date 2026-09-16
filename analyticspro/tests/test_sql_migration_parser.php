@@ -18,6 +18,32 @@ $statements = analyticspro_maintenance_parse_sql_statements($sql);
 $pass = true;
 $errors = [];
 
+
+$customSql = <<<'SQL'
+-- comment to ignore
+INSERT INTO sample(text) VALUES ('semi;colon');
+DELIMITER $$
+CREATE PROCEDURE demo()
+BEGIN
+    SELECT 'body;still string', 'token $$ inside string';
+END$$
+DELIMITER ;
+DROP PROCEDURE demo;
+SQL;
+$customStatements = analyticspro_maintenance_parse_sql_statements($customSql);
+if (count($customStatements) !== 3) {
+    $pass = false;
+    $errors[] = 'Il parser deve ignorare delimitatori presenti nelle stringhe SQL e restituire 3 statement nel fixture custom.';
+}
+if (isset($customStatements[0]) && trim($customStatements[0]) !== "INSERT INTO sample(text) VALUES ('semi;colon')") {
+    $pass = false;
+    $errors[] = 'Il parser non deve spezzare il punto e virgola interno alla stringa del primo statement.';
+}
+if (isset($customStatements[1]) && !str_contains($customStatements[1], "'token $$ inside string'")) {
+    $pass = false;
+    $errors[] = 'Il parser non deve spezzare il delimitatore custom quando compare dentro una stringa.';
+}
+
 if (count($statements) !== 4) {
     $pass = false;
     $errors[] = 'La migration 016 deve produrre 4 statement eseguibili, trovati ' . count($statements) . '.';
