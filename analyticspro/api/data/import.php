@@ -94,6 +94,7 @@ try {
             'total_rows' => count($rows),
             'processed_rows' => (int) ($processSummary['processed_rows'] ?? count($rows)),
             'skipped_rows' => (int) ($processSummary['skipped_rows'] ?? 0),
+            'backfilled_rows' => (int) ($processSummary['backfilled_rows'] ?? 0),
             'skipped_reasons' => $processSummary['skipped_reasons'] ?? [],
             'warnings' => $processSummary['warnings'] ?? [],
             'notes_imported' => (int) ($processSummary['notes_imported'] ?? 0),

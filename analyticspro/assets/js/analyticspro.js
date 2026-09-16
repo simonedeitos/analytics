@@ -374,6 +374,169 @@
         return '';
     }
 
+    function normalizeCadastralIdentity(record) {
+        return {
+            tenant_id: resolveTenantGroupingId(record),
+            provincia: normalizeText(record && record.provincia || ''),
+            comune: normalizeText(record && record.comune || ''),
+            cod_catastale: normalizeText(record && record.cod_catastale || ''),
+            sezione: normalizeText(record && record.sezione || ''),
+            foglio: normalizeCadastralNumber(record && record.foglio || ''),
+            particella: normalizeCadastralNumber(record && record.particella || ''),
+            subalterno: normalizeCadastralNumber(record && record.subalterno || '')
+        };
+    }
+
+    function cadastralBaseBucketKey(identity) {
+        return [
+            identity.tenant_id,
+            identity.provincia,
+            identity.sezione,
+            identity.foglio,
+            identity.particella
+        ].join('|');
+    }
+
+    function makeCadastralCluster(entries) {
+        var cluster = { entries: [], cod_catastale: '', comuni: {} };
+        appendEntriesToCadastralCluster(cluster, entries || []);
+        return cluster;
+    }
+
+    function appendEntriesToCadastralCluster(cluster, entries) {
+        (entries || []).forEach(function (entry) {
+            cluster.entries.push(entry);
+            if (!cluster.cod_catastale && entry.identity.cod_catastale) {
+                cluster.cod_catastale = entry.identity.cod_catastale;
+            }
+            if (entry.identity.comune) {
+                cluster.comuni[entry.identity.comune] = true;
+            }
+        });
+    }
+
+    function clusterMatchesMissingCodeGroup(cluster, comune) {
+        return !!(comune && cluster && cluster.comuni && cluster.comuni[comune]);
+    }
+
+    function clusterMatchesMissingSubalterno(cluster, identity) {
+        var clusterCode = String(cluster && cluster.cod_catastale || '');
+        var identityCode = String(identity && identity.cod_catastale || '');
+        if (clusterCode && identityCode) {
+            return clusterCode === identityCode;
+        }
+        return !!(identity && identity.comune && cluster && cluster.comuni && cluster.comuni[identity.comune]);
+    }
+
+    function buildNonEmptySubalternoClusters(entries) {
+        var coded = {};
+        var codedOrder = [];
+        var missingCode = {};
+        var missingOrder = [];
+        (entries || []).forEach(function (entry) {
+            var codCatastale = entry.identity.cod_catastale;
+            if (codCatastale) {
+                var codedKey = 'COD:' + codCatastale;
+                if (!coded[codedKey]) {
+                    coded[codedKey] = makeCadastralCluster([]);
+                    codedOrder.push(codedKey);
+                }
+                appendEntriesToCadastralCluster(coded[codedKey], [entry]);
+                return;
+            }
+            var comune = entry.identity.comune;
+            var missingKey = comune ? ('COM:' + comune) : ('REC:' + entry.index);
+            if (!missingCode[missingKey]) {
+                missingCode[missingKey] = makeCadastralCluster([]);
+                missingOrder.push(missingKey);
+            }
+            appendEntriesToCadastralCluster(missingCode[missingKey], [entry]);
+        });
+
+        var clusters = codedOrder.map(function (key) { return coded[key]; });
+        missingOrder.forEach(function (key) {
+            var cluster = missingCode[key];
+            var comuni = Object.keys(cluster.comuni || {});
+            var targetIndexes = [];
+            if (comuni.length) {
+                clusters.forEach(function (candidate, index) {
+                    if (clusterMatchesMissingCodeGroup(candidate, comuni[0])) {
+                        targetIndexes.push(index);
+                    }
+                });
+            }
+            if (targetIndexes.length === 1) {
+                appendEntriesToCadastralCluster(clusters[targetIndexes[0]], cluster.entries);
+                return;
+            }
+            clusters.push(cluster);
+        });
+
+        return clusters;
+    }
+
+    function groupCanonicalRecords(records) {
+        var buckets = {};
+        var bucketOrder = [];
+        (records || []).forEach(function (record, index) {
+            var identity = normalizeCadastralIdentity(record);
+            var bucketKey = cadastralBaseBucketKey(identity);
+            if (!buckets[bucketKey]) {
+                buckets[bucketKey] = [];
+                bucketOrder.push(bucketKey);
+            }
+            buckets[bucketKey].push({ record: record, identity: identity, index: index });
+        });
+
+        var groups = [];
+        bucketOrder.forEach(function (bucketKey) {
+            var entries = buckets[bucketKey] || [];
+            var bySubalterno = {};
+            var subalternoOrder = [];
+            var emptySubalterno = [];
+            entries.forEach(function (entry) {
+                var subalterno = entry.identity.subalterno;
+                if (!subalterno) {
+                    emptySubalterno.push(entry);
+                    return;
+                }
+                if (!bySubalterno[subalterno]) {
+                    bySubalterno[subalterno] = [];
+                    subalternoOrder.push(subalterno);
+                }
+                bySubalterno[subalterno].push(entry);
+            });
+
+            var clusters = [];
+            subalternoOrder.forEach(function (subalterno) {
+                buildNonEmptySubalternoClusters(bySubalterno[subalterno]).forEach(function (cluster) {
+                    clusters.push(cluster);
+                });
+            });
+
+            var nonEmptyClusterCount = clusters.length;
+            emptySubalterno.forEach(function (entry) {
+                var candidates = [];
+                for (var clusterIndex = 0; clusterIndex < nonEmptyClusterCount; clusterIndex++) {
+                    if (clusterMatchesMissingSubalterno(clusters[clusterIndex], entry.identity)) {
+                        candidates.push(clusterIndex);
+                    }
+                }
+                if (candidates.length === 1) {
+                    appendEntriesToCadastralCluster(clusters[candidates[0]], [entry]);
+                    return;
+                }
+                clusters.push(makeCadastralCluster([entry]));
+            });
+
+            clusters.forEach(function (cluster) {
+                groups.push(cluster.entries.map(function (entry) { return entry.record; }));
+            });
+        });
+
+        return groups;
+    }
+
     function paletteEntryByColor(color) {
         return MARKER_COLOR_PALETTE.find(function (item) { return item.value.toLowerCase() === String(color || '').toLowerCase(); }) || null;
     }
@@ -448,11 +611,11 @@
     }
 
     function ownerQuotaLabel(owner, property) {
-        return quotaLabel((owner && owner.quota) || (property && property.quota) || '');
+        return quotaLabel(owner && owner.quota ? owner.quota : '');
     }
 
     function ownerTitolaritaLabel(owner, property) {
-        return String((owner && owner.titolarita) || (property && property.titolarita) || '').trim();
+        return String(owner && owner.titolarita ? owner.titolarita : '').trim();
     }
 
     function parseDob(raw) {
@@ -1113,55 +1276,25 @@
     // con la lista owners unificata di tutte le properties del gruppo.
     // ─────────────────────────────────────────────────────────────────────────
     function groupPropertiesByUnit(properties) {
-        var groups = {};
-        var order  = [];
-
-        for (var i = 0; i < properties.length; i++) {
-            var p = properties[i];
-            var provinciaNorm = normalizeText(p.provincia || '');
-            var comuneNorm = normalizeText(p.comune || '');
-            var codCatastaleNorm = normalizeText(p.cod_catastale || '');
-            var sezioneNorm = normalizeText(p.sezione || '');
-            var foglioNorm = normalizeCadastralNumber(p.foglio || '');
-            var particellaNorm = normalizeCadastralNumber(p.particella || '');
-            var subalternoNorm = normalizeCadastralNumber(p.subalterno || '');
-            var tenantId = resolveTenantGroupingId(p);
-            var comuneKey = codCatastaleNorm !== '' ? ('COD:' + codCatastaleNorm) : ('COM:' + comuneNorm);
-            var subalternoKey = subalternoNorm === ''
-                ? ('SUB:__NONE__#' + String(p.id || ('idx_' + i)))
-                : subalternoNorm;
-            var unitKey = provinciaNorm + '|' + comuneKey + '|' + sezioneNorm + '|' + foglioNorm + '|' + particellaNorm + '|' + subalternoKey + '|' + tenantId;
-
-            if (!groups[unitKey]) {
-                // Prima property del gruppo: diventa la "principale"
-                groups[unitKey] = {
-                    primary:    JSON.parse(JSON.stringify(p)), // copia profonda
-                    properties: [],
-                };
-                order.push(unitKey);
-            }
-            groups[unitKey].properties.push(p);
-        }
-
-        // Per ogni gruppo, unifica gli owners e segna quali properties compongono il gruppo
         var result = [];
-        for (var ki = 0; ki < order.length; ki++) {
-            var key   = order[ki];
-            var group = groups[key];
-            var prim  = group.primary;
+        var canonicalGroups = groupCanonicalRecords(properties || []);
+        for (var ki = 0; ki < canonicalGroups.length; ki++) {
+            var groupedProperties = canonicalGroups[ki];
+            if (!groupedProperties.length) continue;
+            var prim = JSON.parse(JSON.stringify(groupedProperties[0]));
 
             // Unifica owners da tutte le properties del gruppo (evita duplicati per CF)
             var allOwners = [];
             var seenOwners = {};
-            for (var pi = 0; pi < group.properties.length; pi++) {
-                var sourceProperty = group.properties[pi];
+            for (var pi = 0; pi < groupedProperties.length; pi++) {
+                var sourceProperty = groupedProperties[pi];
                 var owners = sourceProperty.owners || [];
                 for (var oi = 0; oi < owners.length; oi++) {
                     var ownerKey = ownerGroupKey(owners[oi], allOwners.length);
                     if (!seenOwners[ownerKey]) {
                         var mergedOwner = Object.assign({}, owners[oi]);
-                        mergedOwner.quota = mergedOwner.quota || sourceProperty.quota || '';
-                        mergedOwner.titolarita = mergedOwner.titolarita || sourceProperty.titolarita || '';
+                        mergedOwner.quota = mergedOwner.quota || '';
+                        mergedOwner.titolarita = mergedOwner.titolarita || '';
                         mergedOwner._sourcePropertyId = Number(sourceProperty.id || 0);
                         mergedOwner._canEdit = !!sourceProperty.can_edit;
                         mergedOwner._groupOwnerKey = ownerKey;
@@ -1184,8 +1317,8 @@
             // Unifica assignments
             var allAssignments = [];
             var seenAss = {};
-            for (var pi2 = 0; pi2 < group.properties.length; pi2++) {
-                var assignments = group.properties[pi2].assignments || [];
+            for (var pi2 = 0; pi2 < groupedProperties.length; pi2++) {
+                var assignments = groupedProperties[pi2].assignments || [];
                 for (var ai = 0; ai < assignments.length; ai++) {
                     var assKey = String(assignments[ai].subuser_id);
                     if (!seenAss[assKey]) {
@@ -1198,8 +1331,8 @@
 
             // Unifica notes
             var allNotes = [];
-            for (var pi3 = 0; pi3 < group.properties.length; pi3++) {
-                var notes = group.properties[pi3].notes || [];
+            for (var pi3 = 0; pi3 < groupedProperties.length; pi3++) {
+                var notes = groupedProperties[pi3].notes || [];
                 for (var ni = 0; ni < notes.length; ni++) {
                     allNotes.push(notes[ni]);
                 }
@@ -1207,16 +1340,16 @@
             prim.notes = allNotes;
 
             // Elenco degli id di tutte le properties nel gruppo (per uso futuro)
-            prim._groupIds = group.properties.map(function (gp) { return gp.id; });
-            prim._editableGroupIds = group.properties.filter(function (gp) { return !!gp.can_edit; }).map(function (gp) { return gp.id; });
+            prim._groupIds = groupedProperties.map(function (gp) { return gp.id; });
+            prim._editableGroupIds = groupedProperties.filter(function (gp) { return !!gp.can_edit; }).map(function (gp) { return gp.id; });
             prim.can_edit = prim._editableGroupIds.length > 0;
-            prim.is_assigned = group.properties.some(function (gp) { return !!gp.is_assigned; }) || prim.assignments.length > 0;
+            prim.is_assigned = groupedProperties.some(function (gp) { return !!gp.is_assigned; }) || prim.assignments.length > 0;
 
             var latSum = 0;
             var lngSum = 0;
             var coordCount = 0;
-            for (var ci = 0; ci < group.properties.length; ci++) {
-                var coordProperty = group.properties[ci];
+            for (var ci = 0; ci < groupedProperties.length; ci++) {
+                var coordProperty = groupedProperties[ci];
                 var lat = Number(coordProperty && coordProperty.lat);
                 var lng = Number(coordProperty && coordProperty.lng);
                 if (!isFinite(lat) || !isFinite(lng)) continue;
@@ -2927,6 +3060,9 @@
                 done: !!processPayload.enrichment_done
             });
             importLog('info', 'Righe salvate: ' + (processPayload.saved_rows !== undefined ? processPayload.saved_rows : rows.length));
+            if (Number(processPayload.backfilled_rows || 0) > 0) {
+                importLog('info', 'Codici catastali backfillati nello stesso batch: ' + Number(processPayload.backfilled_rows || 0));
+            }
             if (processPayload.skipped_rows) {
                 importLog('warning', 'Righe saltate: ' + processPayload.skipped_rows);
             }
@@ -4569,6 +4705,11 @@
                 var owners = (property.owners || []).map(function (owner) {
                     return ((owner.cognome || '') + ' ' + (owner.nome || '')).trim();
                 }).filter(Boolean).join(' | ');
+                var titolarita = (property.owners || []).map(function (owner) {
+                    return String(owner && owner.titolarita || '').trim();
+                }).filter(Boolean).filter(function (value, index, values) {
+                    return values.indexOf(value) === index;
+                }).join(' | ');
                 return [
                     property.provincia || '',
                     property.comune || '',
@@ -4577,7 +4718,7 @@
                     property.particella || '',
                     property.subalterno || '',
                     property.categoria || '',
-                    property.titolarita || '',
+                    titolarita,
                     owners
                 ];
             });

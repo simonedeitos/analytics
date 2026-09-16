@@ -124,6 +124,8 @@ function analyticspro_fetch_properties_payload(array $user, string $mode = 'all'
                 'data_nascita' => $owner['data_nascita'],
                 'luogo_nascita' => analyticspro_decrypt($owner['luogo_nascita_enc'] ?? null),
                 'genere' => $owner['genere'],
+                'quota' => $owner['quota'] ?? null,
+                'titolarita' => $owner['titolarita'] ?? null,
             ];
             if ($showPhone) {
                 $ownerPayload['telefono'] = analyticspro_decrypt($owner['telefono_enc']);
