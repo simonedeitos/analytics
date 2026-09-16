@@ -51,11 +51,17 @@ if (count($emptySubGroups) !== 2) {
 $preparedRows = [
     ['tenant_id' => 50, 'provincia' => 'MI', 'comune' => 'Milano', 'cod_catastale' => 'F205', 'sezione' => '', 'foglio' => '10', 'particella' => '123', 'subalterno' => '1', '__payload' => ['property' => ['cod_catastale' => 'F205']]],
     ['tenant_id' => 50, 'provincia' => 'MI', 'comune' => 'MILANO', 'cod_catastale' => '', 'sezione' => '', 'foglio' => '10', 'particella' => '123', 'subalterno' => '1', '__payload' => ['property' => ['cod_catastale' => '']]],
+    ['tenant_id' => 50, 'provincia' => 'MI', 'comune' => 'MILANO', 'cod_catastale' => 'G273', 'sezione' => '', 'foglio' => '10', 'particella' => '123', 'subalterno' => '2', '__payload' => ['property' => ['cod_catastale' => 'G273']]],
+    ['tenant_id' => 50, 'provincia' => 'MI', 'comune' => 'MILANO', 'cod_catastale' => '', 'sezione' => '', 'foglio' => '10', 'particella' => '123', 'subalterno' => '', '__payload' => ['property' => ['cod_catastale' => '']]],
 ];
 $backfilled = analyticspro_backfill_import_cod_catastale($preparedRows, 50);
 if ($backfilled !== 1 || ($preparedRows[1]['cod_catastale'] ?? '') !== 'F205' || (($preparedRows[1]['__payload']['property']['cod_catastale'] ?? '') !== 'F205')) {
     $pass = false;
     $errors[] = 'Il backfill del cod_catastale nello stesso batch non è stato applicato correttamente.';
+}
+if (($preparedRows[3]['cod_catastale'] ?? '') !== '') {
+    $pass = false;
+    $errors[] = 'Il backfill non deve valorizzare il subalterno vuoto quando i candidati valorizzati sono multipli.';
 }
 
 if ($pass) {

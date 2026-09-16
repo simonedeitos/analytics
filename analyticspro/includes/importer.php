@@ -856,9 +856,12 @@ function analyticspro_merge_import_owner_values(array $current, array $incoming)
  */
 function analyticspro_backfill_import_cod_catastale(array &$preparedRows, int $tenantId): int
 {
+    $backfilled = 0;
+    $identities = [];
     $codesByComune = [];
-    foreach ($preparedRows as $record) {
+    foreach ($preparedRows as $index => $record) {
         $identity = analyticspro_normalize_cadastral_identity($record, $tenantId);
+        $identities[$index] = $identity;
         if ($identity['provincia'] === '' || $identity['comune'] === '' || $identity['cod_catastale'] === '') {
             continue;
         }
@@ -866,14 +869,49 @@ function analyticspro_backfill_import_cod_catastale(array &$preparedRows, int $t
         $codesByComune[$bucketKey][$identity['cod_catastale']] = true;
     }
 
-    $backfilled = 0;
-    foreach ($preparedRows as &$record) {
-        $identity = analyticspro_normalize_cadastral_identity($record, $tenantId);
+    foreach ($preparedRows as $preparedIndex => &$record) {
+        $recordIndex = (int) ($record['__source_index'] ?? $preparedIndex);
+        $identity = $identities[$recordIndex] ?? analyticspro_normalize_cadastral_identity($record, $tenantId);
         if ($identity['cod_catastale'] !== '' || $identity['provincia'] === '' || $identity['comune'] === '') {
             continue;
         }
-        $bucketKey = $identity['tenant_id'] . '|' . $identity['provincia'] . '|' . $identity['comune'];
-        $candidates = array_keys($codesByComune[$bucketKey] ?? []);
+        $candidateCodes = [];
+        $candidateSubGroups = [];
+        foreach ($identities as $candidateIndex => $candidateIdentity) {
+            if ($candidateIndex === $recordIndex || $candidateIdentity['cod_catastale'] === '') {
+                continue;
+            }
+            if (
+                $candidateIdentity['tenant_id'] !== $identity['tenant_id']
+                || $candidateIdentity['provincia'] !== $identity['provincia']
+                || $candidateIdentity['sezione'] !== $identity['sezione']
+                || $candidateIdentity['foglio'] !== $identity['foglio']
+                || $candidateIdentity['particella'] !== $identity['particella']
+                || $candidateIdentity['comune'] !== $identity['comune']
+            ) {
+                continue;
+            }
+
+            $sameSubalterno = $identity['subalterno'] !== '' && $candidateIdentity['subalterno'] === $identity['subalterno'];
+            $uniqueMissingSubCandidate = $identity['subalterno'] === '' && $candidateIdentity['subalterno'] !== '';
+            if (!$sameSubalterno && !$uniqueMissingSubCandidate) {
+                continue;
+            }
+            $candidateCodes[$candidateIdentity['cod_catastale']] = true;
+            if ($uniqueMissingSubCandidate) {
+                $candidateSubGroups[$candidateIdentity['subalterno']] = true;
+            }
+        }
+
+        if ($identity['subalterno'] === '' && count($candidateSubGroups) !== 1) {
+            $candidateCodes = [];
+        }
+        if ($candidateCodes === []) {
+            $bucketKey = $identity['tenant_id'] . '|' . $identity['provincia'] . '|' . $identity['comune'];
+            $candidateCodes = $codesByComune[$bucketKey] ?? [];
+        }
+
+        $candidates = array_keys($candidateCodes);
         if (count($candidates) !== 1) {
             continue;
         }
@@ -990,22 +1028,23 @@ function analyticspro_prepare_import_groups(array $rows, int $tenantId): array
  */
 function analyticspro_find_existing_property_for_import(PDO $pdo, int $tenantId, array $property): ?array
 {
-    $params = [
+    $baseParams = [
         'user_id' => $tenantId,
         'provincia' => (string) ($property['provincia'] ?? ''),
-        'cod_catastale' => (string) ($property['cod_catastale'] ?? ''),
-        'comune_like' => strtoupper(substr(trim((string) ($property['comune'] ?? '')), 0, 6)) . '%',
     ];
-    $sql = 'SELECT * FROM properties
-        WHERE user_id = :user_id
-          AND provincia = :provincia
-          AND (
-            (:cod_catastale <> \'\' AND UPPER(COALESCE(cod_catastale, \'\')) = UPPER(:cod_catastale))
-            OR UPPER(COALESCE(comune, \'\')) LIKE :comune_like
-          )';
-    $stmt = $pdo->prepare($sql);
-    $stmt->execute($params);
-    $candidates = $stmt->fetchAll() ?: [];
+    $codCatastale = trim((string) ($property['cod_catastale'] ?? ''));
+    $comuneLike = strtoupper(substr(trim((string) ($property['comune'] ?? '')), 0, 6)) . '%';
+    $candidates = [];
+    if ($codCatastale !== '') {
+        $stmt = $pdo->prepare('SELECT * FROM properties WHERE user_id = :user_id AND provincia = :provincia AND UPPER(COALESCE(cod_catastale, \'\')) = UPPER(:cod_catastale)');
+        $stmt->execute($baseParams + ['cod_catastale' => $codCatastale]);
+        $candidates = $stmt->fetchAll() ?: [];
+    }
+    if ($candidates === [] && $comuneLike !== '%') {
+        $stmt = $pdo->prepare('SELECT * FROM properties WHERE user_id = :user_id AND provincia = :provincia AND UPPER(COALESCE(comune, \'\')) LIKE :comune_like');
+        $stmt->execute($baseParams + ['comune_like' => $comuneLike]);
+        $candidates = $stmt->fetchAll() ?: [];
+    }
     if ($candidates === []) {
         return null;
     }
