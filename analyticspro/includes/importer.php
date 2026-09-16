@@ -596,7 +596,7 @@ function analyticspro_merge_import_owner_values(array $current, array $incoming)
 }
 
 /**
- * @return array<string,array{property:array<string,mixed>,owners:array<int,array<string,mixed>>,owner_hashes:array<int,string>,row_indexes:array<int,int>,notes:array<int,string>,warnings:array<int,string>,source_files:array<int,string>,has_missing_cf:bool}>
+ * @return array<string,array{property:array<string,mixed>,owners:array<int,array<string,mixed>>,owner_hashes:array<int,string>,owner_keys:array<int,string>,row_indexes:array<int,int>,notes:array<int,string>,warnings:array<int,string>,source_files:array<int,string>,has_missing_cf:bool}>
  */
 function analyticspro_group_import_rows_by_unit(array $rows, int $tenantId): array
 {
@@ -611,6 +611,7 @@ function analyticspro_group_import_rows_by_unit(array $rows, int $tenantId): arr
                 'property' => $property,
                 'owners' => [],
                 'owner_hashes' => [],
+                'owner_keys' => [],
                 'row_indexes' => [],
                 'notes' => [],
                 'warnings' => [],
@@ -635,20 +636,34 @@ function analyticspro_group_import_rows_by_unit(array $rows, int $tenantId): arr
             $groups[$unitKey]['notes'][] = $note;
         }
         $cfHash = analyticspro_owner_cf_hash_from_row($owner);
+        $ownerKey = $cfHash !== ''
+            ? ('CF:' . $cfHash)
+            : ('NO_CF:' . analyticspro_hash(implode('|', [
+                (string) ($owner['nome'] ?? ''),
+                (string) ($owner['cognome'] ?? ''),
+                (string) ($owner['telefono'] ?? ''),
+                (string) ($owner['email'] ?? ''),
+                (string) $index,
+            ])));
+        $ownerIndex = array_search($ownerKey, $groups[$unitKey]['owner_keys'], true);
+        if ($ownerIndex === false) {
+            $groups[$unitKey]['owner_keys'][] = $ownerKey;
+            $groups[$unitKey]['owners'][] = $owner;
+            if ($cfHash !== '') {
+                $groups[$unitKey]['owner_hashes'][] = $cfHash;
+            }
+        } else {
+            $groups[$unitKey]['owners'][(int) $ownerIndex] = analyticspro_merge_import_owner_values(
+                $groups[$unitKey]['owners'][(int) $ownerIndex],
+                $owner
+            );
+        }
         if ($cfHash === '') {
             $groups[$unitKey]['has_missing_cf'] = true;
-            continue;
-        }
-        $ownerIndex = array_search($cfHash, $groups[$unitKey]['owner_hashes'], true);
-        if ($ownerIndex === false) {
+        } else {
             $groups[$unitKey]['owner_hashes'][] = $cfHash;
-            $groups[$unitKey]['owners'][] = $owner;
-            continue;
+            $groups[$unitKey]['owner_hashes'] = array_values(array_unique($groups[$unitKey]['owner_hashes']));
         }
-        $groups[$unitKey]['owners'][(int) $ownerIndex] = analyticspro_merge_import_owner_values(
-            $groups[$unitKey]['owners'][(int) $ownerIndex],
-            $owner
-        );
     }
 
     return $groups;
@@ -1944,9 +1959,11 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
             $existingProperty = $findProperty->fetch();
             $incomingOwners = $group['owners'] ?? [];
             $incomingByCfHash = [];
+            $incomingNoCfOwners = [];
             foreach ($incomingOwners as $incomingOwner) {
                 $cfHash = analyticspro_owner_cf_hash_from_row($incomingOwner);
                 if ($cfHash === '') {
+                    $incomingNoCfOwners[] = $incomingOwner;
                     continue;
                 }
                 $incomingByCfHash[$cfHash] = $incomingOwner;
@@ -2076,6 +2093,25 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
                                 'genere' => $incomingOwner['genere'],
                             ]);
                         }
+                        foreach ($incomingNoCfOwners as $incomingOwner) {
+                            $insertOwner->execute([
+                                'property_id' => $propertyId,
+                                'tipo' => $incomingOwner['tipo'],
+                                'nome_enc' => analyticspro_encrypt($incomingOwner['nome']),
+                                'cognome_enc' => analyticspro_encrypt($incomingOwner['cognome']),
+                                'codice_fiscale_enc' => analyticspro_encrypt($incomingOwner['codice_fiscale']),
+                                'telefono_enc' => analyticspro_encrypt($incomingOwner['telefono']),
+                                'indirizzo_enc' => analyticspro_encrypt($incomingOwner['indirizzo']),
+                                'email_enc' => analyticspro_encrypt($incomingOwner['email']),
+                                'nome_hash' => analyticspro_hash($incomingOwner['nome']),
+                                'cognome_hash' => analyticspro_hash($incomingOwner['cognome']),
+                                'codice_fiscale_hash' => analyticspro_hash($incomingOwner['codice_fiscale']),
+                                'telefono_hash' => analyticspro_hash($incomingOwner['telefono']),
+                                'data_nascita' => $incomingOwner['data_nascita'],
+                                'luogo_nascita_enc' => analyticspro_encrypt($incomingOwner['luogo_nascita'] ?? ''),
+                                'genere' => $incomingOwner['genere'],
+                            ]);
+                        }
 
                         $resetPropertyState->execute([
                             'id' => $propertyId,
@@ -2100,8 +2136,8 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
                                 . implode(', ', array_map(static fn (array $owner): string => analyticspro_import_owner_note_chunk($owner), $incomingOwnerListForNote)),
                         ]);
                     }
-                } elseif ($currentOwners === [] && $incomingByCfHash !== []) {
-                    foreach ($incomingByCfHash as $incomingOwner) {
+                } elseif ($currentOwners === [] && ($incomingByCfHash !== [] || $incomingNoCfOwners !== [])) {
+                    foreach (array_merge(array_values($incomingByCfHash), $incomingNoCfOwners) as $incomingOwner) {
                         $insertOwner->execute([
                             'property_id' => $propertyId,
                             'tipo' => $incomingOwner['tipo'],
@@ -2151,7 +2187,7 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
                 }
                 $insertProperty->execute($insertParams);
                 $propertyId = (int) $pdo->lastInsertId();
-                foreach ($incomingByCfHash as $incomingOwner) {
+                foreach (array_merge(array_values($incomingByCfHash), $incomingNoCfOwners) as $incomingOwner) {
                     $insertOwner->execute([
                         'property_id' => $propertyId,
                         'tipo' => $incomingOwner['tipo'],
