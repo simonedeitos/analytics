@@ -426,8 +426,6 @@ window.addEventListener('load', function () {
         options = options || {};
         setAlert('duplicate-feedback', '', '');
         setAlert('maintenance-global-feedback', '', '');
-        state.lastScan = null;
-        updateApplyButtonState();
         return api(state.scanEndpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -447,7 +445,6 @@ window.addEventListener('load', function () {
                 : 'Dry-run completato: nessun cluster duplicato trovato.');
             updateApplyButtonState();
         }).catch(function (error) {
-            renderClusters({ clusters: [], summary: {} });
             if (options.afterApply) {
                 appendProgressLine('Avviso aggiornamento post-merge: ' + error.message);
                 setAlert('maintenance-global-feedback', 'warning', 'Merge completato, ma il refresh automatico dello stato non è riuscito: ' + error.message);

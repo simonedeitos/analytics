@@ -503,13 +503,17 @@ function analyticspro_maintenance_run_migration(string $filename): array
         if ($transactionSafe && $pdo->inTransaction()) {
             $pdo->commit();
         }
+    } catch (AnalyticsproMaintenanceException $exception) {
+        if ($transactionSafe && $pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        throw $exception;
     } catch (Throwable $exception) {
         if ($transactionSafe && $pdo->inTransaction()) {
             $pdo->rollBack();
         }
-        $message = $exception->getMessage();
-        if ((int) ($migration['number'] ?? 0) === 16 && str_contains($message, 'Migration 016 blocked:')) {
-            throw new AnalyticsproMaintenanceException($message, 'migration_016_duplicates_blocked', $exception);
+        if ((int) ($migration['number'] ?? 0) === 16 && (string) $exception->getCode() === '45000') {
+            throw new AnalyticsproMaintenanceException($exception->getMessage(), 'migration_016_duplicates_blocked', $exception);
         }
         throw $exception;
     }
