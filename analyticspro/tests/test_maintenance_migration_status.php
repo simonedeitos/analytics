@@ -52,6 +52,13 @@ if (analyticspro_maintenance_evaluate_migration_016_status($columnsNullable, $in
     $pass = false;
     $errors[] = 'La migration 016 deve risultare non applicata se uno dei campi catastali è ancora nullable.';
 }
+
+$indexNonUnique = $indexApplied;
+$indexNonUnique[7]['NON_UNIQUE'] = 1;
+if (analyticspro_maintenance_evaluate_migration_016_status($columnsApplied, $indexNonUnique) !== 'not_applied') {
+    $pass = false;
+    $errors[] = 'La migration 016 deve risultare non applicata se l’indice uniq_estremi_catastali non è univoco.';
+}
 $indexWrong = $indexApplied;
 $indexWrong[3]['COLUMN_NAME'] = 'sezione';
 if (analyticspro_maintenance_evaluate_migration_016_status($columnsApplied, $indexWrong) !== 'not_applied') {

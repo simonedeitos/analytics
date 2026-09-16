@@ -422,7 +422,8 @@ window.addEventListener('load', function () {
         });
     }
 
-    function analyzeDuplicates() {
+    function analyzeDuplicates(options) {
+        options = options || {};
         setAlert('duplicate-feedback', '', '');
         setAlert('maintenance-global-feedback', '', '');
         state.lastScan = null;
@@ -447,6 +448,11 @@ window.addEventListener('load', function () {
             updateApplyButtonState();
         }).catch(function (error) {
             renderClusters({ clusters: [], summary: {} });
+            if (options.afterApply) {
+                appendProgressLine('Avviso aggiornamento post-merge: ' + error.message);
+                setAlert('maintenance-global-feedback', 'warning', 'Merge completato, ma il refresh automatico dello stato non è riuscito: ' + error.message);
+                return;
+            }
             setAlert('duplicate-feedback', 'danger', error.message);
         });
     }
@@ -538,10 +544,10 @@ window.addEventListener('load', function () {
         if (scanBtn) scanBtn.disabled = true;
         runApplyBatch(0).then(function () {
             appendProgressLine('Merge completato senza errori.');
-            setAlert('duplicate-feedback', 'success', 'Merge completato correttamente. Ricarico lo stato delle migrazioni e dei duplicati.');
+            setAlert('duplicate-feedback', 'success', 'Merge completato correttamente.');
             return loadMigrationStatuses();
         }).then(function () {
-            return analyzeDuplicates();
+            return analyzeDuplicates({ afterApply: true });
         }).catch(function (error) {
             setAlert('duplicate-feedback', 'danger', error.message);
         }).finally(function () {

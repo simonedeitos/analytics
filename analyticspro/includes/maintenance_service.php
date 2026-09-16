@@ -421,6 +421,37 @@ function analyticspro_maintenance_resolve_log_download(string $filename): string
     return $path;
 }
 
+
+function analyticspro_maintenance_assert_migration_prerequisites(array $migration): void
+{
+    $number = (int) ($migration['number'] ?? 0);
+    if ($number === 15) {
+        $migration014 = analyticspro_maintenance_get_migration_status([
+            'number' => 14,
+            'filename' => '014_add_property_owners_valid_to.sql',
+            'path' => '',
+            'description' => '',
+        ]);
+        if (($migration014['status'] ?? 'unknown') !== 'applied') {
+            throw new AnalyticsproMaintenanceException('Prima di eseguire la migrazione 015 devi applicare la migrazione 014.', 'migration_prerequisite_missing');
+        }
+    }
+
+    if ($number === 16) {
+        foreach ([14, 15] as $requiredNumber) {
+            $requiredMigration = analyticspro_maintenance_get_migration_status([
+                'number' => $requiredNumber,
+                'filename' => '',
+                'path' => '',
+                'description' => '',
+            ]);
+            if (($requiredMigration['status'] ?? 'unknown') !== 'applied') {
+                throw new AnalyticsproMaintenanceException('Prima di eseguire la migrazione 016 devi completare le migrazioni 014 e 015 e poi il merge duplicati.', 'migration_prerequisite_missing');
+            }
+        }
+    }
+}
+
 function analyticspro_maintenance_run_migration(string $filename): array
 {
     $migration = analyticspro_maintenance_find_migration($filename);
@@ -434,6 +465,8 @@ function analyticspro_maintenance_run_migration(string $filename): array
             'message' => 'La migrazione risulta già applicata.',
         ];
     }
+
+    analyticspro_maintenance_assert_migration_prerequisites($migration);
 
     $sql = file_get_contents((string) $migration['path']);
     if (!is_string($sql) || trim($sql) === '') {
