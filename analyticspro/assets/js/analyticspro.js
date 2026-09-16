@@ -362,6 +362,12 @@
         return numberPart + String(match[2] || '');
     }
 
+    function normalizeRendita(value) {
+        var text = String(value === null || value === undefined ? '' : value).trim().toUpperCase();
+        if (!text) return '';
+        return text.replace(/\s+/g, '').replace(/,/g, '.');
+    }
+
     function resolveTenantGroupingId(property) {
         if (!property || typeof property !== 'object') return '';
         var keys = ['tenant_id', 'tenantId', 'user_id', 'parent_user_id'];
@@ -383,7 +389,8 @@
             sezione: normalizeText(record && record.sezione || ''),
             foglio: normalizeCadastralNumber(record && record.foglio || ''),
             particella: normalizeCadastralNumber(record && record.particella || ''),
-            subalterno: normalizeCadastralNumber(record && record.subalterno || '')
+            subalterno: normalizeCadastralNumber(record && record.subalterno || ''),
+            rendita: normalizeRendita(record && record.rendita || '')
         };
     }
 
@@ -419,16 +426,11 @@
         return !!(comune && cluster && cluster.comuni && cluster.comuni[comune]);
     }
 
-    function clusterMatchesMissingSubalterno(cluster, identity) {
-        var clusterCode = String(cluster && cluster.cod_catastale || '');
-        var identityCode = String(identity && identity.cod_catastale || '');
-        if (clusterCode && identityCode) {
-            return clusterCode === identityCode;
-        }
-        return !!(identity && identity.comune && cluster && cluster.comuni && cluster.comuni[identity.comune]);
+    function cadastralDiscriminatorKey(identity) {
+        return identity && identity.subalterno ? ('SUB:' + identity.subalterno) : ('REN:' + String(identity && identity.rendita || ''));
     }
 
-    function buildNonEmptySubalternoClusters(entries) {
+    function buildCadastralDiscriminatorClusters(entries) {
         var coded = {};
         var codedOrder = [];
         var missingCode = {};
@@ -491,42 +493,22 @@
         var groups = [];
         bucketOrder.forEach(function (bucketKey) {
             var entries = buckets[bucketKey] || [];
-            var bySubalterno = {};
-            var subalternoOrder = [];
-            var emptySubalterno = [];
+            var byDiscriminator = {};
+            var discriminatorOrder = [];
             entries.forEach(function (entry) {
-                var subalterno = entry.identity.subalterno;
-                if (!subalterno) {
-                    emptySubalterno.push(entry);
-                    return;
+                var discriminator = cadastralDiscriminatorKey(entry.identity);
+                if (!byDiscriminator[discriminator]) {
+                    byDiscriminator[discriminator] = [];
+                    discriminatorOrder.push(discriminator);
                 }
-                if (!bySubalterno[subalterno]) {
-                    bySubalterno[subalterno] = [];
-                    subalternoOrder.push(subalterno);
-                }
-                bySubalterno[subalterno].push(entry);
+                byDiscriminator[discriminator].push(entry);
             });
 
             var clusters = [];
-            subalternoOrder.forEach(function (subalterno) {
-                buildNonEmptySubalternoClusters(bySubalterno[subalterno]).forEach(function (cluster) {
+            discriminatorOrder.forEach(function (discriminator) {
+                buildCadastralDiscriminatorClusters(byDiscriminator[discriminator]).forEach(function (cluster) {
                     clusters.push(cluster);
                 });
-            });
-
-            var nonEmptyClusterCount = clusters.length;
-            emptySubalterno.forEach(function (entry) {
-                var candidates = [];
-                for (var clusterIndex = 0; clusterIndex < nonEmptyClusterCount; clusterIndex++) {
-                    if (clusterMatchesMissingSubalterno(clusters[clusterIndex], entry.identity)) {
-                        candidates.push(clusterIndex);
-                    }
-                }
-                if (candidates.length === 1) {
-                    appendEntriesToCadastralCluster(clusters[candidates[0]], [entry]);
-                    return;
-                }
-                clusters.push(makeCadastralCluster([entry]));
             });
 
             clusters.forEach(function (cluster) {
@@ -1342,6 +1324,7 @@
             // Elenco degli id di tutte le properties nel gruppo (per uso futuro)
             prim._groupIds = groupedProperties.map(function (gp) { return gp.id; });
             prim._editableGroupIds = groupedProperties.filter(function (gp) { return !!gp.can_edit; }).map(function (gp) { return gp.id; });
+            prim._groupProperties = groupedProperties.map(function (gp) { return JSON.parse(JSON.stringify(gp)); });
             prim.can_edit = prim._editableGroupIds.length > 0;
             prim.is_assigned = groupedProperties.some(function (gp) { return !!gp.is_assigned; }) || prim.assignments.length > 0;
 
@@ -1400,6 +1383,88 @@
                     + '</div>';
             }).join('')
             + '<button id="btn-select-all-categorie" class="btn btn-xs btn-outline-secondary" style="font-size:0.7rem;padding:0.1rem 0.4rem;margin-left:1rem;">Seleziona tutte</button>';
+    }
+
+    function isApproximateCoordSource(coordSource) {
+        return ['address', 'street', 'municipality_center', 'nominatim'].indexOf(String(coordSource || '').trim().toLowerCase()) !== -1;
+    }
+
+    function groupHasApproximateCoordinates(property) {
+        var groupProperties = property && Array.isArray(property._groupProperties) ? property._groupProperties : [property];
+        return groupProperties.some(function (item) { return isApproximateCoordSource(item && item.coord_source); });
+    }
+
+    function draggableApproximateProperties(property) {
+        var groupProperties = property && Array.isArray(property._groupProperties) ? property._groupProperties : [property];
+        return groupProperties.filter(function (item) {
+            return !!(item && item.can_edit && isApproximateCoordSource(item.coord_source));
+        });
+    }
+
+    function buildApproximateMarkerIcon(fillColor) {
+        var safeFill = /^#[0-9a-fA-F]{3,8}$/.test(fillColor || '') ? fillColor : '#2A519F';
+        return L.divIcon({
+            className: 'analyticspro-approx-marker',
+            iconSize: [22, 22],
+            iconAnchor: [11, 11],
+            popupAnchor: [0, -11],
+            html: '<span style="display:block;width:18px;height:18px;border-radius:50%;background:' + safeFill + ';border:3px solid #dc3545;box-shadow:0 0 0 2px rgba(255,255,255,.9);"></span>'
+        });
+    }
+
+    function promptMarkerMoveTarget(property) {
+        var candidates = draggableApproximateProperties(property);
+        if (!candidates.length) {
+            throw new Error('Non hai proprietà approssimative modificabili in questo gruppo.');
+        }
+        if (candidates.length === 1) {
+            return candidates[0];
+        }
+
+        var promptLines = candidates.map(function (item) {
+            return '#' + item.id + ' — ' + unitLabel(item) + ' — ' + (((item.indirizzo || '') + ' ' + (item.civico || '')).trim() || item.comune || 'Immobile');
+        });
+        var selectedId = window.prompt('Questo marker rappresenta più proprietà. Inserisci l\'ID della proprietà da aggiornare:\n' + promptLines.join('\n'), String(candidates[0].id || ''));
+        if (selectedId === null) {
+            return null;
+        }
+        selectedId = Number(selectedId);
+        for (var i = 0; i < candidates.length; i++) {
+            if (Number(candidates[i].id || 0) === selectedId) {
+                return candidates[i];
+            }
+        }
+        throw new Error('ID proprietà non valido.');
+    }
+
+    async function handleApproximateMarkerDrag(marker, property, oldLatLng) {
+        var targetProperty;
+        try {
+            targetProperty = promptMarkerMoveTarget(property);
+        } catch (error) {
+            marker.setLatLng(oldLatLng);
+            showMapFeedback(error && error.message ? error.message : 'Selezione proprietà non valida.', 'warning', 2600);
+            return;
+        }
+        if (!targetProperty) {
+            marker.setLatLng(oldLatLng);
+            return;
+        }
+
+        var confirmed = window.confirm('È questa la posizione corretta per la proprietà #' + targetProperty.id + '?');
+        if (!confirmed) {
+            marker.setLatLng(oldLatLng);
+            return;
+        }
+
+        var newLatLng = marker.getLatLng();
+        await savePropertyPayload({
+            action: 'update_coordinates',
+            property_id: Number(targetProperty.id || 0),
+            lat: Number(newLatLng.lat),
+            lng: Number(newLatLng.lng)
+        }, { preserveMapView: true });
+        showMapFeedback('Coordinate aggiornate per la proprietà #' + targetProperty.id + '.', 'success', 2400);
     }
 
     function renderMap() {
@@ -1534,16 +1599,43 @@
             if (categorieFilter !== null && categorieFilter.indexOf(String(property.categoria || '').trim()) === -1) continue;
 
             var color  = property.colore_marker || '#2A519F';
-            var marker = L.circleMarker([lat, lng], {
-                radius: 9,
-                color: color,
-                fillColor: color,
-                fillOpacity: 0.92,
-                weight: 2,
-            });
+            var approximate = groupHasApproximateCoordinates(property);
+            var canDragApproximate = draggableApproximateProperties(property).length > 0;
+            var marker = approximate
+                ? L.marker([lat, lng], {
+                    draggable: canDragApproximate,
+                    icon: buildApproximateMarkerIcon(color),
+                    color: '#dc3545',
+                    fillColor: color,
+                })
+                : L.circleMarker([lat, lng], {
+                    radius: 9,
+                    color: color,
+                    fillColor: color,
+                    fillOpacity: 0.92,
+                    weight: 2,
+                });
             marker._analyticsPropertyId = Number(property.id);
             marker._analyticsPropertyData = property;
             marker.bindPopup(buildPopupHtml(property), { maxWidth: 460 });
+            if (approximate) {
+                marker.bindTooltip('Bordo rosso: posizione approssimativa' + (canDragApproximate ? ' — trascina per correggere' : ''), { direction: 'top' });
+                if (canDragApproximate) {
+                    (function (layer, groupProperty, originalLat, originalLng) {
+                        layer.on('dragstart', function () {
+                            if (typeof this.closePopup === 'function') this.closePopup();
+                            this._analyticsOldLatLng = this.getLatLng();
+                        });
+                        layer.on('dragend', function () {
+                            var activeLayer = this;
+                            Promise.resolve(handleApproximateMarkerDrag(activeLayer, groupProperty, activeLayer._analyticsOldLatLng || L.latLng(originalLat, originalLng))).catch(function (error) {
+                                activeLayer.setLatLng(activeLayer._analyticsOldLatLng || L.latLng(originalLat, originalLng));
+                                showMapFeedback(error && error.message ? error.message : 'Salvataggio coordinate non riuscito.', 'danger', 3200);
+                            });
+                        });
+                    })(marker, property, lat, lng);
+                }
+            }
             state.markers.addLayer(marker);
             points.push(property);
         }
