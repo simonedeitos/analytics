@@ -66,6 +66,23 @@ if (isset($commentStatements[1]) && !str_contains($commentStatements[1], "'keep 
     $errors[] = 'Il parser non deve rimuovere il testo `/* */` quando si trova dentro una stringa.';
 }
 
+
+$multilineDelimiterSql = <<<'SQL'
+INSERT INTO demo VALUES ('prima riga
+DELIMITER $$ dentro stringa
+ultima riga');
+SELECT 1;
+SQL;
+$multilineDelimiterStatements = analyticspro_maintenance_parse_sql_statements($multilineDelimiterSql);
+if (count($multilineDelimiterStatements) !== 2) {
+    $pass = false;
+    $errors[] = 'Il parser deve ignorare le pseudo-direttive DELIMITER quando compaiono all’inizio di una riga interna a una stringa multilinea.';
+}
+if (isset($multilineDelimiterStatements[0]) && !str_contains($multilineDelimiterStatements[0], 'DELIMITER $$ dentro stringa')) {
+    $pass = false;
+    $errors[] = 'Il parser deve preservare il testo DELIMITER dentro stringhe multilinea.';
+}
+
 if (count($statements) < 4) {
     $pass = false;
     $errors[] = 'La migration 016 deve produrre almeno gli statement essenziali per drop/create/call/drop della procedura.';

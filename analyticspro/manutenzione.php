@@ -378,9 +378,12 @@ window.addEventListener('load', function () {
     }
 
     function renderScanSummary(scan) {
-        document.getElementById('duplicate-summary-clusters').textContent = String(scan && scan.summary ? scan.summary.clusters || 0 : 0);
-        document.getElementById('duplicate-summary-properties').textContent = String(scan && scan.summary ? scan.summary.properties || 0 : 0);
-        document.getElementById('duplicate-summary-owners').textContent = String(scan && scan.summary ? scan.summary.owners || 0 : 0);
+        var clustersEl = document.getElementById('duplicate-summary-clusters');
+        var propertiesEl = document.getElementById('duplicate-summary-properties');
+        var ownersEl = document.getElementById('duplicate-summary-owners');
+        if (clustersEl) clustersEl.textContent = String(scan && scan.summary ? scan.summary.clusters || 0 : 0);
+        if (propertiesEl) propertiesEl.textContent = String(scan && scan.summary ? scan.summary.properties || 0 : 0);
+        if (ownersEl) ownersEl.textContent = String(scan && scan.summary ? scan.summary.owners || 0 : 0);
     }
 
     function renderClusters(scan) {

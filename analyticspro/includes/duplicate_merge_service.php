@@ -277,6 +277,11 @@ function analyticspro_duplicate_merge_apply_cluster(array $cluster): array
         throw new RuntimeException('Cluster non valido: servono almeno due immobili.');
     }
 
+    $tenantIds = array_values(array_unique(array_map(static fn (array $property): int => (int) ($property['user_id'] ?? 0), $cluster)));
+    if (count($tenantIds) !== 1 || ($tenantIds[0] ?? 0) <= 0) {
+        throw new RuntimeException('Cluster non valido: tutti gli immobili da unire devono appartenere allo stesso tenant.');
+    }
+
     $preview = analyticspro_preview_duplicate_property_merge($cluster);
     $keeper = $preview['keeper'];
     $keeperId = (int) ($keeper['id'] ?? 0);

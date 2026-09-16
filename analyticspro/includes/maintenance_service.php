@@ -219,13 +219,14 @@ function analyticspro_maintenance_find_migration(string $filename): array
     throw new RuntimeException('Migrazione non trovata.');
 }
 
-function analyticspro_maintenance_filter_sql_line(string $line, bool &$inBlockComment): string
+function analyticspro_maintenance_filter_sql_line(string $line, array &$state): string
 {
     $result = '';
     $length = strlen($line);
-    $inSingleQuote = false;
-    $inDoubleQuote = false;
-    $inBacktick = false;
+    $inBlockComment = (bool) ($state['in_block_comment'] ?? false);
+    $inSingleQuote = (bool) ($state['in_single_quote'] ?? false);
+    $inDoubleQuote = (bool) ($state['in_double_quote'] ?? false);
+    $inBacktick = (bool) ($state['in_backtick'] ?? false);
 
     for ($index = 0; $index < $length; $index++) {
         $char = $line[$index];
@@ -315,6 +316,11 @@ function analyticspro_maintenance_filter_sql_line(string $line, bool &$inBlockCo
         $result .= $char;
     }
 
+    $state['in_block_comment'] = $inBlockComment;
+    $state['in_single_quote'] = $inSingleQuote;
+    $state['in_double_quote'] = $inDoubleQuote;
+    $state['in_backtick'] = $inBacktick;
+
     return $result;
 }
 
@@ -396,14 +402,20 @@ function analyticspro_maintenance_parse_sql_statements(string $sql): array
     $buffer = '';
     $statements = [];
     $lines = preg_split('/\R/', $sql) ?: [];
-    $inBlockComment = false;
+    $state = [
+        'in_block_comment' => false,
+        'in_single_quote' => false,
+        'in_double_quote' => false,
+        'in_backtick' => false,
+    ];
 
     foreach ($lines as $line) {
-        $line = analyticspro_maintenance_filter_sql_line($line, $inBlockComment);
+        $lineStateBefore = $state;
+        $line = analyticspro_maintenance_filter_sql_line($line, $state);
         if (trim($line) === '') {
             continue;
         }
-        if (preg_match('/^\s*DELIMITER\s+(\S+)\s*$/i', $line, $matches) === 1) {
+        if (empty($lineStateBefore['in_block_comment']) && empty($lineStateBefore['in_single_quote']) && empty($lineStateBefore['in_double_quote']) && empty($lineStateBefore['in_backtick']) && preg_match('/^\s*DELIMITER\s+(\S+)\s*$/i', $line, $matches) === 1) {
             while (($statement = analyticspro_maintenance_extract_statement_from_buffer($buffer, $delimiter)) !== null) {
                 if ($statement !== '') {
                     $statements[] = $statement;
