@@ -234,7 +234,7 @@ analyticspro_render_header('Aiuto');
                                     <li>Dopo backup confermato, usa <strong>Applica merge</strong> per elaborare i cluster a batch.</li>
                                     <li>Solo a merge concluso esegui la migrazione <strong>016</strong>, che normalizza i campi catastali e rafforza il vincolo univoco.</li>
                                 </ol>
-                                <p>Se la migrazione 016 segnala il messaggio <em>Migration 016 blocked</em>, significa che devi tornare alla sezione di merge duplicati e completarla prima di riprovare.</p>
+                                <p>Se la migrazione 016 segnala che sono ancora presenti duplicati da risolvere, significa che devi tornare alla sezione di merge duplicati e completarla prima di riprovare.</p>
                             </div>
                         </div>
                     </div>

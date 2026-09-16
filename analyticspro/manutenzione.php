@@ -104,6 +104,7 @@ analyticspro_render_header('Manutenzione database', ['app_assets' => true]);
                 <div>
                     <h2 class="h5 mb-1">Sezione A — Stato delle migrazioni</h2>
                     <p class="text-muted small mb-0">Le migrazioni vengono lette dinamicamente da <code>analyticspro/sql/migrations/</code>. Lo stato è determinato via <code>INFORMATION_SCHEMA</code> quando possibile.</p>
+                    <p class="text-muted small mb-0">Nota: la migrazione <strong>016</strong> è sempre globale sull'intero database e verifica l'assenza di duplicati su tutti i tenant, anche se come admin stai analizzando un tenant specifico nella sezione B.</p>
                 </div>
                 <button type="button" class="btn btn-outline-secondary btn-sm" id="refresh-migrations-btn">
                     <i class="bi bi-arrow-clockwise me-1"></i>Aggiorna stato
@@ -241,6 +242,8 @@ analyticspro_render_header('Manutenzione database', ['app_assets' => true]);
 window.addEventListener('load', function () {
     var root = document.getElementById('analyticspro-maintenance-app');
     if (!root) return;
+    var confirmModalEl = document.getElementById('duplicate-apply-confirm-modal');
+    var modalApi = window.bootstrap && bootstrap.Modal ? bootstrap.Modal : null;
 
     var state = {
         csrfToken: document.querySelector('meta[name="csrf-token"]') ? document.querySelector('meta[name="csrf-token"]').content : '',
@@ -256,7 +259,7 @@ window.addEventListener('load', function () {
         migrations: <?= json_encode($migrations, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>,
         lastScan: null,
         dataTable: null,
-        applyModal: bootstrap.Modal.getOrCreateInstance(document.getElementById('duplicate-apply-confirm-modal')),
+        applyModal: modalApi && confirmModalEl ? modalApi.getOrCreateInstance(confirmModalEl) : null,
         logFile: '',
         applyRunning: false
     };
@@ -550,7 +553,9 @@ window.addEventListener('load', function () {
             setAlert('duplicate-feedback', 'danger', error.message);
         }).finally(function () {
             state.applyRunning = false;
-            state.applyModal.hide();
+            if (state.applyModal) {
+                state.applyModal.hide();
+            }
             document.getElementById('duplicate-confirm-backup').checked = false;
             document.getElementById('duplicate-confirm-apply-btn').disabled = true;
             if (scanBtn) scanBtn.disabled = !state.ownershipReady;
@@ -574,6 +579,10 @@ window.addEventListener('load', function () {
     });
     document.getElementById('duplicate-apply-btn').addEventListener('click', function () {
         if (this.disabled) return;
+        if (!state.applyModal) {
+            setAlert('duplicate-feedback', 'danger', 'Impossibile aprire la conferma del merge: componenti Bootstrap non disponibili.');
+            return;
+        }
         state.applyModal.show();
     });
     document.getElementById('duplicate-confirm-backup').addEventListener('change', function () {
