@@ -10,20 +10,43 @@ declare(strict_types=1);
 
 function group_properties_by_unit(array $properties): array
 {
+    $normalizeText = static function ($value): string {
+        $value = strtoupper(trim((string) $value));
+        $value = strtr($value, ['À' => 'A', 'È' => 'E', 'É' => 'E', 'Ì' => 'I', 'Ò' => 'O', 'Ù' => 'U']);
+        $value = preg_replace('/[^A-Z0-9\/]+/', ' ', $value) ?? $value;
+        return trim(preg_replace('/\s+/', ' ', $value) ?? $value);
+    };
+    $normalizeCad = static function ($value): string {
+        $value = strtoupper(trim((string) $value));
+        $value = preg_replace('/\s+/', '', $value) ?? $value;
+        if ($value === '') {
+            return '';
+        }
+        if (preg_match('/^([0-9]+)(.*)$/', $value, $matches) !== 1) {
+            return $value;
+        }
+        $number = ltrim((string) ($matches[1] ?? ''), '0');
+        if ($number === '') {
+            $number = '0';
+        }
+        return $number . (string) ($matches[2] ?? '');
+    };
     $groups = [];
-    foreach ($properties as $property) {
-        $comuneKey = strtoupper(trim((string) ($property['cod_catastale'] ?? ''))) !== ''
-            ? 'COD:' . strtoupper(trim((string) ($property['cod_catastale'] ?? '')))
-            : 'COM:' . strtoupper(trim((string) ($property['comune'] ?? '')));
+    foreach ($properties as $index => $property) {
+        $codCat = $normalizeText($property['cod_catastale'] ?? '');
+        $comuneKey = $codCat !== ''
+            ? 'COD:' . $codCat
+            : 'COM:' . $normalizeText($property['comune'] ?? '');
+        $subNorm = $normalizeCad($property['subalterno'] ?? '');
+        $subKey = $subNorm !== '' ? $subNorm : ('SUB:__NONE__#' . (string) ($property['id'] ?? $index));
         $key = implode('|', [
-            strtoupper(trim((string) ($property['provincia'] ?? ''))),
+            $normalizeText($property['provincia'] ?? ''),
             $comuneKey,
-            strtoupper(trim((string) ($property['comune'] ?? ''))),
-            strtoupper(trim((string) ($property['sezione'] ?? ''))),
-            strtoupper(trim((string) ($property['foglio'] ?? ''))),
-            strtoupper(trim((string) ($property['particella'] ?? ''))),
-            strtoupper(trim((string) ($property['subalterno'] ?? ''))),
-            (string) ($property['user_id'] ?? ''),
+            $normalizeText($property['sezione'] ?? ''),
+            $normalizeCad($property['foglio'] ?? ''),
+            $normalizeCad($property['particella'] ?? ''),
+            $subKey,
+            (string) ($property['tenant_id'] ?? $property['user_id'] ?? ''),
         ]);
         $groups[$key][] = $property;
     }
@@ -62,6 +85,19 @@ function group_properties_by_unit(array $properties): array
             array_filter($propertiesInGroup, static fn (array $property): bool => !empty($property['can_edit']))
         ));
         $primary['can_edit'] = $primary['_editableGroupIds'] !== [];
+        $latSum = 0.0;
+        $lngSum = 0.0;
+        $coordCount = 0;
+        foreach ($propertiesInGroup as $property) {
+            if (!isset($property['lat'], $property['lng']) || !is_numeric($property['lat']) || !is_numeric($property['lng'])) {
+                continue;
+            }
+            $latSum += (float) $property['lat'];
+            $lngSum += (float) $property['lng'];
+            $coordCount++;
+        }
+        $primary['lat'] = $coordCount > 0 ? $latSum / $coordCount : null;
+        $primary['lng'] = $coordCount > 0 ? $lngSum / $coordCount : null;
         $result[] = $primary;
     }
 
@@ -83,14 +119,16 @@ function owner_group_key(array $owner, int $fallbackIndex): string
 $properties = [
     [
         'id' => 101,
-        'user_id' => 5,
+        'tenant_id' => 5,
         'provincia' => 'MI',
         'comune' => 'Milano',
         'cod_catastale' => 'F205',
         'sezione' => '',
-        'foglio' => '10',
-        'particella' => '200',
-        'subalterno' => 'A',
+        'foglio' => '0010',
+        'particella' => '0200',
+        'subalterno' => '0001',
+        'lat' => 45.1000,
+        'lng' => 9.1000,
         'can_edit' => false,
         'owners' => [
             ['id' => 11, 'nome' => 'Alice', 'cognome' => 'Rossi', 'codice_fiscale' => 'RSSLCA80A01F205X', 'telefono' => '111111'],
@@ -98,19 +136,51 @@ $properties = [
     ],
     [
         'id' => 202,
-        'user_id' => 5,
+        'tenant_id' => 5,
         'provincia' => 'MI',
         'comune' => 'MILANO',
         'cod_catastale' => 'F205',
-        'sezione' => '',
+        'sezione' => null,
         'foglio' => '10',
         'particella' => '200',
-        'subalterno' => 'A',
+        'subalterno' => '1',
+        'lat' => 45.3000,
+        'lng' => 9.3000,
         'can_edit' => true,
         'owners' => [
             ['id' => 22, 'nome' => 'Alice', 'cognome' => 'Rossi', 'codice_fiscale' => 'RSSLCA80A01F205X', 'telefono' => '222222'],
             ['id' => 23, 'nome' => 'Bruno', 'cognome' => 'Verdi', 'codice_fiscale' => 'VRDBRN80A01F205X', 'telefono' => '333333'],
             ['id' => 0, 'nome' => 'Carla', 'cognome' => 'Senza ID', 'codice_fiscale' => '', 'telefono' => '444444'],
+        ],
+    ],
+    [
+        'id' => 303,
+        'tenant_id' => 5,
+        'provincia' => 'MI',
+        'comune' => 'Milano',
+        'cod_catastale' => 'F205',
+        'sezione' => '',
+        'foglio' => '10',
+        'particella' => '200',
+        'subalterno' => '',
+        'can_edit' => true,
+        'owners' => [
+            ['id' => 31, 'nome' => 'Empty', 'cognome' => 'Sub 1', 'codice_fiscale' => 'EMPTYSUB11111111', 'telefono' => '555555'],
+        ],
+    ],
+    [
+        'id' => 404,
+        'tenant_id' => 5,
+        'provincia' => 'MI',
+        'comune' => 'Milano',
+        'cod_catastale' => 'F205',
+        'sezione' => '',
+        'foglio' => '10',
+        'particella' => '200',
+        'subalterno' => '',
+        'can_edit' => true,
+        'owners' => [
+            ['id' => 41, 'nome' => 'Empty', 'cognome' => 'Sub 2', 'codice_fiscale' => 'EMPTYSUB22222222', 'telefono' => '666666'],
         ],
     ],
 ];
@@ -119,9 +189,9 @@ $groups = group_properties_by_unit($properties);
 $pass = true;
 $errors = [];
 
-if (count($groups) !== 1) {
+if (count($groups) !== 3) {
     $pass = false;
-    $errors[] = 'Atteso 1 gruppo, trovati ' . count($groups);
+    $errors[] = 'Attesi 3 gruppi, trovati ' . count($groups);
 }
 
 $group = $groups[0] ?? null;
@@ -171,6 +241,16 @@ if ($group === null) {
             $errors[] = 'Gli owner senza id/CF devono ricevere una chiave stabile di fallback';
         }
     }
+    if (abs((float) ($group['lat'] ?? 0) - 45.2) > 0.00001 || abs((float) ($group['lng'] ?? 0) - 9.2) > 0.00001) {
+        $pass = false;
+        $errors[] = 'La media coordinate del gruppo attesa è (45.2, 9.2)';
+    }
+}
+
+$singleSubEmptyGroups = array_values(array_filter($groups, static fn (array $g): bool => (($g['subalterno'] ?? '') === '')));
+if (count($singleSubEmptyGroups) !== 2) {
+    $pass = false;
+    $errors[] = 'I record con subalterno vuoto devono restare separati in 2 gruppi distinti';
 }
 
 if ($pass) {

@@ -43,6 +43,8 @@ try {
 
         $filename = trim((string) ($input['filename'] ?? ($mode === 'manual_create' ? 'inserimento_manuale' : 'import.csv')));
         $decisions = is_array($input['decisions'] ?? null) ? $input['decisions'] : [];
+        $keepAssignmentsOnReplace = !array_key_exists('keep_assignments_on_replace', $input)
+            || (bool) $input['keep_assignments_on_replace'];
         $pdo = analyticspro_db();
         $stmt = $pdo->prepare("INSERT INTO import_batches (user_id, uploaded_by, filename, total_rows, processed_rows, status) VALUES (:user_id, :uploaded_by, :filename, :total_rows, 0, 'processing')");
         $stmt->execute([
@@ -59,6 +61,7 @@ try {
             'uploaded_by_name' => analyticspro_full_name($user),
             'rows' => $rows,
             'decisions' => $decisions,
+            'keep_assignments_on_replace' => $keepAssignmentsOnReplace,
         ];
 
         // Write the payload to disk so the cron script can be used for manual/diagnostic

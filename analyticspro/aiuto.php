@@ -122,10 +122,11 @@ analyticspro_render_header('Aiuto');
                                 </ol>
 
                                 <h6 class="mt-3">Duplicati con intestatario diverso</h6>
-                                <p>Se durante l'import viene rilevato un immobile con gli stessi estremi catastali (Comune + Foglio + Particella + Subalterno) ma con un intestatario differente da quello già presente, la piattaforma mostra una <strong>finestra di conferma</strong>. Puoi scegliere di:</p>
+                                <p>Se durante l'import viene rilevato un immobile con gli stessi estremi catastali (Comune + Foglio + Particella + Subalterno) ma con insieme di intestatari diverso, la piattaforma mostra una <strong>tabella di confronto</strong> a fine analisi file. Per ogni riga vedi immobile, vecchi intestatari e nuovi intestatari (match basato su codice fiscale) e puoi selezionare solo i casi da sostituire.</p>
                                 <ul>
-                                    <li><strong>Aggiornare</strong>: il vecchio intestatario viene storicizzato e il nuovo diventa quello corrente.</li>
-                                    <li><strong>Mantenere</strong>: il dato esistente resta invariato e il nuovo viene ignorato.</li>
+                                    <li><strong>Sostituisci</strong>: applica la sostituzione solo alle righe selezionate (con comando rapido <em>Seleziona tutti</em> sui risultati filtrati).</li>
+                                    <li><strong>Annulla/Chiudi</strong>: mantiene i dati esistenti per tutte le righe non selezionate.</li>
+                                    <li><strong>Assegnazioni subutenti</strong>: puoi scegliere globalmente se mantenerle o azzerarle sulle righe sostituite.</li>
                                 </ul>
 
                                 <h6 class="mt-3">Contatti, note e nomi multipli</h6>
@@ -133,7 +134,8 @@ analyticspro_render_header('Aiuto');
                                 <p>Il campo <strong>Genere</strong> viene derivato dal codice fiscale: per persone fisiche resta <strong>M</strong>/<strong>F</strong>, mentre con codice fiscale interamente numerico (P.IVA a 11 cifre) viene impostato <strong>Società</strong>.</p>
 
                                 <h6 class="mt-3">Storico intestatari</h6>
-                                <p>AnalyticsPRO conserva uno storico degli intestatari nel tempo. Ogni aggiornamento non sovrascrive il dato precedente ma lo archivia con la data di sostituzione, così puoi sempre sapere chi era il titolare in un determinato periodo.</p>
+                                <p>AnalyticsPRO conserva uno storico completo degli intestatari nel tempo. Quando scegli <strong>Sostituisci</strong>, tutti gli intestatari correnti dell'immobile vengono chiusi con <code>is_current=0</code> e <code>valid_to</code> valorizzato; i nuovi vengono inseriti come correnti.</p>
+                                <p>Eccezione continuità: se un intestatario ha lo stesso codice fiscale sia prima che dopo, la riga esistente resta corrente (senza duplicati) e vengono aggiornati solo i campi anagrafici/contatto non vuoti in ingresso.</p>
 
                                 <h6 class="mt-3">Inserimento manuale</h6>
                                 <p>Nella pagina <strong>Importa dati</strong> è disponibile anche un modulo per inserire manualmente un singolo record con dati catastali, intestatario, contatti e note. Se compili il modulo e provi a chiuderlo senza salvare, la piattaforma ti chiede conferma prima di scartare i dati.</p>
@@ -180,9 +182,11 @@ analyticspro_render_header('Aiuto');
 
                                 <h6 class="mt-3">Colore del marker</h6>
                                 <p>Ogni stato ha un <strong>colore predefinito</strong> assegnato automaticamente. Puoi sovrascriverlo scegliendo da una palette predefinita di colori principali (rosso, arancio, giallo, verde, azzurro, blu, fucsia, viola): il colore manuale resta memorizzato sul marker finché non lo cambi di nuovo. Il cambio colore è condiviso nel tenant.</p>
+                                <p>Quando avviene un cambio intestatari tramite import con sostituzione, lo stato viene azzerato (<code>stato</code> e <code>stato_personalizzato</code> a <code>NULL</code>) e il marker torna al blu aziendale <code>#2A519F</code>.</p>
 
                                 <h6 class="mt-3">Note</h6>
                                 <p>Puoi aggiungere più note allo stesso marker. Ogni nota viene salvata con il <strong>nome e cognome</strong> dell'utente/subutente che l'ha inserita, più <strong>data e ora</strong>. Le note sono visibili a tutti gli utenti del tenant.</p>
+                                <p>Durante import il sistema aggiunge note automatiche con autore <strong>Sistema</strong>: una nota di cambio intestatario (precedenti/nuovi con CF in chiaro) oppure, per nuovi immobili, una nota con timestamp e nome file importato.</p>
 
                                 <h6 class="mt-3">Assegnazione a subutenti</h6>
                                 <p>Dal popup del marker puoi assegnare l'immobile a uno o più subutenti. I subutenti assegnati lo vedranno nella sezione <em>Marker assegnati</em> e, se il loro permesso è configurato su "solo marker assegnati", potranno modificare solo questi.</p>
