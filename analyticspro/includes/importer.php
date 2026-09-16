@@ -596,7 +596,7 @@ function analyticspro_merge_import_owner_values(array $current, array $incoming)
 }
 
 /**
- * @return array<string,array{property:array<string,mixed>,owners:array<int,array<string,mixed>>,owner_hashes:array<int,string>,row_indexes:array<int,int>,notes:array<int,string>,warnings:array<int,string>,source_files:array<int,string>}>
+ * @return array<string,array{property:array<string,mixed>,owners:array<int,array<string,mixed>>,owner_hashes:array<int,string>,row_indexes:array<int,int>,notes:array<int,string>,warnings:array<int,string>,source_files:array<int,string>,has_missing_cf:bool}>
  */
 function analyticspro_group_import_rows_by_unit(array $rows, int $tenantId): array
 {
@@ -615,6 +615,7 @@ function analyticspro_group_import_rows_by_unit(array $rows, int $tenantId): arr
                 'notes' => [],
                 'warnings' => [],
                 'source_files' => [],
+                'has_missing_cf' => false,
             ];
         } else {
             $groups[$unitKey]['property'] = analyticspro_merge_import_property_values($groups[$unitKey]['property'], $property);
@@ -635,6 +636,7 @@ function analyticspro_group_import_rows_by_unit(array $rows, int $tenantId): arr
         }
         $cfHash = analyticspro_owner_cf_hash_from_row($owner);
         if ($cfHash === '') {
+            $groups[$unitKey]['has_missing_cf'] = true;
             continue;
         }
         $ownerIndex = array_search($cfHash, $groups[$unitKey]['owner_hashes'], true);
@@ -701,7 +703,9 @@ function analyticspro_find_conflicts(array $rows, int $tenantId): array
         sort($currentCfHashes);
         $incomingCfHashes = $group['owner_hashes'];
         sort($incomingCfHashes);
-        if ($currentCfHashes === $incomingCfHashes) {
+        $currentHasMissingCf = count($currentOwnersRaw) > count($currentCfHashes);
+        $incomingHasMissingCf = !empty($group['has_missing_cf']);
+        if ($currentCfHashes === $incomingCfHashes && !$currentHasMissingCf && !$incomingHasMissingCf) {
             continue;
         }
 

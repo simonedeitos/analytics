@@ -170,10 +170,13 @@ analyticspro_render_header('Importa dati', ['app_assets' => true]);
                     </div>
                     <div class="col-md-5">
                         <div class="form-check">
-                            <input class="form-check-input" type="checkbox" value="1" id="import-conflicts-keep-assignments" checked>
+                            <input class="form-check-input" type="checkbox" value="1" id="import-conflicts-keep-assignments" aria-describedby="import-conflicts-keep-assignments-help" checked>
                             <label class="form-check-label" for="import-conflicts-keep-assignments">
                                 Mantieni le assegnazioni ai subutenti
                             </label>
+                            <div id="import-conflicts-keep-assignments-help" class="form-text">
+                                Questa opzione è globale: viene applicata a tutti gli immobili selezionati con "Sostituisci" in questa finestra.
+                            </div>
                         </div>
                     </div>
                 </div>
