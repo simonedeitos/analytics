@@ -2322,12 +2322,14 @@ function analyticspro_preview_duplicate_property_merge(array $cluster): array
                 $mergeKey = analyticspro_duplicate_owner_merge_key($ownerCopy);
                 if (isset($seenCurrentByKey[$mergeKey])) {
                     $ownerCopy['is_current'] = 0;
+                    $ownerCopy['close_duplicate_current'] = true;
                     if (trim((string) ($ownerCopy['valid_to'] ?? '')) === '') {
                         $ownerCopy['valid_to'] = 'NOW';
                     }
                 } else {
                     $seenCurrentByKey[$mergeKey] = true;
                     $ownerCopy['is_current'] = 1;
+                    $ownerCopy['close_duplicate_current'] = false;
                 }
             }
             $owners[] = $ownerCopy;

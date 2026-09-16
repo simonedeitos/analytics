@@ -152,7 +152,7 @@ foreach ($clusters as $clusterIndex => $cluster) {
         ]);
 
         foreach ($preview['owners'] as $owner) {
-            if ((int) ($owner['is_current'] ?? 1) === 0 && trim((string) ($owner['valid_to'] ?? '')) === 'NOW' && !empty($owner['id'])) {
+            if (!empty($owner['close_duplicate_current']) && !empty($owner['id'])) {
                 $closeDuplicateOwner->execute(['id' => (int) $owner['id']]);
             }
         }

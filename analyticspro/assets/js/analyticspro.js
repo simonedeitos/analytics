@@ -611,11 +611,11 @@
     }
 
     function ownerQuotaLabel(owner, property) {
-        return quotaLabel(owner && owner.quota ? owner.quota : '');
+        return quotaLabel((owner && owner.quota) || (property && property.quota) || '');
     }
 
     function ownerTitolaritaLabel(owner, property) {
-        return String(owner && owner.titolarita ? owner.titolarita : '').trim();
+        return String((owner && owner.titolarita) || (property && property.titolarita) || '').trim();
     }
 
     function parseDob(raw) {
