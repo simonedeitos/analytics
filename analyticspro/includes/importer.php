@@ -1837,6 +1837,21 @@ function analyticspro_build_owner_replacement_plan(array $currentByCfHash, array
     ];
 }
 
+function analyticspro_import_owner_sets_changed(
+    array $currentOwners,
+    array $incomingOwners,
+    array $replacementPlan,
+    array $currentByCfHash,
+    array $incomingByCfHash
+): bool {
+    if (!empty($replacementPlan['changed'])) {
+        return true;
+    }
+
+    return count($currentOwners) > count($currentByCfHash)
+        || count($incomingOwners) > count($incomingByCfHash);
+}
+
 /**
  * @return array{stato:null,stato_personalizzato:null,colore_marker:string}
  */
@@ -2017,7 +2032,13 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
                 }
 
                 $replacementPlan = analyticspro_build_owner_replacement_plan($currentByCfHash, $incomingByCfHash);
-                $ownersChanged = (bool) ($replacementPlan['changed'] ?? false);
+                $ownersChanged = analyticspro_import_owner_sets_changed(
+                    $currentOwners,
+                    $incomingOwners,
+                    $replacementPlan,
+                    $currentByCfHash,
+                    $incomingByCfHash
+                );
 
                 if ($ownersChanged) {
                     $decision = analyticspro_import_decision_for_group($decisions, $propertyId, $rowIndexes);
@@ -2033,6 +2054,12 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
                         foreach (($replacementPlan['close_hashes'] ?? []) as $cfHash) {
                             $currentOwner = $currentByCfHash[$cfHash] ?? null;
                             if (!is_array($currentOwner)) {
+                                continue;
+                            }
+                            $closeOwnerById->execute(['id' => (int) $currentOwner['id']]);
+                        }
+                        foreach ($currentOwners as $currentOwner) {
+                            if (trim((string) ($currentOwner['codice_fiscale_hash'] ?? '')) !== '') {
                                 continue;
                             }
                             $closeOwnerById->execute(['id' => (int) $currentOwner['id']]);

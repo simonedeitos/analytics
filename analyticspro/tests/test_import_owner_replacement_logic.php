@@ -58,6 +58,19 @@ if ($keepDecision !== 'kept_old') {
     $errors[] = 'La decisione di default deve mantenere i dati esistenti.';
 }
 
+$missingCfPlan = analyticspro_build_owner_replacement_plan([], []);
+$missingCfChanged = analyticspro_import_owner_sets_changed(
+    [['id' => 1, 'codice_fiscale' => '']],
+    [['id' => 2, 'codice_fiscale' => '']],
+    $missingCfPlan,
+    [],
+    []
+);
+if (!$missingCfChanged) {
+    $pass = false;
+    $errors[] = 'Owner senza CF devono essere trattati come set cambiato (richiede decisione di sostituzione).';
+}
+
 if (analyticspro_normalize_cadastral_number('00123/A') !== '123/A') {
     $pass = false;
     $errors[] = 'Normalizzazione catastale con zeri iniziali non corretta.';
