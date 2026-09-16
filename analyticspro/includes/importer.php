@@ -1023,6 +1023,13 @@ function analyticspro_find_existing_property_for_import(PDO $pdo, int $tenantId,
     ];
     $codCatastale = trim((string) ($property['cod_catastale'] ?? ''));
     $comuneLike = strtoupper(substr(trim((string) ($property['comune'] ?? '')), 0, 6)) . '%';
+    $sezione = trim((string) ($property['sezione'] ?? ''));
+    $foglio = trim((string) ($property['foglio'] ?? ''));
+    $foglioNormalized = analyticspro_normalize_cadastral_number($foglio);
+    $particella = trim((string) ($property['particella'] ?? ''));
+    $particellaNormalized = analyticspro_normalize_cadastral_number($particella);
+    $subalterno = trim((string) ($property['subalterno'] ?? ''));
+    $subalternoNormalized = analyticspro_normalize_cadastral_number($subalterno);
     $candidates = [];
     if ($codCatastale !== '') {
         $stmt = $pdo->prepare('SELECT * FROM properties WHERE user_id = :user_id AND provincia = :provincia AND cod_catastale = :cod_catastale');
@@ -1030,8 +1037,28 @@ function analyticspro_find_existing_property_for_import(PDO $pdo, int $tenantId,
         $candidates = $stmt->fetchAll() ?: [];
     }
     if ($candidates === [] && $comuneLike !== '%') {
-        $stmt = $pdo->prepare('SELECT * FROM properties WHERE user_id = :user_id AND provincia = :provincia AND comune LIKE :comune_like');
-        $stmt->execute($baseParams + ['comune_like' => $comuneLike]);
+        $fallbackSql = 'SELECT * FROM properties
+            WHERE user_id = :user_id
+              AND provincia = :provincia
+              AND comune LIKE :comune_like
+              AND COALESCE(sezione, \'\') = :sezione
+              AND (foglio = :foglio_raw OR foglio = :foglio_normalized)
+              AND (particella = :particella_raw OR particella = :particella_normalized)';
+        $fallbackParams = $baseParams + [
+            'comune_like' => $comuneLike,
+            'sezione' => $sezione,
+            'foglio_raw' => $foglio,
+            'foglio_normalized' => $foglioNormalized,
+            'particella_raw' => $particella,
+            'particella_normalized' => $particellaNormalized,
+        ];
+        if ($subalterno !== '' || $subalternoNormalized !== '') {
+            $fallbackSql .= ' AND (COALESCE(subalterno, \'\') = :subalterno_raw OR COALESCE(subalterno, \'\') = :subalterno_normalized)';
+            $fallbackParams['subalterno_raw'] = $subalterno;
+            $fallbackParams['subalterno_normalized'] = $subalternoNormalized;
+        }
+        $stmt = $pdo->prepare($fallbackSql);
+        $stmt->execute($fallbackParams);
         $candidates = $stmt->fetchAll() ?: [];
     }
     if ($candidates === []) {

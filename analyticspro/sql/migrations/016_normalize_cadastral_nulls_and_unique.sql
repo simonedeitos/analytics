@@ -6,6 +6,7 @@ CREATE PROCEDURE _analyticspro_migration_016()
 BEGIN
     DECLARE v_duplicate_count BIGINT DEFAULT 0;
     DECLARE v_index_signature TEXT DEFAULT NULL;
+    DECLARE v_index_non_unique INT DEFAULT NULL;
 
     SELECT COUNT(*)
       INTO v_duplicate_count
@@ -94,10 +95,18 @@ BEGIN
       AND TABLE_NAME = 'properties'
       AND INDEX_NAME = 'uniq_estremi_catastali';
 
+    SELECT MAX(NON_UNIQUE)
+      INTO v_index_non_unique
+    FROM INFORMATION_SCHEMA.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'properties'
+      AND INDEX_NAME = 'uniq_estremi_catastali';
+
     IF v_index_signature IS NULL THEN
         ALTER TABLE properties
             ADD UNIQUE KEY uniq_estremi_catastali (user_id, provincia, comune, cod_catastale, sezione, foglio, particella, subalterno);
-    ELSEIF v_index_signature <> 'user_id,provincia,comune,cod_catastale,sezione,foglio,particella,subalterno' THEN
+    ELSEIF v_index_signature <> 'user_id,provincia,comune,cod_catastale,sezione,foglio,particella,subalterno'
+        OR COALESCE(v_index_non_unique, 1) <> 0 THEN
         ALTER TABLE properties
             DROP INDEX uniq_estremi_catastali,
             ADD UNIQUE KEY uniq_estremi_catastali (user_id, provincia, comune, cod_catastale, sezione, foglio, particella, subalterno);
