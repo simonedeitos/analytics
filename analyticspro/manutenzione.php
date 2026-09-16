@@ -261,12 +261,27 @@ window.addEventListener('load', function () {
         dataTable: null,
         applyModal: modalApi && confirmModalEl ? modalApi.getOrCreateInstance(confirmModalEl) : null,
         logFile: '',
-        applyRunning: false
+        applyRunning: false,
+        applyTenant: null
     };
 
     function selectedTenantValue() {
         var select = document.getElementById('maintenance-tenant-select');
         return select ? String(select.value || 'all') : String(state.selectedTenant || 'all');
+    }
+
+    function setTenantSelectorDisabled(disabled) {
+        var select = document.getElementById('maintenance-tenant-select');
+        if (select) {
+            select.disabled = !!disabled;
+        }
+    }
+
+    function lastScanTenantValue() {
+        if (!state.lastScan) {
+            return selectedTenantValue();
+        }
+        return String(state.lastScan.tenant_id || 'all');
     }
 
     function api(url, options) {
@@ -497,7 +512,7 @@ window.addEventListener('load', function () {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 csrf_token: state.csrfToken,
-                tenant_id: selectedTenantValue() === 'all' ? null : selectedTenantValue(),
+                tenant_id: state.applyTenant === 'all' ? null : state.applyTenant,
                 clusters: slice,
                 completed_before: completed,
                 total_clusters: total,
@@ -541,6 +556,8 @@ window.addEventListener('load', function () {
             return;
         }
         state.applyRunning = true;
+        state.applyTenant = lastScanTenantValue();
+        setTenantSelectorDisabled(true);
         document.getElementById('duplicate-confirm-apply-btn').disabled = true;
         document.getElementById('duplicate-progress-card').classList.remove('d-none');
         document.getElementById('duplicate-progress-log').textContent = '';
@@ -560,6 +577,8 @@ window.addEventListener('load', function () {
             setAlert('duplicate-feedback', 'danger', error.message);
         }).finally(function () {
             state.applyRunning = false;
+            state.applyTenant = null;
+            setTenantSelectorDisabled(false);
             if (state.applyModal) {
                 state.applyModal.hide();
             }
@@ -577,6 +596,10 @@ window.addEventListener('load', function () {
         analyzeDuplicates();
     });
     document.getElementById('maintenance-tenant-select').addEventListener('change', function () {
+        if (state.applyRunning) {
+            this.value = state.selectedTenant;
+            return;
+        }
         state.selectedTenant = selectedTenantValue();
         state.lastScan = null;
         renderClusters({ clusters: [], summary: {} });

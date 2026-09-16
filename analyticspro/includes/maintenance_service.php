@@ -450,7 +450,7 @@ function analyticspro_maintenance_parse_sql_statements(string $sql): array
 function analyticspro_maintenance_statements_are_transaction_safe(array $statements): bool
 {
     foreach ($statements as $statement) {
-        if (preg_match('/^\s*(ALTER|CREATE|DROP|RENAME|TRUNCATE)\b/i', (string) $statement) === 1) {
+        if (preg_match('/^\s*(ALTER|CALL|CREATE|DROP|RENAME|TRUNCATE)\b/i', (string) $statement) === 1) {
             return false;
         }
     }
