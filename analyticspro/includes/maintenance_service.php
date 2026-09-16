@@ -73,6 +73,18 @@ function analyticspro_maintenance_list_migrations(): array
     return $migrations;
 }
 
+
+function analyticspro_maintenance_migration_identifier(array $migration): string
+{
+    $filename = (string) ($migration['filename'] ?? '');
+    return match (true) {
+        str_contains($filename, '014_add_property_owners_valid_to') => 'owner_valid_to',
+        str_contains($filename, '015_add_property_owner_ownership_columns') => 'owner_ownership_columns',
+        str_contains($filename, '016_normalize_cadastral_nulls_and_unique') => 'normalize_cadastral_unique',
+        default => '',
+    };
+}
+
 function analyticspro_maintenance_fetch_columns(string $table, array $columns): array
 {
     $columns = array_values(array_unique(array_values(array_filter(array_map(static fn ($column): string => trim((string) $column), $columns), static fn (string $column): bool => $column !== ''))));
@@ -154,17 +166,17 @@ function analyticspro_maintenance_status_label(string $status): string
 function analyticspro_maintenance_get_migration_status(array $migration): array
 {
     $status = 'unknown';
-    $number = (int) ($migration['number'] ?? 0);
+    $identifier = analyticspro_maintenance_migration_identifier($migration);
 
-    if ($number === 14) {
+    if ($identifier === 'owner_valid_to') {
         $status = analyticspro_maintenance_evaluate_migration_014_status(
             analyticspro_maintenance_fetch_columns('property_owners', ['valid_to'])
         );
-    } elseif ($number === 15) {
+    } elseif ($identifier === 'owner_ownership_columns') {
         $status = analyticspro_maintenance_evaluate_migration_015_status(
             analyticspro_maintenance_fetch_columns('property_owners', ['quota', 'titolarita'])
         );
-    } elseif ($number === 16) {
+    } elseif ($identifier === 'normalize_cadastral_unique') {
         $status = analyticspro_maintenance_evaluate_migration_016_status(
             analyticspro_maintenance_fetch_columns('properties', ['cod_catastale', 'sezione', 'subalterno']),
             analyticspro_maintenance_fetch_index_rows('properties', 'uniq_estremi_catastali')
@@ -380,10 +392,8 @@ function analyticspro_maintenance_parse_sql_statements(string $sql): array
             continue;
         }
         if (preg_match('/^\s*DELIMITER\s+(\S+)\s*$/i', $line, $matches) === 1) {
-            while (($statement = analyticspro_maintenance_extract_statement_from_buffer($buffer, $delimiter)) !== null) {
-                if ($statement !== '') {
-                    $statements[] = $statement;
-                }
+            if (trim($buffer) !== '') {
+                throw new RuntimeException('Direttiva DELIMITER non valida: è presente SQL pendente prima del cambio delimitatore.');
             }
             $delimiter = (string) $matches[1];
             continue;
@@ -429,8 +439,8 @@ function analyticspro_maintenance_resolve_log_download(string $filename): string
 
 function analyticspro_maintenance_assert_migration_prerequisites(array $migration): void
 {
-    $number = (int) ($migration['number'] ?? 0);
-    if ($number === 15) {
+    $identifier = analyticspro_maintenance_migration_identifier($migration);
+    if ($identifier === 'owner_ownership_columns') {
         $migration014 = analyticspro_maintenance_get_migration_status([
             'number' => 14,
             'filename' => '014_add_property_owners_valid_to.sql',
@@ -442,7 +452,7 @@ function analyticspro_maintenance_assert_migration_prerequisites(array $migratio
         }
     }
 
-    if ($number === 16) {
+    if ($identifier === 'normalize_cadastral_unique') {
         foreach ([14, 15] as $requiredNumber) {
             $requiredMigration = analyticspro_maintenance_get_migration_status([
                 'number' => $requiredNumber,

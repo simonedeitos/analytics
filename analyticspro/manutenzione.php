@@ -267,7 +267,8 @@ window.addEventListener('load', function () {
     }
 
     function api(url, options) {
-        return fetch(url, options || {}).then(function (response) {
+        options = Object.assign({ credentials: 'same-origin' }, options || {});
+        return fetch(url, options).then(function (response) {
             return response.json().catch(function () {
                 throw new Error('Risposta non valida dal server.');
             }).then(function (payload) {
