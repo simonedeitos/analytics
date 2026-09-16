@@ -26,6 +26,17 @@ $log = static function (string $message) use ($logPath): void {
     @file_put_contents($logPath, $line . PHP_EOL, FILE_APPEND);
 };
 
+$ownerHistoryKey = static function (array $owner): string {
+    return implode('|', [
+        analyticspro_duplicate_owner_merge_key($owner),
+        (string) ((int) ($owner['is_current'] ?? 0)),
+        trim((string) ($owner['valid_from'] ?? '')),
+        trim((string) ($owner['valid_to'] ?? '')),
+        trim((string) ($owner['quota'] ?? '')),
+        trim((string) ($owner['titolarita'] ?? '')),
+    ]);
+};
+
 $pdo = analyticspro_db();
 $propertySql = 'SELECT * FROM properties';
 $params = [];
@@ -94,7 +105,8 @@ $log('Cluster duplicati rilevati: ' . count($clusters));
 $updateProperty = $pdo->prepare('UPDATE properties SET cod_catastale = :cod_catastale, indirizzo = :indirizzo, civico = :civico, categoria = :categoria, classe = :classe, rendita = :rendita, consistenza = :consistenza, superficie = :superficie, piano = :piano, titolarita = :titolarita, quota = :quota WHERE id = :id');
 $backfillOwnerOwnership = $pdo->prepare('UPDATE property_owners SET quota = COALESCE(NULLIF(quota, \'\'), :quota), titolarita = COALESCE(NULLIF(titolarita, \'\'), :titolarita) WHERE property_id = :property_id');
 $closeDuplicateOwner = $pdo->prepare('UPDATE property_owners SET is_current = 0, valid_to = COALESCE(valid_to, NOW()) WHERE id = :id AND is_current = 1');
-$moveOwners = $pdo->prepare('UPDATE property_owners SET property_id = :keeper_id WHERE property_id = :loser_id');
+$moveOwnerRow = $pdo->prepare('UPDATE property_owners SET property_id = :keeper_id WHERE id = :id');
+$deleteOwnerRow = $pdo->prepare('DELETE FROM property_owners WHERE id = :id');
 $moveNotes = $pdo->prepare('UPDATE property_notes SET property_id = :keeper_id WHERE property_id = :loser_id');
 $moveHistory = $pdo->prepare('UPDATE property_status_history SET property_id = :keeper_id WHERE property_id = :loser_id');
 $moveConflicts = $pdo->prepare('UPDATE import_duplicate_conflicts SET property_id = :keeper_id WHERE property_id = :loser_id');
@@ -158,10 +170,28 @@ foreach ($clusters as $clusterIndex => $cluster) {
             }
         }
 
+        $seenOwnerHistory = [];
+        foreach ($preview['owners'] as $owner) {
+            $ownerId = (int) ($owner['id'] ?? 0);
+            if ($ownerId <= 0) {
+                continue;
+            }
+            $historyKey = $ownerHistoryKey($owner);
+            if ((int) ($owner['property_id'] ?? 0) === $keeperId) {
+                $seenOwnerHistory[$historyKey] = true;
+                continue;
+            }
+            if (isset($seenOwnerHistory[$historyKey])) {
+                $deleteOwnerRow->execute(['id' => $ownerId]);
+                continue;
+            }
+            $moveOwnerRow->execute(['keeper_id' => $keeperId, 'id' => $ownerId]);
+            $seenOwnerHistory[$historyKey] = true;
+        }
+
         foreach ($absorbedIds as $loserId) {
             $copyAssignments->execute(['keeper_id' => $keeperId, 'loser_id' => $loserId]);
             $deleteAssignments->execute(['loser_id' => $loserId]);
-            $moveOwners->execute(['keeper_id' => $keeperId, 'loser_id' => $loserId]);
             $moveNotes->execute(['keeper_id' => $keeperId, 'loser_id' => $loserId]);
             $moveHistory->execute(['keeper_id' => $keeperId, 'loser_id' => $loserId]);
             $moveConflicts->execute(['keeper_id' => $keeperId, 'loser_id' => $loserId]);

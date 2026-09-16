@@ -1025,12 +1025,12 @@ function analyticspro_find_existing_property_for_import(PDO $pdo, int $tenantId,
     $comuneLike = strtoupper(substr(trim((string) ($property['comune'] ?? '')), 0, 6)) . '%';
     $candidates = [];
     if ($codCatastale !== '') {
-        $stmt = $pdo->prepare('SELECT * FROM properties WHERE user_id = :user_id AND provincia = :provincia AND UPPER(COALESCE(cod_catastale, \'\')) = UPPER(:cod_catastale)');
+        $stmt = $pdo->prepare('SELECT * FROM properties WHERE user_id = :user_id AND provincia = :provincia AND cod_catastale = :cod_catastale');
         $stmt->execute($baseParams + ['cod_catastale' => $codCatastale]);
         $candidates = $stmt->fetchAll() ?: [];
     }
     if ($candidates === [] && $comuneLike !== '%') {
-        $stmt = $pdo->prepare('SELECT * FROM properties WHERE user_id = :user_id AND provincia = :provincia AND UPPER(COALESCE(comune, \'\')) LIKE :comune_like');
+        $stmt = $pdo->prepare('SELECT * FROM properties WHERE user_id = :user_id AND provincia = :provincia AND comune LIKE :comune_like');
         $stmt->execute($baseParams + ['comune_like' => $comuneLike]);
         $candidates = $stmt->fetchAll() ?: [];
     }

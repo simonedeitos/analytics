@@ -10,9 +10,36 @@ BEGIN
     SELECT COUNT(*)
       INTO v_duplicate_count
     FROM (
-        SELECT user_id, provincia, comune, COALESCE(cod_catastale, ''), COALESCE(sezione, ''), foglio, particella, COALESCE(subalterno, ''), COUNT(*) AS cnt
+        SELECT
+            user_id,
+            UPPER(TRIM(provincia)) AS provincia_key,
+            REGEXP_REPLACE(UPPER(TRIM(comune)), '[^A-Z0-9/]+', ' ') AS comune_key,
+            UPPER(TRIM(COALESCE(cod_catastale, ''))) AS cod_catastale_key,
+            UPPER(TRIM(COALESCE(sezione, ''))) AS sezione_key,
+            CASE
+                WHEN UPPER(TRIM(foglio)) REGEXP '^[0-9]+' THEN CONCAT(
+                    COALESCE(NULLIF(TRIM(LEADING '0' FROM REGEXP_SUBSTR(UPPER(TRIM(foglio)), '^[0-9]+')), ''), '0'),
+                    REGEXP_REPLACE(UPPER(TRIM(foglio)), '^[0-9]+', '')
+                )
+                ELSE UPPER(TRIM(foglio))
+            END AS foglio_key,
+            CASE
+                WHEN UPPER(TRIM(particella)) REGEXP '^[0-9]+' THEN CONCAT(
+                    COALESCE(NULLIF(TRIM(LEADING '0' FROM REGEXP_SUBSTR(UPPER(TRIM(particella)), '^[0-9]+')), ''), '0'),
+                    REGEXP_REPLACE(UPPER(TRIM(particella)), '^[0-9]+', '')
+                )
+                ELSE UPPER(TRIM(particella))
+            END AS particella_key,
+            CASE
+                WHEN UPPER(TRIM(COALESCE(subalterno, ''))) REGEXP '^[0-9]+' THEN CONCAT(
+                    COALESCE(NULLIF(TRIM(LEADING '0' FROM REGEXP_SUBSTR(UPPER(TRIM(COALESCE(subalterno, ''))), '^[0-9]+')), ''), '0'),
+                    REGEXP_REPLACE(UPPER(TRIM(COALESCE(subalterno, ''))), '^[0-9]+', '')
+                )
+                ELSE UPPER(TRIM(COALESCE(subalterno, '')))
+            END AS subalterno_key,
+            COUNT(*) AS cnt
         FROM properties
-        GROUP BY user_id, provincia, comune, COALESCE(cod_catastale, ''), COALESCE(sezione, ''), foglio, particella, COALESCE(subalterno, '')
+        GROUP BY user_id, provincia_key, comune_key, cod_catastale_key, sezione_key, foglio_key, particella_key, subalterno_key
         HAVING COUNT(*) > 1
     ) dup;
 
