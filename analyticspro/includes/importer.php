@@ -538,7 +538,7 @@ function analyticspro_extract_row_payload(array $row, ?int $rowNumber = null): a
     ];
 }
 
-function analyticspro_import_unit_key(array $property, int $tenantId, ?int $propertyId = null, ?int $rowIndex = null): string
+function analyticspro_import_unit_key(array $property, int $tenantId, ?int $propertyId = null, ?int $rowIndex = null, bool $singletonEmptySubalterno = true): string
 {
     $provincia = analyticspro_normalize_text((string) ($property['provincia'] ?? ''));
     $comune = analyticspro_normalize_text((string) ($property['comune'] ?? ''));
@@ -548,7 +548,11 @@ function analyticspro_import_unit_key(array $property, int $tenantId, ?int $prop
     $particella = analyticspro_normalize_cadastral_number((string) ($property['particella'] ?? ''));
     $subalterno = analyticspro_normalize_cadastral_number((string) ($property['subalterno'] ?? ''));
     $comuneKey = $codCatastale !== '' ? ('COD:' . $codCatastale) : ('COM:' . $comune);
-    $subalternoKey = $subalterno !== '' ? $subalterno : ('SUB:__NONE__#' . ($propertyId !== null ? $propertyId : ('row' . (int) ($rowIndex ?? 0))));
+    $subalternoKey = $subalterno !== '' ? $subalterno : (
+        $singletonEmptySubalterno
+            ? ('SUB:__NONE__#' . ($propertyId !== null ? $propertyId : ('row' . (int) ($rowIndex ?? 0))))
+            : ''
+    );
 
     return implode('|', [$provincia, $comuneKey, $sezione, $foglio, $particella, $subalternoKey, (string) $tenantId]);
 }
@@ -670,12 +674,52 @@ function analyticspro_group_import_rows_by_unit(array $rows, int $tenantId): arr
 }
 
 /**
+ * @return array<string,mixed>|null
+ */
+function analyticspro_find_existing_property_for_import(PDO $pdo, int $tenantId, array $property): ?array
+{
+    $params = [
+        'user_id' => $tenantId,
+        'provincia' => (string) ($property['provincia'] ?? ''),
+        'cod_catastale' => (string) ($property['cod_catastale'] ?? ''),
+        'comune' => (string) ($property['comune'] ?? ''),
+    ];
+    $sql = 'SELECT * FROM properties
+        WHERE user_id = :user_id
+          AND provincia = :provincia
+          AND (:cod_catastale = \'\' OR cod_catastale = :cod_catastale)';
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    $candidates = $stmt->fetchAll() ?: [];
+    if ($candidates === []) {
+        return null;
+    }
+
+    $incomingKey = analyticspro_import_unit_key($property, $tenantId, null, null, false);
+    foreach ($candidates as $candidate) {
+        $candidateKey = analyticspro_import_unit_key([
+            'provincia' => (string) ($candidate['provincia'] ?? ''),
+            'comune' => (string) ($candidate['comune'] ?? ''),
+            'cod_catastale' => (string) ($candidate['cod_catastale'] ?? ''),
+            'sezione' => (string) ($candidate['sezione'] ?? ''),
+            'foglio' => (string) ($candidate['foglio'] ?? ''),
+            'particella' => (string) ($candidate['particella'] ?? ''),
+            'subalterno' => (string) ($candidate['subalterno'] ?? ''),
+        ], $tenantId, (int) ($candidate['id'] ?? 0), null, false);
+        if ($candidateKey === $incomingKey) {
+            return $candidate;
+        }
+    }
+
+    return null;
+}
+
+/**
  * @return array<int,array<string,mixed>>
  */
 function analyticspro_find_conflicts(array $rows, int $tenantId): array
 {
     $pdo = analyticspro_db();
-    $findProperty = $pdo->prepare('SELECT id, comune, foglio, particella, subalterno, indirizzo FROM properties WHERE user_id = :user_id AND provincia = :provincia AND comune = :comune AND sezione <=> :sezione AND foglio = :foglio AND particella = :particella AND subalterno <=> :subalterno LIMIT 1');
     $findOwners = $pdo->prepare('SELECT nome_enc, cognome_enc, codice_fiscale_enc, codice_fiscale_hash FROM property_owners WHERE property_id = :property_id AND is_current = 1 ORDER BY id ASC');
     $conflicts = [];
     $grouped = analyticspro_group_import_rows_by_unit($rows, $tenantId);
@@ -686,16 +730,7 @@ function analyticspro_find_conflicts(array $rows, int $tenantId): array
             continue;
         }
 
-        $findProperty->execute([
-            'user_id' => $tenantId,
-            'provincia' => $property['provincia'],
-            'comune' => $property['comune'],
-            'sezione' => $property['sezione'] !== '' ? $property['sezione'] : null,
-            'foglio' => $property['foglio'],
-            'particella' => $property['particella'],
-            'subalterno' => $property['subalterno'] !== '' ? $property['subalterno'] : null,
-        ]);
-        $existing = $findProperty->fetch();
+        $existing = analyticspro_find_existing_property_for_import($pdo, $tenantId, $property);
         if (!$existing) {
             continue;
         }
@@ -1878,7 +1913,6 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
 
     $hasPianoColumn = analyticspro_properties_has_piano_column();
     $hasProvinciaOriginaleColumn = analyticspro_properties_has_provincia_originale_column();
-    $findProperty = $pdo->prepare('SELECT * FROM properties WHERE user_id = :user_id AND provincia = :provincia AND comune = :comune AND sezione <=> :sezione AND foglio = :foglio AND particella = :particella AND subalterno <=> :subalterno LIMIT 1');
     $insertColumns = [
         'user_id', 'import_batch_id', 'provincia', 'comune', 'cod_catastale', 'sezione', 'foglio', 'particella', 'subalterno',
         'indirizzo', 'civico', 'categoria', 'classe',
@@ -1962,16 +1996,7 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
                 continue;
             }
 
-            $findProperty->execute([
-                'user_id' => $tenantId,
-                'provincia' => $property['provincia'],
-                'comune' => $property['comune'],
-                'sezione' => $property['sezione'] !== '' ? $property['sezione'] : null,
-                'foglio' => $property['foglio'],
-                'particella' => $property['particella'],
-                'subalterno' => $property['subalterno'] !== '' ? $property['subalterno'] : null,
-            ]);
-            $existingProperty = $findProperty->fetch();
+            $existingProperty = analyticspro_find_existing_property_for_import($pdo, $tenantId, $property);
             $incomingOwners = $group['owners'] ?? [];
             $incomingByCfHash = [];
             $incomingNoCfOwners = [];

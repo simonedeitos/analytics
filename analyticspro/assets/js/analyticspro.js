@@ -2768,11 +2768,26 @@
             var replaceBtn = document.getElementById('import-conflicts-replace-selected');
             var cancelBtn = document.getElementById('import-conflicts-cancel');
 
+            function updateSelectVisibleLabel() {
+                if (!selectAllBtn) return;
+                var visibleChecks = Array.from((tableBody || document).querySelectorAll('tr[data-conflict-row="1"]'))
+                    .filter(function (row) { return row.style.display !== 'none'; })
+                    .map(function (row) { return row.querySelector('.import-conflict-check'); })
+                    .filter(Boolean);
+                if (!visibleChecks.length) {
+                    selectAllBtn.textContent = 'Seleziona tutti';
+                    return;
+                }
+                var allVisibleSelected = visibleChecks.every(function (check) { return !!check.checked; });
+                selectAllBtn.textContent = allVisibleSelected ? 'Deseleziona tutti' : 'Seleziona tutti';
+            }
+
             function cleanup() {
                 if (searchEl) searchEl.removeEventListener('input', onSearch);
                 if (selectAllBtn) selectAllBtn.removeEventListener('click', onSelectVisible);
                 if (replaceBtn) replaceBtn.removeEventListener('click', onReplaceSelected);
                 if (cancelBtn) cancelBtn.removeEventListener('click', onCancel);
+                if (tableBody) tableBody.removeEventListener('change', onCheckChange);
                 modalEl.removeEventListener('hidden.bs.modal', onHidden);
             }
 
@@ -2788,6 +2803,7 @@
 
             function onSearch() {
                 applyImportConflictSearchFilter(searchEl ? searchEl.value : '', tableBody);
+                updateSelectVisibleLabel();
             }
 
             function onSelectVisible(event) {
@@ -2798,6 +2814,11 @@
                     .filter(Boolean);
                 var shouldCheckAll = visibleChecks.some(function (check) { return !check.checked; });
                 visibleChecks.forEach(function (check) { check.checked = shouldCheckAll; });
+                updateSelectVisibleLabel();
+            }
+
+            function onCheckChange() {
+                updateSelectVisibleLabel();
             }
 
             function onReplaceSelected(event) {
@@ -2830,7 +2851,9 @@
             if (selectAllBtn) selectAllBtn.addEventListener('click', onSelectVisible);
             if (replaceBtn) replaceBtn.addEventListener('click', onReplaceSelected);
             if (cancelBtn) cancelBtn.addEventListener('click', onCancel);
+            if (tableBody) tableBody.addEventListener('change', onCheckChange);
             modalEl.addEventListener('hidden.bs.modal', onHidden);
+            updateSelectVisibleLabel();
             modal.show();
         });
     }
