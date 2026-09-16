@@ -858,15 +858,9 @@ function analyticspro_backfill_import_cod_catastale(array &$preparedRows, int $t
 {
     $backfilled = 0;
     $identities = [];
-    $codesByComune = [];
     foreach ($preparedRows as $index => $record) {
         $identity = analyticspro_normalize_cadastral_identity($record, $tenantId);
         $identities[$index] = $identity;
-        if ($identity['provincia'] === '' || $identity['comune'] === '' || $identity['cod_catastale'] === '') {
-            continue;
-        }
-        $bucketKey = $identity['tenant_id'] . '|' . $identity['provincia'] . '|' . $identity['comune'];
-        $codesByComune[$bucketKey][$identity['cod_catastale']] = true;
     }
 
     foreach ($preparedRows as $preparedIndex => &$record) {
@@ -906,11 +900,6 @@ function analyticspro_backfill_import_cod_catastale(array &$preparedRows, int $t
         if ($identity['subalterno'] === '' && count($candidateSubGroups) !== 1) {
             $candidateCodes = [];
         }
-        if ($candidateCodes === []) {
-            $bucketKey = $identity['tenant_id'] . '|' . $identity['provincia'] . '|' . $identity['comune'];
-            $candidateCodes = $codesByComune[$bucketKey] ?? [];
-        }
-
         $candidates = array_keys($candidateCodes);
         if (count($candidates) !== 1) {
             continue;

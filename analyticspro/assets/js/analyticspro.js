@@ -1293,8 +1293,8 @@
                     var ownerKey = ownerGroupKey(owners[oi], allOwners.length);
                     if (!seenOwners[ownerKey]) {
                         var mergedOwner = Object.assign({}, owners[oi]);
-                        mergedOwner.quota = mergedOwner.quota || '';
-                        mergedOwner.titolarita = mergedOwner.titolarita || '';
+                        mergedOwner.quota = mergedOwner.quota || sourceProperty.quota || '';
+                        mergedOwner.titolarita = mergedOwner.titolarita || sourceProperty.titolarita || '';
                         mergedOwner._sourcePropertyId = Number(sourceProperty.id || 0);
                         mergedOwner._canEdit = !!sourceProperty.can_edit;
                         mergedOwner._groupOwnerKey = ownerKey;

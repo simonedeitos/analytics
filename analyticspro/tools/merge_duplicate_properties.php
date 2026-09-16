@@ -99,6 +99,7 @@ $moveNotes = $pdo->prepare('UPDATE property_notes SET property_id = :keeper_id W
 $moveHistory = $pdo->prepare('UPDATE property_status_history SET property_id = :keeper_id WHERE property_id = :loser_id');
 $moveConflicts = $pdo->prepare('UPDATE import_duplicate_conflicts SET property_id = :keeper_id WHERE property_id = :loser_id');
 $copyAssignments = $pdo->prepare('INSERT IGNORE INTO property_assignments (property_id, subuser_id, assigned_by, assigned_at) SELECT :keeper_id, subuser_id, assigned_by, assigned_at FROM property_assignments WHERE property_id = :loser_id');
+$deleteAssignments = $pdo->prepare('DELETE FROM property_assignments WHERE property_id = :loser_id');
 $deleteProperty = $pdo->prepare('DELETE FROM properties WHERE id = :id');
 $insertSystemNote = $pdo->prepare('INSERT INTO property_notes (property_id, author_id, author_name_snapshot, testo) VALUES (:property_id, :author_id, :author_name_snapshot, :testo)');
 
@@ -159,6 +160,7 @@ foreach ($clusters as $clusterIndex => $cluster) {
 
         foreach ($absorbedIds as $loserId) {
             $copyAssignments->execute(['keeper_id' => $keeperId, 'loser_id' => $loserId]);
+            $deleteAssignments->execute(['loser_id' => $loserId]);
             $moveOwners->execute(['keeper_id' => $keeperId, 'loser_id' => $loserId]);
             $moveNotes->execute(['keeper_id' => $keeperId, 'loser_id' => $loserId]);
             $moveHistory->execute(['keeper_id' => $keeperId, 'loser_id' => $loserId]);
