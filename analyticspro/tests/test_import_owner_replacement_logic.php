@@ -36,7 +36,7 @@ if (count($plan['close_hashes']) !== 2 || count($plan['keep_hashes']) !== 1 || c
 }
 
 $continuityCurrent = ['nome' => 'Mario', 'telefono' => '3331112222', 'email' => '', 'genere' => 'M'];
-$continuityIncoming = ['nome' => '', 'telefono' => '3399990000', 'email' => 'mario@example.it', 'genere' => 'M'];
+$continuityIncoming = ['nome' => '', 'telefono' => '3399990000', 'email' => 'mario@example.it', 'genere' => 'M', 'quota' => '1/3', 'titolarita' => 'Usufrutto'];
 $merged = analyticspro_merge_import_owner_values($continuityCurrent, $continuityIncoming);
 if (($merged['nome'] ?? '') !== 'Mario') {
     $pass = false;
@@ -45,6 +45,10 @@ if (($merged['nome'] ?? '') !== 'Mario') {
 if (($merged['telefono'] ?? '') !== '3399990000' || ($merged['email'] ?? '') !== 'mario@example.it') {
     $pass = false;
     $errors[] = 'La continuità deve aggiornare i campi non vuoti del nuovo intestatario.';
+}
+if (($merged['quota'] ?? '') !== '1/3' || ($merged['titolarita'] ?? '') !== 'Usufrutto') {
+    $pass = false;
+    $errors[] = 'La continuità deve aggiornare quota e titolarità per-intestatario.';
 }
 
 $replaceDecision = analyticspro_import_decision_for_group(['property:77' => 'updated'], 77, [5, 6]);

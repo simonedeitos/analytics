@@ -100,6 +100,16 @@ function analyticspro_normalize_text(?string $value): string
     return trim($value);
 }
 
+function analyticspro_collapse_spaces(?string $value): string
+{
+    $value = trim((string) $value);
+    if ($value === '') {
+        return '';
+    }
+
+    return trim(preg_replace('/\s+/u', ' ', $value) ?? $value);
+}
+
 function analyticspro_normalize_cadastral_number(?string $value): string
 {
     $value = strtoupper(trim((string) $value));
@@ -117,6 +127,247 @@ function analyticspro_normalize_cadastral_number(?string $value): string
     }
 
     return $number . (string) ($matches[2] ?? '');
+}
+
+/**
+ * Build a canonical cadastral identity shared by import, duplicate detection and merge tooling.
+ *
+ * @return array{tenant_id:string,provincia:string,comune:string,cod_catastale:string,sezione:string,foglio:string,particella:string,subalterno:string}
+ */
+function analyticspro_normalize_cadastral_identity(array $record, int|string|null $tenantId = null): array
+{
+    $resolvedTenantId = $tenantId;
+    if ($resolvedTenantId === null || (string) $resolvedTenantId === '') {
+        $resolvedTenantId = $record['tenant_id'] ?? $record['user_id'] ?? $record['parent_user_id'] ?? '';
+    }
+
+    return [
+        'tenant_id' => trim((string) $resolvedTenantId),
+        'provincia' => analyticspro_normalize_text((string) ($record['provincia'] ?? '')),
+        'comune' => analyticspro_normalize_text((string) ($record['comune'] ?? '')),
+        'cod_catastale' => analyticspro_normalize_text((string) ($record['cod_catastale'] ?? '')),
+        'sezione' => analyticspro_normalize_text((string) ($record['sezione'] ?? '')),
+        'foglio' => analyticspro_normalize_cadastral_number((string) ($record['foglio'] ?? '')),
+        'particella' => analyticspro_normalize_cadastral_number((string) ($record['particella'] ?? '')),
+        'subalterno' => analyticspro_normalize_cadastral_number((string) ($record['subalterno'] ?? '')),
+    ];
+}
+
+function analyticspro_cadastral_base_bucket_key(array $identity): string
+{
+    return implode('|', [
+        $identity['tenant_id'],
+        $identity['provincia'],
+        $identity['sezione'],
+        $identity['foglio'],
+        $identity['particella'],
+    ]);
+}
+
+/**
+ * @param array<int,array{record:array<string,mixed>,identity:array<string,string>,index:int}> $entries
+ * @return array{entries:array<int,array{record:array<string,mixed>,identity:array<string,string>,index:int}>,cod_catastale:string,comuni:array<string,bool>}
+ */
+function analyticspro_make_cadastral_cluster(array $entries): array
+{
+    $cluster = [
+        'entries' => [],
+        'cod_catastale' => '',
+        'comuni' => [],
+    ];
+
+    foreach ($entries as $entry) {
+        $cluster['entries'][] = $entry;
+        $codCatastale = $entry['identity']['cod_catastale'] ?? '';
+        if ($cluster['cod_catastale'] === '' && $codCatastale !== '') {
+            $cluster['cod_catastale'] = $codCatastale;
+        }
+        $comune = $entry['identity']['comune'] ?? '';
+        if ($comune !== '') {
+            $cluster['comuni'][$comune] = true;
+        }
+    }
+
+    return $cluster;
+}
+
+/**
+ * @param array{entries:array<int,array{record:array<string,mixed>,identity:array<string,string>,index:int}>,cod_catastale:string,comuni:array<string,bool>} $cluster
+ * @param array<int,array{record:array<string,mixed>,identity:array<string,string>,index:int}> $entries
+ */
+function analyticspro_append_entries_to_cadastral_cluster(array &$cluster, array $entries): void
+{
+    foreach ($entries as $entry) {
+        $cluster['entries'][] = $entry;
+        $codCatastale = $entry['identity']['cod_catastale'] ?? '';
+        if ($cluster['cod_catastale'] === '' && $codCatastale !== '') {
+            $cluster['cod_catastale'] = $codCatastale;
+        }
+        $comune = $entry['identity']['comune'] ?? '';
+        if ($comune !== '') {
+            $cluster['comuni'][$comune] = true;
+        }
+    }
+}
+
+/**
+ * @param array{entries:array<int,array{record:array<string,mixed>,identity:array<string,string>,index:int}>,cod_catastale:string,comuni:array<string,bool>} $cluster
+ */
+function analyticspro_cadastral_cluster_matches_missing_code_group(array $cluster, string $comune): bool
+{
+    return $comune !== '' && isset($cluster['comuni'][$comune]);
+}
+
+/**
+ * @param array{entries:array<int,array{record:array<string,mixed>,identity:array<string,string>,index:int}>,cod_catastale:string,comuni:array<string,bool>} $cluster
+ */
+function analyticspro_cadastral_cluster_matches_missing_subalterno(array $cluster, array $identity): bool
+{
+    $clusterCodCatastale = (string) ($cluster['cod_catastale'] ?? '');
+    $entryCodCatastale = (string) ($identity['cod_catastale'] ?? '');
+    if ($clusterCodCatastale !== '' && $entryCodCatastale !== '') {
+        return $clusterCodCatastale === $entryCodCatastale;
+    }
+
+    $comune = (string) ($identity['comune'] ?? '');
+    return $comune !== '' && isset($cluster['comuni'][$comune]);
+}
+
+/**
+ * Records with valorizzato subalterno are grouped per sub and then merged only when the
+ * cod_catastale is identical, or when the unresolved group has exactly one comune-compatible
+ * coded candidate.
+ *
+ * @param array<int,array{record:array<string,mixed>,identity:array<string,string>,index:int}> $entries
+ * @return array<int,array{entries:array<int,array{record:array<string,mixed>,identity:array<string,string>,index:int}>,cod_catastale:string,comuni:array<string,bool>}>
+ */
+function analyticspro_build_non_empty_subalterno_clusters(array $entries): array
+{
+    $codedClusters = [];
+    $codedOrder = [];
+    $missingCodeClusters = [];
+    $missingOrder = [];
+
+    foreach ($entries as $entry) {
+        $identity = $entry['identity'];
+        $codCatastale = $identity['cod_catastale'];
+        if ($codCatastale !== '') {
+            $clusterKey = 'COD:' . $codCatastale;
+            if (!isset($codedClusters[$clusterKey])) {
+                $codedClusters[$clusterKey] = analyticspro_make_cadastral_cluster([]);
+                $codedOrder[] = $clusterKey;
+            }
+            analyticspro_append_entries_to_cadastral_cluster($codedClusters[$clusterKey], [$entry]);
+            continue;
+        }
+
+        $comune = $identity['comune'];
+        $clusterKey = $comune !== '' ? ('COM:' . $comune) : ('REC:' . $entry['index']);
+        if (!isset($missingCodeClusters[$clusterKey])) {
+            $missingCodeClusters[$clusterKey] = analyticspro_make_cadastral_cluster([]);
+            $missingOrder[] = $clusterKey;
+        }
+        analyticspro_append_entries_to_cadastral_cluster($missingCodeClusters[$clusterKey], [$entry]);
+    }
+
+    $clusters = [];
+    foreach ($codedOrder as $clusterKey) {
+        $clusters[] = $codedClusters[$clusterKey];
+    }
+    foreach ($missingOrder as $clusterKey) {
+        $missingCluster = $missingCodeClusters[$clusterKey];
+        $missingComune = array_key_first($missingCluster['comuni']);
+        $candidateIndexes = [];
+        if ($missingComune !== null) {
+            foreach ($clusters as $clusterIndex => $cluster) {
+                if (analyticspro_cadastral_cluster_matches_missing_code_group($cluster, (string) $missingComune)) {
+                    $candidateIndexes[] = $clusterIndex;
+                }
+            }
+        }
+        if (count($candidateIndexes) === 1) {
+            analyticspro_append_entries_to_cadastral_cluster($clusters[$candidateIndexes[0]], $missingCluster['entries']);
+            continue;
+        }
+        $clusters[] = $missingCluster;
+    }
+
+    return $clusters;
+}
+
+/**
+ * Symmetric canonical clustering shared by import duplicate detection, existing-property lookup
+ * and duplicate-merge tooling.
+ *
+ * @param array<int,array<string,mixed>> $records
+ * @return array<int,array<int,array<string,mixed>>>
+ */
+function analyticspro_group_records_by_canonical_unit(array $records, int|string|null $tenantId = null): array
+{
+    $buckets = [];
+    $bucketOrder = [];
+    foreach (array_values($records) as $index => $record) {
+        $identity = analyticspro_normalize_cadastral_identity($record, $tenantId);
+        $bucketKey = analyticspro_cadastral_base_bucket_key($identity);
+        if (!isset($buckets[$bucketKey])) {
+            $buckets[$bucketKey] = [];
+            $bucketOrder[] = $bucketKey;
+        }
+        $buckets[$bucketKey][] = [
+            'record' => $record,
+            'identity' => $identity,
+            'index' => (int) $index,
+        ];
+    }
+
+    $result = [];
+    foreach ($bucketOrder as $bucketKey) {
+        $entries = $buckets[$bucketKey];
+        $subalternoBuckets = [];
+        $subalternoOrder = [];
+        $emptySubalternoEntries = [];
+        foreach ($entries as $entry) {
+            $subalterno = $entry['identity']['subalterno'];
+            if ($subalterno === '') {
+                $emptySubalternoEntries[] = $entry;
+                continue;
+            }
+            if (!isset($subalternoBuckets[$subalterno])) {
+                $subalternoBuckets[$subalterno] = [];
+                $subalternoOrder[] = $subalterno;
+            }
+            $subalternoBuckets[$subalterno][] = $entry;
+        }
+
+        $clusters = [];
+        foreach ($subalternoOrder as $subalterno) {
+            foreach (analyticspro_build_non_empty_subalterno_clusters($subalternoBuckets[$subalterno]) as $cluster) {
+                $clusters[] = $cluster;
+            }
+        }
+
+        $nonEmptyClusterCount = count($clusters);
+        foreach ($emptySubalternoEntries as $entry) {
+            $candidateIndexes = [];
+            for ($clusterIndex = 0; $clusterIndex < $nonEmptyClusterCount; $clusterIndex++) {
+                $cluster = $clusters[$clusterIndex];
+                if (analyticspro_cadastral_cluster_matches_missing_subalterno($cluster, $entry['identity'])) {
+                    $candidateIndexes[] = $clusterIndex;
+                }
+            }
+            if (count($candidateIndexes) === 1) {
+                analyticspro_append_entries_to_cadastral_cluster($clusters[$candidateIndexes[0]], [$entry]);
+                continue;
+            }
+            $clusters[] = analyticspro_make_cadastral_cluster([$entry]);
+        }
+
+        foreach ($clusters as $cluster) {
+            $result[] = array_map(static fn (array $entry): array => $entry['record'], $cluster['entries']);
+        }
+    }
+
+    return $result;
 }
 
 function analyticspro_owner_cf_signature(array $owner): string
@@ -499,7 +750,7 @@ function analyticspro_extract_row_payload(array $row, ?int $rowNumber = null): a
     }
     $cf = analyticspro_extract_row_value($row, ['Codice Fiscale']);
     $provinciaRaw = analyticspro_extract_row_value($row, ['Provincia', 'Prov']);
-    $comune = analyticspro_extract_row_value($row, ['Comune', 'Comune Catastale', 'Comune Immobile']);
+    $comune = analyticspro_collapse_spaces(analyticspro_extract_row_value($row, ['Comune', 'Comune Catastale', 'Comune Immobile']));
     $codCatastale = analyticspro_extract_row_value($row, ['Codice Catastale', 'Codice Comune', 'Cod Comune', 'Codice Belfiore', 'Belfiore', 'Cod_Catastale']);
     $provinciaNormalized = analyticspro_import_normalize_provincia($provinciaRaw, $comune, $codCatastale, $rowNumber);
     $provincia = $provinciaNormalized['sigla'];
@@ -515,10 +766,10 @@ function analyticspro_extract_row_payload(array $row, ?int $rowNumber = null): a
             'provincia_originale' => $provinciaNormalized['originale'],
             'comune' => $comune,
             'cod_catastale' => trim((string) ($resolvedCod['cod'] ?? '')),
-            'sezione' => analyticspro_extract_row_value($row, ['Sezione']),
-            'foglio' => analyticspro_extract_row_value($row, ['Foglio']),
-            'particella' => analyticspro_extract_row_value($row, ['Particella']),
-            'subalterno' => analyticspro_extract_row_value($row, ['Subalterno', 'Sub']),
+            'sezione' => analyticspro_normalize_text(analyticspro_extract_row_value($row, ['Sezione'])),
+            'foglio' => analyticspro_normalize_cadastral_number(analyticspro_extract_row_value($row, ['Foglio'])),
+            'particella' => analyticspro_normalize_cadastral_number(analyticspro_extract_row_value($row, ['Particella'])),
+            'subalterno' => analyticspro_normalize_cadastral_number(analyticspro_extract_row_value($row, ['Subalterno', 'Sub'])),
             'indirizzo' => analyticspro_extract_row_value($row, ['Indirizzo']),
             'civico' => analyticspro_extract_row_value($row, ['Civico']),
             'categoria' => analyticspro_extract_row_value($row, ['Categoria']),
@@ -543,6 +794,8 @@ function analyticspro_extract_row_payload(array $row, ?int $rowNumber = null): a
             'data_nascita' => analyticspro_parse_birth_date(analyticspro_extract_row_value($row, ['Data Nascita'])),
             'luogo_nascita' => analyticspro_extract_row_value($row, ['Nato A', 'Luogo Nascita', 'Luogo di Nascita', 'Comune Nascita']),
             'genere' => analyticspro_guess_gender($cf),
+            'titolarita' => analyticspro_extract_row_value($row, ['Titolarita', 'Titolarità']),
+            'quota' => analyticspro_normalize_quota(analyticspro_extract_row_value($row, ['Quota'])),
         ],
         'note' => analyticspro_extract_row_value($row, ['Note', 'note']),
         'warnings' => $provinciaNormalized['warning'] !== '' ? [$provinciaNormalized['warning']] : [],
@@ -551,21 +804,17 @@ function analyticspro_extract_row_payload(array $row, ?int $rowNumber = null): a
 
 function analyticspro_import_unit_key(array $property, int $tenantId, ?int $propertyId = null, ?int $rowIndex = null, bool $singletonEmptySubalterno = true): string
 {
-    $provincia = analyticspro_normalize_text((string) ($property['provincia'] ?? ''));
-    $comune = analyticspro_normalize_text((string) ($property['comune'] ?? ''));
-    $codCatastale = analyticspro_normalize_text((string) ($property['cod_catastale'] ?? ''));
-    $sezione = analyticspro_normalize_text((string) ($property['sezione'] ?? ''));
-    $foglio = analyticspro_normalize_cadastral_number((string) ($property['foglio'] ?? ''));
-    $particella = analyticspro_normalize_cadastral_number((string) ($property['particella'] ?? ''));
-    $subalterno = analyticspro_normalize_cadastral_number((string) ($property['subalterno'] ?? ''));
-    $comuneKey = $codCatastale !== '' ? ('COD:' . $codCatastale) : ('COM:' . $comune);
-    $subalternoKey = $subalterno !== '' ? $subalterno : (
-        $singletonEmptySubalterno
-            ? ('SUB:__NONE__#' . ($propertyId !== null ? $propertyId : ('row' . (int) ($rowIndex ?? 0))))
-            : ''
-    );
+    $identity = analyticspro_normalize_cadastral_identity($property, $tenantId);
+    $subalternoKey = $identity['subalterno'];
+    if ($subalternoKey === '' && $singletonEmptySubalterno) {
+        $subalternoKey = 'SUB:__NONE__#' . ($propertyId !== null ? $propertyId : ('row' . (int) ($rowIndex ?? 0)));
+    }
 
-    return implode('|', [$provincia, $comuneKey, $sezione, $foglio, $particella, $subalternoKey, (string) $tenantId]);
+    return implode('|', [
+        analyticspro_cadastral_base_bucket_key($identity),
+        $subalternoKey,
+        $identity['cod_catastale'] !== '' ? ('COD:' . $identity['cod_catastale']) : ('COM:' . $identity['comune']),
+    ]);
 }
 
 function analyticspro_merge_import_property_values(array $current, array $incoming): array
@@ -589,7 +838,7 @@ function analyticspro_merge_import_property_values(array $current, array $incomi
 
 function analyticspro_merge_import_owner_values(array $current, array $incoming): array
 {
-    $updatable = ['tipo', 'nome', 'cognome', 'codice_fiscale', 'telefono', 'indirizzo', 'email', 'data_nascita', 'luogo_nascita', 'genere'];
+    $updatable = ['tipo', 'nome', 'cognome', 'codice_fiscale', 'telefono', 'indirizzo', 'email', 'data_nascita', 'luogo_nascita', 'genere', 'titolarita', 'quota'];
     foreach ($updatable as $field) {
         if (!array_key_exists($field, $incoming)) {
             continue;
@@ -611,72 +860,166 @@ function analyticspro_merge_import_owner_values(array $current, array $incoming)
 }
 
 /**
+ * Propaga il codice catastale risolto alle righe dello stesso comune/provincia che ne sono prive.
+ *
+ * @param array<int,array<string,mixed>> $preparedRows
+ */
+function analyticspro_backfill_import_cod_catastale(array &$preparedRows, int $tenantId): int
+{
+    $backfilled = 0;
+    $identities = [];
+    foreach ($preparedRows as $index => $record) {
+        $identity = analyticspro_normalize_cadastral_identity($record, $tenantId);
+        $identities[$index] = $identity;
+    }
+
+    foreach ($preparedRows as $preparedIndex => &$record) {
+        $recordIndex = (int) ($record['__source_index'] ?? $preparedIndex);
+        $identity = $identities[$recordIndex] ?? analyticspro_normalize_cadastral_identity($record, $tenantId);
+        if ($identity['cod_catastale'] !== '' || $identity['provincia'] === '' || $identity['comune'] === '') {
+            continue;
+        }
+        $candidateCodes = [];
+        $candidateSubGroups = [];
+        foreach ($identities as $candidateIndex => $candidateIdentity) {
+            if ($candidateIndex === $recordIndex || $candidateIdentity['cod_catastale'] === '') {
+                continue;
+            }
+            if (
+                $candidateIdentity['tenant_id'] !== $identity['tenant_id']
+                || $candidateIdentity['provincia'] !== $identity['provincia']
+                || $candidateIdentity['sezione'] !== $identity['sezione']
+                || $candidateIdentity['foglio'] !== $identity['foglio']
+                || $candidateIdentity['particella'] !== $identity['particella']
+                || $candidateIdentity['comune'] !== $identity['comune']
+            ) {
+                continue;
+            }
+
+            $sameSubalterno = $identity['subalterno'] !== '' && $candidateIdentity['subalterno'] === $identity['subalterno'];
+            $uniqueMissingSubCandidate = $identity['subalterno'] === '' && $candidateIdentity['subalterno'] !== '';
+            if (!$sameSubalterno && !$uniqueMissingSubCandidate) {
+                continue;
+            }
+            $candidateCodes[$candidateIdentity['cod_catastale']] = true;
+            if ($uniqueMissingSubCandidate) {
+                $candidateSubGroups[$candidateIdentity['subalterno']] = true;
+            }
+        }
+
+        if ($identity['subalterno'] === '' && count($candidateSubGroups) !== 1) {
+            $candidateCodes = [];
+        }
+        $candidates = array_keys($candidateCodes);
+        if (count($candidates) !== 1) {
+            continue;
+        }
+        $resolvedCodCatastale = $candidates[0];
+        $record['cod_catastale'] = $resolvedCodCatastale;
+        if (isset($record['__payload']['property']) && is_array($record['__payload']['property'])) {
+            $record['__payload']['property']['cod_catastale'] = $resolvedCodCatastale;
+        }
+        $backfilled++;
+    }
+    unset($record);
+
+    return $backfilled;
+}
+
+/**
  * @return array<string,array{property:array<string,mixed>,owners:array<int,array<string,mixed>>,owner_hashes:array<int,string>,owner_keys:array<int,string>,row_indexes:array<int,int>,notes:array<int,string>,warnings:array<int,string>,source_files:array<int,string>,has_missing_cf:bool}>
  */
 function analyticspro_group_import_rows_by_unit(array $rows, int $tenantId): array
 {
-    $groups = [];
+    $prepared = analyticspro_prepare_import_groups($rows, $tenantId);
+    return $prepared['groups'];
+}
+
+/**
+ * @return array{groups:array<string,array{property:array<string,mixed>,owners:array<int,array<string,mixed>>,owner_hashes:array<int,string>,owner_keys:array<int,string>,row_indexes:array<int,int>,notes:array<int,string>,warnings:array<int,string>,source_files:array<int,string>,has_missing_cf:bool}>,backfilled_rows:int}
+ */
+function analyticspro_prepare_import_groups(array $rows, int $tenantId): array
+{
+    $preparedRows = [];
     foreach ($rows as $index => $row) {
         $payload = analyticspro_extract_row_payload($row, (int) $index);
-        $property = $payload['property'];
-        $owner = $payload['owner'];
-        $unitKey = analyticspro_import_unit_key($property, $tenantId, null, (int) $index);
-        if (!isset($groups[$unitKey])) {
-            $groups[$unitKey] = [
-                'property' => $property,
-                'owners' => [],
-                'owner_hashes' => [],
-                'owner_keys' => [],
-                'row_indexes' => [],
-                'notes' => [],
-                'warnings' => [],
-                'source_files' => [],
-                'has_missing_cf' => false,
-            ];
-        } else {
-            $groups[$unitKey]['property'] = analyticspro_merge_import_property_values($groups[$unitKey]['property'], $property);
-        }
-        $groups[$unitKey]['row_indexes'][] = (int) $index;
-        $groups[$unitKey]['warnings'] = array_values(array_unique(array_merge(
-            $groups[$unitKey]['warnings'],
-            array_values(array_filter(array_map(static fn ($warning): string => trim((string) $warning), $payload['warnings'] ?? []), static fn (string $warning): bool => $warning !== ''))
-        )));
-        $sourceFile = trim((string) ($row['__source_file'] ?? ''));
-        if ($sourceFile !== '') {
-            $groups[$unitKey]['source_files'][] = $sourceFile;
-            $groups[$unitKey]['source_files'] = array_values(array_unique($groups[$unitKey]['source_files']));
-        }
-        $note = trim((string) ($payload['note'] ?? ''));
-        if ($note !== '') {
-            $groups[$unitKey]['notes'][] = $note;
-        }
-        $cfHash = analyticspro_owner_cf_hash_from_row($owner);
-        $fallbackIdentity = analyticspro_owner_fallback_identity($owner);
-        $ownerKey = $cfHash !== ''
-            ? ('CF:' . $cfHash)
-            : ('NO_CF:' . ($fallbackIdentity !== '' ? $fallbackIdentity : ('ROW_' . (string) $index)));
-        $ownerIndex = array_search($ownerKey, $groups[$unitKey]['owner_keys'], true);
-        if ($ownerIndex === false) {
-            $groups[$unitKey]['owner_keys'][] = $ownerKey;
-            $groups[$unitKey]['owners'][] = $owner;
-            if ($cfHash !== '') {
-                $groups[$unitKey]['owner_hashes'][] = $cfHash;
+        $preparedRows[] = $payload['property'] + [
+            '__payload' => $payload,
+            '__source_row' => $row,
+            '__source_index' => (int) $index,
+        ];
+    }
+
+    $backfilledRows = analyticspro_backfill_import_cod_catastale($preparedRows, $tenantId);
+    $clusters = analyticspro_group_records_by_canonical_unit($preparedRows, $tenantId);
+    $groups = [];
+    foreach ($clusters as $groupIndex => $clusterRecords) {
+        $unitKey = 'group_' . (string) $groupIndex;
+        foreach ($clusterRecords as $record) {
+            $payload = is_array($record['__payload'] ?? null) ? $record['__payload'] : analyticspro_extract_row_payload($record, (int) ($record['__source_index'] ?? 0));
+            $property = $payload['property'];
+            $owner = $payload['owner'];
+            $index = (int) ($record['__source_index'] ?? 0);
+            if (!isset($groups[$unitKey])) {
+                $groups[$unitKey] = [
+                    'property' => $property,
+                    'owners' => [],
+                    'owner_hashes' => [],
+                    'owner_keys' => [],
+                    'row_indexes' => [],
+                    'notes' => [],
+                    'warnings' => [],
+                    'source_files' => [],
+                    'has_missing_cf' => false,
+                ];
             }
-        } else {
-            $groups[$unitKey]['owners'][(int) $ownerIndex] = analyticspro_merge_import_owner_values(
-                $groups[$unitKey]['owners'][(int) $ownerIndex],
-                $owner
-            );
-        }
-        if ($cfHash === '') {
-            $groups[$unitKey]['has_missing_cf'] = true;
-        } else {
-            $groups[$unitKey]['owner_hashes'][] = $cfHash;
-            $groups[$unitKey]['owner_hashes'] = array_values(array_unique($groups[$unitKey]['owner_hashes']));
+
+            $groups[$unitKey]['property'] = analyticspro_merge_import_property_values($groups[$unitKey]['property'], $property);
+            $groups[$unitKey]['row_indexes'][] = $index;
+            $groups[$unitKey]['warnings'] = array_values(array_unique(array_merge(
+                $groups[$unitKey]['warnings'],
+                array_values(array_filter(array_map(static fn ($warning): string => trim((string) $warning), $payload['warnings'] ?? []), static fn (string $warning): bool => $warning !== ''))
+            )));
+            $sourceFile = trim((string) (($record['__source_row']['__source_file'] ?? '') ?: ($record['__source_file'] ?? '')));
+            if ($sourceFile !== '') {
+                $groups[$unitKey]['source_files'][] = $sourceFile;
+                $groups[$unitKey]['source_files'] = array_values(array_unique($groups[$unitKey]['source_files']));
+            }
+            $note = trim((string) ($payload['note'] ?? ''));
+            if ($note !== '') {
+                $groups[$unitKey]['notes'][] = $note;
+            }
+            $cfHash = analyticspro_owner_cf_hash_from_row($owner);
+            $fallbackIdentity = analyticspro_owner_fallback_identity($owner);
+            $ownerKey = $cfHash !== ''
+                ? ('CF:' . $cfHash)
+                : ('NO_CF:' . ($fallbackIdentity !== '' ? $fallbackIdentity : ('ROW_' . (string) $index)));
+            $ownerIndex = array_search($ownerKey, $groups[$unitKey]['owner_keys'], true);
+            if ($ownerIndex === false) {
+                $groups[$unitKey]['owner_keys'][] = $ownerKey;
+                $groups[$unitKey]['owners'][] = $owner;
+                if ($cfHash !== '') {
+                    $groups[$unitKey]['owner_hashes'][] = $cfHash;
+                }
+            } else {
+                $groups[$unitKey]['owners'][(int) $ownerIndex] = analyticspro_merge_import_owner_values(
+                    $groups[$unitKey]['owners'][(int) $ownerIndex],
+                    $owner
+                );
+            }
+            if ($cfHash === '') {
+                $groups[$unitKey]['has_missing_cf'] = true;
+            } else {
+                $groups[$unitKey]['owner_hashes'][] = $cfHash;
+                $groups[$unitKey]['owner_hashes'] = array_values(array_unique($groups[$unitKey]['owner_hashes']));
+            }
         }
     }
 
-    return $groups;
+    return [
+        'groups' => $groups,
+        'backfilled_rows' => $backfilledRows,
+    ];
 }
 
 /**
@@ -684,40 +1027,76 @@ function analyticspro_group_import_rows_by_unit(array $rows, int $tenantId): arr
  */
 function analyticspro_find_existing_property_for_import(PDO $pdo, int $tenantId, array $property): ?array
 {
-    $params = [
+    $baseParams = [
         'user_id' => $tenantId,
         'provincia' => (string) ($property['provincia'] ?? ''),
-        'cod_catastale' => (string) ($property['cod_catastale'] ?? ''),
-        'comune_like' => strtoupper(substr(trim((string) ($property['comune'] ?? '')), 0, 6)) . '%',
     ];
-    $sql = 'SELECT * FROM properties
-        WHERE user_id = :user_id
-          AND provincia = :provincia
-          AND (
-            (:cod_catastale <> \'\' AND cod_catastale = :cod_catastale)
-            OR (:cod_catastale = \'\' AND UPPER(COALESCE(comune, \'\')) LIKE :comune_like)
-          )';
-    $stmt = $pdo->prepare($sql);
-    $stmt->execute($params);
-    $candidates = $stmt->fetchAll() ?: [];
+    $codCatastale = trim((string) ($property['cod_catastale'] ?? ''));
+    $codCatastaleNormalized = analyticspro_normalize_text($codCatastale);
+    $comuneLike = strtoupper(substr(trim((string) ($property['comune'] ?? '')), 0, 6)) . '%';
+    $sezione = trim((string) ($property['sezione'] ?? ''));
+    $foglio = trim((string) ($property['foglio'] ?? ''));
+    $foglioNormalized = analyticspro_normalize_cadastral_number($foglio);
+    $particella = trim((string) ($property['particella'] ?? ''));
+    $particellaNormalized = analyticspro_normalize_cadastral_number($particella);
+    $subalterno = trim((string) ($property['subalterno'] ?? ''));
+    $subalternoNormalized = analyticspro_normalize_cadastral_number($subalterno);
+    $candidates = [];
+    if ($codCatastale !== '') {
+        $stmt = $pdo->prepare('SELECT * FROM properties WHERE user_id = :user_id AND provincia = :provincia AND cod_catastale = :cod_catastale');
+        $stmt->execute($baseParams + ['cod_catastale' => $codCatastale]);
+        $candidates = $stmt->fetchAll() ?: [];
+        if ($candidates === [] && $codCatastaleNormalized !== '' && $codCatastaleNormalized !== $codCatastale) {
+            $stmt = $pdo->prepare('SELECT * FROM properties WHERE user_id = :user_id AND provincia = :provincia AND TRIM(UPPER(cod_catastale)) = :cod_catastale_normalized');
+            $stmt->execute($baseParams + ['cod_catastale_normalized' => $codCatastaleNormalized]);
+            $candidates = $stmt->fetchAll() ?: [];
+        }
+    }
+    if ($candidates === [] && $comuneLike !== '%') {
+        $fallbackSql = 'SELECT * FROM properties
+            WHERE user_id = :user_id
+              AND provincia = :provincia
+              AND comune LIKE :comune_like
+              AND COALESCE(sezione, \'\') = :sezione
+              AND (foglio = :foglio_raw OR foglio = :foglio_normalized)
+              AND (particella = :particella_raw OR particella = :particella_normalized)';
+        $fallbackParams = $baseParams + [
+            'comune_like' => $comuneLike,
+            'sezione' => $sezione,
+            'foglio_raw' => $foglio,
+            'foglio_normalized' => $foglioNormalized,
+            'particella_raw' => $particella,
+            'particella_normalized' => $particellaNormalized,
+        ];
+        if ($subalterno !== '' || $subalternoNormalized !== '') {
+            $fallbackSql .= ' AND (COALESCE(subalterno, \'\') = :subalterno_raw OR COALESCE(subalterno, \'\') = :subalterno_normalized)';
+            $fallbackParams['subalterno_raw'] = $subalterno;
+            $fallbackParams['subalterno_normalized'] = $subalternoNormalized;
+        }
+        $stmt = $pdo->prepare($fallbackSql);
+        $stmt->execute($fallbackParams);
+        $candidates = $stmt->fetchAll() ?: [];
+    }
     if ($candidates === []) {
         return null;
     }
 
-    $incomingKey = analyticspro_import_unit_key($property, $tenantId, null, null, false);
-    foreach ($candidates as $candidate) {
-        $candidateKey = analyticspro_import_unit_key([
-            'provincia' => (string) ($candidate['provincia'] ?? ''),
-            'comune' => (string) ($candidate['comune'] ?? ''),
-            'cod_catastale' => (string) ($candidate['cod_catastale'] ?? ''),
-            'sezione' => (string) ($candidate['sezione'] ?? ''),
-            'foglio' => (string) ($candidate['foglio'] ?? ''),
-            'particella' => (string) ($candidate['particella'] ?? ''),
-            'subalterno' => (string) ($candidate['subalterno'] ?? ''),
-        ], $tenantId, (int) ($candidate['id'] ?? 0), null, false);
-        if ($candidateKey === $incomingKey) {
-            return $candidate;
+    $incomingRecord = $property + ['id' => '__incoming__', '__incoming__' => true];
+    foreach (analyticspro_group_records_by_canonical_unit(array_merge([$incomingRecord], $candidates), $tenantId) as $cluster) {
+        $containsIncoming = false;
+        $clusterCandidates = [];
+        foreach ($cluster as $clusterRecord) {
+            if (!empty($clusterRecord['__incoming__'])) {
+                $containsIncoming = true;
+                continue;
+            }
+            $clusterCandidates[] = $clusterRecord;
         }
+        if (!$containsIncoming || $clusterCandidates === []) {
+            continue;
+        }
+
+        return analyticspro_choose_duplicate_property_keeper($clusterCandidates);
     }
 
     return null;
@@ -731,7 +1110,7 @@ function analyticspro_find_conflicts(array $rows, int $tenantId): array
     $pdo = analyticspro_db();
     $findOwners = $pdo->prepare('SELECT nome_enc, cognome_enc, codice_fiscale_enc, codice_fiscale_hash FROM property_owners WHERE property_id = :property_id AND is_current = 1 ORDER BY id ASC');
     $conflicts = [];
-    $grouped = analyticspro_group_import_rows_by_unit($rows, $tenantId);
+    $grouped = analyticspro_prepare_import_groups($rows, $tenantId)['groups'];
 
     foreach ($grouped as $group) {
         $property = $group['property'];
@@ -1828,6 +2207,29 @@ function analyticspro_property_owners_has_valid_to_column(): bool
     return $hasColumn;
 }
 
+function analyticspro_property_owners_has_column(string $column): bool
+{
+    static $cache = [];
+    if (array_key_exists($column, $cache)) {
+        return $cache[$column];
+    }
+    try {
+        $stmt = analyticspro_db()->prepare('SHOW COLUMNS FROM property_owners LIKE :column');
+        $stmt->execute(['column' => $column]);
+        $cache[$column] = (bool) $stmt->fetch();
+    } catch (Throwable) {
+        $cache[$column] = false;
+    }
+
+    return $cache[$column];
+}
+
+function analyticspro_property_owners_has_ownership_columns(): bool
+{
+    return analyticspro_property_owners_has_column('quota')
+        && analyticspro_property_owners_has_column('titolarita');
+}
+
 function analyticspro_import_owner_display_name(array $owner): string
 {
     $fullName = trim((string) (($owner['nome'] ?? '') . ' ' . ($owner['cognome'] ?? '')));
@@ -1844,6 +2246,215 @@ function analyticspro_import_owner_note_chunk(array $owner): string
     $cf = trim((string) ($owner['codice_fiscale'] ?? ''));
 
     return $name . ($cf !== '' ? (' (' . $cf . ')') : '');
+}
+
+/**
+ * @return array<string,mixed>
+ */
+function analyticspro_build_owner_statement_params(array $owner, int $propertyId, bool $includeOwnership = false): array
+{
+    $params = [
+        'property_id' => $propertyId,
+        'tipo' => (string) ($owner['tipo'] ?? 'persona'),
+        'nome_enc' => analyticspro_encrypt((string) ($owner['nome'] ?? '')),
+        'cognome_enc' => analyticspro_encrypt((string) ($owner['cognome'] ?? '')),
+        'codice_fiscale_enc' => analyticspro_encrypt((string) ($owner['codice_fiscale'] ?? '')),
+        'telefono_enc' => analyticspro_encrypt((string) ($owner['telefono'] ?? '')),
+        'indirizzo_enc' => analyticspro_encrypt((string) ($owner['indirizzo'] ?? '')),
+        'email_enc' => analyticspro_encrypt((string) ($owner['email'] ?? '')),
+        'nome_hash' => analyticspro_hash((string) ($owner['nome'] ?? '')),
+        'cognome_hash' => analyticspro_hash((string) ($owner['cognome'] ?? '')),
+        'codice_fiscale_hash' => analyticspro_hash((string) ($owner['codice_fiscale'] ?? '')),
+        'telefono_hash' => analyticspro_hash((string) ($owner['telefono'] ?? '')),
+        'data_nascita' => $owner['data_nascita'] ?? null,
+        'luogo_nascita_enc' => analyticspro_encrypt((string) ($owner['luogo_nascita'] ?? '')),
+        'genere' => $owner['genere'] ?? null,
+    ];
+    if ($includeOwnership) {
+        $params['quota'] = trim((string) ($owner['quota'] ?? '')) !== '' ? (string) $owner['quota'] : null;
+        $params['titolarita'] = trim((string) ($owner['titolarita'] ?? '')) !== '' ? (string) $owner['titolarita'] : null;
+    }
+
+    return $params;
+}
+
+function analyticspro_property_has_coordinates(array $property): bool
+{
+    return isset($property['lat'], $property['lng']) && is_numeric((string) $property['lat']) && is_numeric((string) $property['lng']);
+}
+
+function analyticspro_property_populated_field_count(array $property): int
+{
+    $count = 0;
+    foreach (['indirizzo', 'categoria', 'classe', 'rendita', 'consistenza', 'piano'] as $field) {
+        if (trim((string) ($property[$field] ?? '')) !== '') {
+            $count++;
+        }
+    }
+
+    return $count;
+}
+
+/**
+ * @param array<int,array<string,mixed>> $properties
+ * @return array<string,mixed>
+ */
+function analyticspro_choose_duplicate_property_keeper(array $properties): array
+{
+    usort($properties, static function (array $left, array $right): int {
+        $leftVerified = !empty($left['posizione_verificata']) ? 1 : 0;
+        $rightVerified = !empty($right['posizione_verificata']) ? 1 : 0;
+        if ($leftVerified !== $rightVerified) {
+            return $rightVerified <=> $leftVerified;
+        }
+
+        $leftCoords = analyticspro_property_has_coordinates($left) ? 1 : 0;
+        $rightCoords = analyticspro_property_has_coordinates($right) ? 1 : 0;
+        if ($leftCoords !== $rightCoords) {
+            return $rightCoords <=> $leftCoords;
+        }
+
+        $leftFields = analyticspro_property_populated_field_count($left);
+        $rightFields = analyticspro_property_populated_field_count($right);
+        if ($leftFields !== $rightFields) {
+            return $rightFields <=> $leftFields;
+        }
+
+        $leftCod = trim((string) ($left['cod_catastale'] ?? '')) !== '' ? 1 : 0;
+        $rightCod = trim((string) ($right['cod_catastale'] ?? '')) !== '' ? 1 : 0;
+        if ($leftCod !== $rightCod) {
+            return $rightCod <=> $leftCod;
+        }
+
+        return ((int) ($left['id'] ?? 0)) <=> ((int) ($right['id'] ?? 0));
+    });
+
+    return $properties[0];
+}
+
+function analyticspro_duplicate_owner_merge_key(array $owner): string
+{
+    $cfHash = trim((string) ($owner['codice_fiscale_hash'] ?? ''));
+    if ($cfHash !== '') {
+        return 'CF:' . $cfHash;
+    }
+    $cf = trim((string) ($owner['codice_fiscale'] ?? ''));
+    if ($cf !== '') {
+        return 'CF:' . (analyticspro_hash($cf) ?? $cf);
+    }
+    $ownerId = (int) ($owner['id'] ?? 0);
+    if ($ownerId > 0) {
+        return 'ID:' . $ownerId;
+    }
+
+    return 'ROW:' . md5(json_encode($owner, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '');
+}
+
+/**
+ * @param array<int,array<string,mixed>> $cluster
+ * @return array{keeper:array<string,mixed>,absorbed_ids:array<int,int>,owners:array<int,array<string,mixed>>,notes:array<int,array<string,mixed>>,assignments:array<int,array<string,mixed>>,state_note:string,summary_note:string}
+ */
+function analyticspro_preview_duplicate_property_merge(array $cluster): array
+{
+    $keeper = analyticspro_choose_duplicate_property_keeper($cluster);
+    $keeperId = (int) ($keeper['id'] ?? 0);
+    $orderedCluster = array_merge(
+        array_values(array_filter($cluster, static fn (array $property): bool => (int) ($property['id'] ?? 0) === $keeperId)),
+        array_values(array_filter($cluster, static fn (array $property): bool => (int) ($property['id'] ?? 0) !== $keeperId))
+    );
+    $merged = $keeper;
+    foreach (['cod_catastale', 'indirizzo', 'civico', 'categoria', 'classe', 'rendita', 'consistenza', 'superficie', 'piano', 'titolarita', 'quota'] as $field) {
+        if (trim((string) ($merged[$field] ?? '')) !== '') {
+            continue;
+        }
+        foreach ($orderedCluster as $property) {
+            $candidateValue = trim((string) ($property[$field] ?? ''));
+            if ($candidateValue !== '') {
+                $merged[$field] = $property[$field];
+                break;
+            }
+        }
+    }
+
+    $owners = [];
+    $seenCurrentByKey = [];
+    foreach ($orderedCluster as $property) {
+        foreach (($property['owners'] ?? []) as $owner) {
+            $ownerCopy = $owner;
+            $ownerCopy['property_id'] = (int) ($property['id'] ?? 0);
+            $ownerCopy['quota'] = trim((string) ($ownerCopy['quota'] ?? '')) !== ''
+                ? $ownerCopy['quota']
+                : ($property['quota'] ?? '');
+            $ownerCopy['titolarita'] = trim((string) ($ownerCopy['titolarita'] ?? '')) !== ''
+                ? $ownerCopy['titolarita']
+                : ($property['titolarita'] ?? '');
+            $isCurrent = array_key_exists('is_current', $ownerCopy) ? (int) $ownerCopy['is_current'] : 1;
+            if ($isCurrent === 1) {
+                $mergeKey = analyticspro_duplicate_owner_merge_key($ownerCopy);
+                if (isset($seenCurrentByKey[$mergeKey])) {
+                    $ownerCopy['is_current'] = 0;
+                    $ownerCopy['close_duplicate_current'] = true;
+                    if (trim((string) ($ownerCopy['valid_to'] ?? '')) === '') {
+                        $ownerCopy['valid_to'] = 'NOW';
+                    }
+                } else {
+                    $seenCurrentByKey[$mergeKey] = true;
+                    $ownerCopy['is_current'] = 1;
+                    $ownerCopy['close_duplicate_current'] = false;
+                }
+            }
+            $owners[] = $ownerCopy;
+        }
+    }
+
+    $assignments = [];
+    $seenAssignments = [];
+    foreach ($orderedCluster as $property) {
+        foreach (($property['assignments'] ?? []) as $assignment) {
+            $subuserId = (int) ($assignment['subuser_id'] ?? 0);
+            if ($subuserId <= 0 || isset($seenAssignments[$subuserId])) {
+                continue;
+            }
+            $seenAssignments[$subuserId] = true;
+            $assignments[] = $assignment;
+        }
+    }
+
+    $notes = [];
+    foreach ($orderedCluster as $property) {
+        foreach (($property['notes'] ?? []) as $note) {
+            $notes[] = $note + ['property_id' => (int) ($property['id'] ?? 0)];
+        }
+    }
+
+    $states = [];
+    foreach ($orderedCluster as $property) {
+        $stateKey = trim((string) ($property['stato_personalizzato'] ?? ''));
+        if ($stateKey === '') {
+            $stateKey = trim((string) ($property['stato'] ?? ''));
+        }
+        if ($stateKey !== '') {
+            $states[] = 'property #' . (int) ($property['id'] ?? 0) . ': ' . $stateKey;
+        }
+    }
+    $states = array_values(array_unique($states));
+
+    $absorbedIds = array_values(array_map(
+        static fn (array $property): int => (int) $property['id'],
+        array_filter($cluster, static fn (array $property): bool => (int) ($property['id'] ?? 0) !== $keeperId)
+    ));
+
+    return [
+        'keeper' => $merged,
+        'absorbed_ids' => $absorbedIds,
+        'owners' => $owners,
+        'notes' => $notes,
+        'assignments' => $assignments,
+        'state_note' => count($states) > 1
+            ? ('Stati differenti rilevati durante unione duplicati. Mantenuto stato del record #' . $keeperId . '; altri stati: ' . implode(', ', $states) . '.')
+            : '',
+        'summary_note' => 'Unificati ' . count($cluster) . ' record duplicati dello stesso immobile in data ' . date('Y-m-d H:i:s'),
+    ];
 }
 
 /**
@@ -1926,10 +2537,13 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
     $decisions = $payload['decisions'] ?? [];
     $keepAssignmentsOnReplace = !array_key_exists('keep_assignments_on_replace', $payload)
         || (bool) $payload['keep_assignments_on_replace'];
-    $groupedRows = analyticspro_group_import_rows_by_unit($rows, $tenantId);
+    $preparedImport = analyticspro_prepare_import_groups($rows, $tenantId);
+    $groupedRows = $preparedImport['groups'];
+    $backfilledRows = (int) ($preparedImport['backfilled_rows'] ?? 0);
 
     $hasPianoColumn = analyticspro_properties_has_piano_column();
     $hasProvinciaOriginaleColumn = analyticspro_properties_has_provincia_originale_column();
+    $hasOwnerOwnershipColumns = analyticspro_property_owners_has_ownership_columns();
     $insertColumns = [
         'user_id', 'import_batch_id', 'provincia', 'comune', 'cod_catastale', 'sezione', 'foglio', 'particella', 'subalterno',
         'indirizzo', 'civico', 'categoria', 'classe',
@@ -1977,8 +2591,16 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
     $closeOwnerById = analyticspro_property_owners_has_valid_to_column()
         ? $pdo->prepare('UPDATE property_owners SET is_current = 0, valid_to = NOW() WHERE id = :id AND is_current = 1')
         : $pdo->prepare('UPDATE property_owners SET is_current = 0 WHERE id = :id AND is_current = 1');
-    $insertOwner = $pdo->prepare('INSERT INTO property_owners (property_id, tipo, nome_enc, cognome_enc, codice_fiscale_enc, telefono_enc, indirizzo_enc, email_enc, nome_hash, cognome_hash, codice_fiscale_hash, telefono_hash, data_nascita, luogo_nascita_enc, genere, is_current, valid_from) VALUES (:property_id, :tipo, :nome_enc, :cognome_enc, :codice_fiscale_enc, :telefono_enc, :indirizzo_enc, :email_enc, :nome_hash, :cognome_hash, :codice_fiscale_hash, :telefono_hash, :data_nascita, :luogo_nascita_enc, :genere, 1, NOW())');
-    $updateCurrentOwner = $pdo->prepare('UPDATE property_owners SET tipo = :tipo, nome_enc = :nome_enc, cognome_enc = :cognome_enc, codice_fiscale_enc = :codice_fiscale_enc, telefono_enc = :telefono_enc, indirizzo_enc = :indirizzo_enc, email_enc = :email_enc, nome_hash = :nome_hash, cognome_hash = :cognome_hash, codice_fiscale_hash = :codice_fiscale_hash, telefono_hash = :telefono_hash, data_nascita = :data_nascita, luogo_nascita_enc = :luogo_nascita_enc, genere = :genere WHERE id = :id AND is_current = 1');
+    $ownerInsertColumns = ['property_id', 'tipo', 'nome_enc', 'cognome_enc', 'codice_fiscale_enc', 'telefono_enc', 'indirizzo_enc', 'email_enc', 'nome_hash', 'cognome_hash', 'codice_fiscale_hash', 'telefono_hash', 'data_nascita', 'luogo_nascita_enc', 'genere'];
+    $ownerInsertValues = [':property_id', ':tipo', ':nome_enc', ':cognome_enc', ':codice_fiscale_enc', ':telefono_enc', ':indirizzo_enc', ':email_enc', ':nome_hash', ':cognome_hash', ':codice_fiscale_hash', ':telefono_hash', ':data_nascita', ':luogo_nascita_enc', ':genere'];
+    $ownerUpdateSet = ['tipo = :tipo', 'nome_enc = :nome_enc', 'cognome_enc = :cognome_enc', 'codice_fiscale_enc = :codice_fiscale_enc', 'telefono_enc = :telefono_enc', 'indirizzo_enc = :indirizzo_enc', 'email_enc = :email_enc', 'nome_hash = :nome_hash', 'cognome_hash = :cognome_hash', 'codice_fiscale_hash = :codice_fiscale_hash', 'telefono_hash = :telefono_hash', 'data_nascita = :data_nascita', 'luogo_nascita_enc = :luogo_nascita_enc', 'genere = :genere'];
+    if ($hasOwnerOwnershipColumns) {
+        $ownerInsertColumns = array_merge($ownerInsertColumns, ['quota', 'titolarita']);
+        $ownerInsertValues = array_merge($ownerInsertValues, [':quota', ':titolarita']);
+        $ownerUpdateSet = array_merge($ownerUpdateSet, ['quota = :quota', 'titolarita = :titolarita']);
+    }
+    $insertOwner = $pdo->prepare('INSERT INTO property_owners (' . implode(', ', array_merge($ownerInsertColumns, ['is_current', 'valid_from'])) . ') VALUES (' . implode(', ', array_merge($ownerInsertValues, ['1', 'NOW()'])) . ')');
+    $updateCurrentOwner = $pdo->prepare('UPDATE property_owners SET ' . implode(', ', $ownerUpdateSet) . ' WHERE id = :id AND is_current = 1');
     $insertConflict = $pdo->prepare('INSERT INTO import_duplicate_conflicts (import_batch_id, property_id, action_taken, resolved_by, resolved_at) VALUES (:import_batch_id, :property_id, :action_taken, :resolved_by, NOW())');
     $insertNote = $pdo->prepare('INSERT INTO property_notes (property_id, author_id, author_name_snapshot, testo) VALUES (:property_id, :author_id, :author_name_snapshot, :testo)');
     $resetPropertyState = $pdo->prepare('UPDATE properties SET stato = NULL, stato_personalizzato = NULL, colore_marker = :colore_marker WHERE id = :id');
@@ -2035,7 +2657,7 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
                 $hasManualCoords = $property['lat'] !== null && $property['lng'] !== null;
                 $updateParams = [
                     'import_batch_id' => $batchId,
-                    'cod_catastale' => $property['cod_catastale'] !== '' ? $property['cod_catastale'] : null,
+                    'cod_catastale' => (string) ($property['cod_catastale'] ?? ''),
                     'indirizzo' => $property['indirizzo'] !== '' ? $property['indirizzo'] : null,
                     'civico' => $property['civico'] !== '' ? $property['civico'] : null,
                     'categoria' => $property['categoria'] !== '' ? $property['categoria'] : null,
@@ -2139,46 +2761,16 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
                                     'data_nascita' => $existingOwner['data_nascita'],
                                     'luogo_nascita' => analyticspro_decrypt($existingOwner['luogo_nascita_enc'] ?? null),
                                     'genere' => $existingOwner['genere'],
+                                    'quota' => $existingOwner['quota'] ?? null,
+                                    'titolarita' => $existingOwner['titolarita'] ?? null,
                                 ], $incomingOwner);
-                                $updateCurrentOwner->execute([
-                                    'id' => (int) $existingOwner['id'],
-                                    'tipo' => $mergedOwner['tipo'] !== '' ? $mergedOwner['tipo'] : 'persona',
-                                    'nome_enc' => analyticspro_encrypt($mergedOwner['nome'] ?? ''),
-                                    'cognome_enc' => analyticspro_encrypt($mergedOwner['cognome'] ?? ''),
-                                    'codice_fiscale_enc' => analyticspro_encrypt($mergedOwner['codice_fiscale'] ?? ''),
-                                    'telefono_enc' => analyticspro_encrypt($mergedOwner['telefono'] ?? ''),
-                                    'indirizzo_enc' => analyticspro_encrypt($mergedOwner['indirizzo'] ?? ''),
-                                    'email_enc' => analyticspro_encrypt($mergedOwner['email'] ?? ''),
-                                    'nome_hash' => analyticspro_hash($mergedOwner['nome'] ?? ''),
-                                    'cognome_hash' => analyticspro_hash($mergedOwner['cognome'] ?? ''),
-                                    'codice_fiscale_hash' => analyticspro_hash($mergedOwner['codice_fiscale'] ?? ''),
-                                    'telefono_hash' => analyticspro_hash($mergedOwner['telefono'] ?? ''),
-                                    'data_nascita' => $mergedOwner['data_nascita'] ?? null,
-                                    'luogo_nascita_enc' => analyticspro_encrypt($mergedOwner['luogo_nascita'] ?? ''),
-                                    'genere' => $mergedOwner['genere'] ?? null,
-                                ]);
+                                $updateCurrentOwner->execute(['id' => (int) $existingOwner['id']] + analyticspro_build_owner_statement_params($mergedOwner, $propertyId, $hasOwnerOwnershipColumns));
                                 continue;
                             }
                             if (!in_array($cfHash, $replacementPlan['insert_hashes'] ?? [], true)) {
                                 continue;
                             }
-                            $insertOwner->execute([
-                                'property_id' => $propertyId,
-                                'tipo' => $incomingOwner['tipo'],
-                                'nome_enc' => analyticspro_encrypt($incomingOwner['nome']),
-                                'cognome_enc' => analyticspro_encrypt($incomingOwner['cognome']),
-                                'codice_fiscale_enc' => analyticspro_encrypt($incomingOwner['codice_fiscale']),
-                                'telefono_enc' => analyticspro_encrypt($incomingOwner['telefono']),
-                                'indirizzo_enc' => analyticspro_encrypt($incomingOwner['indirizzo']),
-                                'email_enc' => analyticspro_encrypt($incomingOwner['email']),
-                                'nome_hash' => analyticspro_hash($incomingOwner['nome']),
-                                'cognome_hash' => analyticspro_hash($incomingOwner['cognome']),
-                                'codice_fiscale_hash' => analyticspro_hash($incomingOwner['codice_fiscale']),
-                                'telefono_hash' => analyticspro_hash($incomingOwner['telefono']),
-                                'data_nascita' => $incomingOwner['data_nascita'],
-                                'luogo_nascita_enc' => analyticspro_encrypt($incomingOwner['luogo_nascita'] ?? ''),
-                                'genere' => $incomingOwner['genere'],
-                            ]);
+                            $insertOwner->execute(analyticspro_build_owner_statement_params($incomingOwner, $propertyId, $hasOwnerOwnershipColumns));
                         }
                         foreach ($incomingNoCfOwnersByKey as $fallbackKey => $incomingOwner) {
                             if (isset($currentNoCfOwnersByKey[$fallbackKey])) {
@@ -2194,43 +2786,13 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
                                     'data_nascita' => $existingOwner['data_nascita'],
                                     'luogo_nascita' => analyticspro_decrypt($existingOwner['luogo_nascita_enc'] ?? null),
                                     'genere' => $existingOwner['genere'],
+                                    'quota' => $existingOwner['quota'] ?? null,
+                                    'titolarita' => $existingOwner['titolarita'] ?? null,
                                 ], $incomingOwner);
-                                $updateCurrentOwner->execute([
-                                    'id' => (int) $existingOwner['id'],
-                                    'tipo' => $mergedOwner['tipo'] !== '' ? $mergedOwner['tipo'] : 'persona',
-                                    'nome_enc' => analyticspro_encrypt($mergedOwner['nome'] ?? ''),
-                                    'cognome_enc' => analyticspro_encrypt($mergedOwner['cognome'] ?? ''),
-                                    'codice_fiscale_enc' => analyticspro_encrypt($mergedOwner['codice_fiscale'] ?? ''),
-                                    'telefono_enc' => analyticspro_encrypt($mergedOwner['telefono'] ?? ''),
-                                    'indirizzo_enc' => analyticspro_encrypt($mergedOwner['indirizzo'] ?? ''),
-                                    'email_enc' => analyticspro_encrypt($mergedOwner['email'] ?? ''),
-                                    'nome_hash' => analyticspro_hash($mergedOwner['nome'] ?? ''),
-                                    'cognome_hash' => analyticspro_hash($mergedOwner['cognome'] ?? ''),
-                                    'codice_fiscale_hash' => analyticspro_hash($mergedOwner['codice_fiscale'] ?? ''),
-                                    'telefono_hash' => analyticspro_hash($mergedOwner['telefono'] ?? ''),
-                                    'data_nascita' => $mergedOwner['data_nascita'] ?? null,
-                                    'luogo_nascita_enc' => analyticspro_encrypt($mergedOwner['luogo_nascita'] ?? ''),
-                                    'genere' => $mergedOwner['genere'] ?? null,
-                                ]);
+                                $updateCurrentOwner->execute(['id' => (int) $existingOwner['id']] + analyticspro_build_owner_statement_params($mergedOwner, $propertyId, $hasOwnerOwnershipColumns));
                                 continue;
                             }
-                            $insertOwner->execute([
-                                'property_id' => $propertyId,
-                                'tipo' => $incomingOwner['tipo'],
-                                'nome_enc' => analyticspro_encrypt($incomingOwner['nome']),
-                                'cognome_enc' => analyticspro_encrypt($incomingOwner['cognome']),
-                                'codice_fiscale_enc' => analyticspro_encrypt($incomingOwner['codice_fiscale']),
-                                'telefono_enc' => analyticspro_encrypt($incomingOwner['telefono']),
-                                'indirizzo_enc' => analyticspro_encrypt($incomingOwner['indirizzo']),
-                                'email_enc' => analyticspro_encrypt($incomingOwner['email']),
-                                'nome_hash' => analyticspro_hash($incomingOwner['nome']),
-                                'cognome_hash' => analyticspro_hash($incomingOwner['cognome']),
-                                'codice_fiscale_hash' => analyticspro_hash($incomingOwner['codice_fiscale']),
-                                'telefono_hash' => analyticspro_hash($incomingOwner['telefono']),
-                                'data_nascita' => $incomingOwner['data_nascita'],
-                                'luogo_nascita_enc' => analyticspro_encrypt($incomingOwner['luogo_nascita'] ?? ''),
-                                'genere' => $incomingOwner['genere'],
-                            ]);
+                            $insertOwner->execute(analyticspro_build_owner_statement_params($incomingOwner, $propertyId, $hasOwnerOwnershipColumns));
                         }
 
                         $resetPropertyState->execute([
@@ -2255,26 +2817,53 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
                                 . ' — Nuovi: '
                                 . implode(', ', array_map(static fn (array $owner): string => analyticspro_import_owner_note_chunk($owner), $incomingOwnerListForNote)),
                         ]);
+                    } else {
+                        foreach ($incomingByCfHash as $cfHash => $incomingOwner) {
+                            if (!isset($currentByCfHash[$cfHash])) {
+                                continue;
+                            }
+                            $existingOwner = $currentByCfHash[$cfHash];
+                            $mergedOwner = analyticspro_merge_import_owner_values([
+                                'tipo' => (string) ($existingOwner['tipo'] ?? ''),
+                                'nome' => analyticspro_decrypt($existingOwner['nome_enc'] ?? null),
+                                'cognome' => analyticspro_decrypt($existingOwner['cognome_enc'] ?? null),
+                                'codice_fiscale' => analyticspro_decrypt($existingOwner['codice_fiscale_enc'] ?? null),
+                                'telefono' => analyticspro_decrypt($existingOwner['telefono_enc'] ?? null),
+                                'indirizzo' => analyticspro_decrypt($existingOwner['indirizzo_enc'] ?? null),
+                                'email' => analyticspro_decrypt($existingOwner['email_enc'] ?? null),
+                                'data_nascita' => $existingOwner['data_nascita'],
+                                'luogo_nascita' => analyticspro_decrypt($existingOwner['luogo_nascita_enc'] ?? null),
+                                'genere' => $existingOwner['genere'],
+                                'quota' => $existingOwner['quota'] ?? null,
+                                'titolarita' => $existingOwner['titolarita'] ?? null,
+                            ], $incomingOwner);
+                            $updateCurrentOwner->execute(['id' => (int) $existingOwner['id']] + analyticspro_build_owner_statement_params($mergedOwner, $propertyId, $hasOwnerOwnershipColumns));
+                        }
+                        foreach ($incomingNoCfOwnersByKey as $fallbackKey => $incomingOwner) {
+                            if (!isset($currentNoCfOwnersByKey[$fallbackKey])) {
+                                continue;
+                            }
+                            $existingOwner = $currentNoCfOwnersByKey[$fallbackKey];
+                            $mergedOwner = analyticspro_merge_import_owner_values([
+                                'tipo' => (string) ($existingOwner['tipo'] ?? ''),
+                                'nome' => analyticspro_decrypt($existingOwner['nome_enc'] ?? null),
+                                'cognome' => analyticspro_decrypt($existingOwner['cognome_enc'] ?? null),
+                                'codice_fiscale' => analyticspro_decrypt($existingOwner['codice_fiscale_enc'] ?? null),
+                                'telefono' => analyticspro_decrypt($existingOwner['telefono_enc'] ?? null),
+                                'indirizzo' => analyticspro_decrypt($existingOwner['indirizzo_enc'] ?? null),
+                                'email' => analyticspro_decrypt($existingOwner['email_enc'] ?? null),
+                                'data_nascita' => $existingOwner['data_nascita'],
+                                'luogo_nascita' => analyticspro_decrypt($existingOwner['luogo_nascita_enc'] ?? null),
+                                'genere' => $existingOwner['genere'],
+                                'quota' => $existingOwner['quota'] ?? null,
+                                'titolarita' => $existingOwner['titolarita'] ?? null,
+                            ], $incomingOwner);
+                            $updateCurrentOwner->execute(['id' => (int) $existingOwner['id']] + analyticspro_build_owner_statement_params($mergedOwner, $propertyId, $hasOwnerOwnershipColumns));
+                        }
                     }
                 } elseif ($currentOwners === [] && ($incomingByCfHash !== [] || $incomingNoCfOwnersByKey !== [])) {
                     foreach (array_merge(array_values($incomingByCfHash), array_values($incomingNoCfOwnersByKey)) as $incomingOwner) {
-                        $insertOwner->execute([
-                            'property_id' => $propertyId,
-                            'tipo' => $incomingOwner['tipo'],
-                            'nome_enc' => analyticspro_encrypt($incomingOwner['nome']),
-                            'cognome_enc' => analyticspro_encrypt($incomingOwner['cognome']),
-                            'codice_fiscale_enc' => analyticspro_encrypt($incomingOwner['codice_fiscale']),
-                            'telefono_enc' => analyticspro_encrypt($incomingOwner['telefono']),
-                            'indirizzo_enc' => analyticspro_encrypt($incomingOwner['indirizzo']),
-                            'email_enc' => analyticspro_encrypt($incomingOwner['email']),
-                            'nome_hash' => analyticspro_hash($incomingOwner['nome']),
-                            'cognome_hash' => analyticspro_hash($incomingOwner['cognome']),
-                            'codice_fiscale_hash' => analyticspro_hash($incomingOwner['codice_fiscale']),
-                            'telefono_hash' => analyticspro_hash($incomingOwner['telefono']),
-                            'data_nascita' => $incomingOwner['data_nascita'],
-                            'luogo_nascita_enc' => analyticspro_encrypt($incomingOwner['luogo_nascita'] ?? ''),
-                            'genere' => $incomingOwner['genere'],
-                        ]);
+                        $insertOwner->execute(analyticspro_build_owner_statement_params($incomingOwner, $propertyId, $hasOwnerOwnershipColumns));
                     }
                 }
             } else {
@@ -2283,11 +2872,11 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
                     'import_batch_id' => $batchId,
                     'provincia' => $property['provincia'],
                     'comune' => $property['comune'],
-                    'cod_catastale' => $property['cod_catastale'] !== '' ? $property['cod_catastale'] : null,
-                    'sezione' => $property['sezione'] !== '' ? $property['sezione'] : null,
+                    'cod_catastale' => (string) ($property['cod_catastale'] ?? ''),
+                    'sezione' => (string) ($property['sezione'] ?? ''),
                     'foglio' => $property['foglio'],
                     'particella' => $property['particella'],
-                    'subalterno' => $property['subalterno'] !== '' ? $property['subalterno'] : null,
+                    'subalterno' => (string) ($property['subalterno'] ?? ''),
                     'indirizzo' => $property['indirizzo'] !== '' ? $property['indirizzo'] : null,
                     'civico' => $property['civico'] !== '' ? $property['civico'] : null,
                     'categoria' => $property['categoria'] !== '' ? $property['categoria'] : null,
@@ -2308,23 +2897,7 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
                 $insertProperty->execute($insertParams);
                 $propertyId = (int) $pdo->lastInsertId();
                 foreach (array_merge(array_values($incomingByCfHash), array_values($incomingNoCfOwnersByKey)) as $incomingOwner) {
-                    $insertOwner->execute([
-                        'property_id' => $propertyId,
-                        'tipo' => $incomingOwner['tipo'],
-                        'nome_enc' => analyticspro_encrypt($incomingOwner['nome']),
-                        'cognome_enc' => analyticspro_encrypt($incomingOwner['cognome']),
-                        'codice_fiscale_enc' => analyticspro_encrypt($incomingOwner['codice_fiscale']),
-                        'telefono_enc' => analyticspro_encrypt($incomingOwner['telefono']),
-                        'indirizzo_enc' => analyticspro_encrypt($incomingOwner['indirizzo']),
-                        'email_enc' => analyticspro_encrypt($incomingOwner['email']),
-                        'nome_hash' => analyticspro_hash($incomingOwner['nome']),
-                        'cognome_hash' => analyticspro_hash($incomingOwner['cognome']),
-                        'codice_fiscale_hash' => analyticspro_hash($incomingOwner['codice_fiscale']),
-                        'telefono_hash' => analyticspro_hash($incomingOwner['telefono']),
-                        'data_nascita' => $incomingOwner['data_nascita'],
-                        'luogo_nascita_enc' => analyticspro_encrypt($incomingOwner['luogo_nascita'] ?? ''),
-                        'genere' => $incomingOwner['genere'],
-                    ]);
+                    $insertOwner->execute(analyticspro_build_owner_statement_params($incomingOwner, $propertyId, $hasOwnerOwnershipColumns));
                 }
                 $sourceFileLabel = implode(', ', array_values(array_unique($group['source_files'] ?? [])));
                 $insertNote->execute([
@@ -2365,6 +2938,7 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
             'processed_rows' => $processed,
             'saved_rows' => $savedRows,
             'skipped_rows' => $skippedRows,
+            'backfilled_rows' => $backfilledRows,
             'notes_imported' => $notesImported,
             'skipped_reasons' => array_filter($skippedReasons),
             'warnings' => array_values(array_unique($warnings)),

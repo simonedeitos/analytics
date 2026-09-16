@@ -26,8 +26,31 @@ Webapp PHP/PDO multi-tenant per importare dati catastali, salvarli su MySQL/Mari
 - Formati supportati: `.csv`, `.xlsx`, `.xls`
 - Parsing client-side con SheetJS, sul modello dell'app analytics root.
 - Persistenza server-side con PDO prepared statements.
-- I duplicati su chiave catastale `(user_id, provincia, comune, sezione, foglio, particella, subalterno)` vengono analizzati prima dell'import.
+- I duplicati vengono analizzati con una chiave catastale canonica tollerante: tenant + provincia + comune/codice catastale + sezione + foglio + particella + subalterno, con merge simmetrico PHP/JS anche quando uno dei record non ha `cod_catastale` ma coincide sul comune normalizzato.
 - Se cambia l'intestatario, il worker crea lo storico su `property_owners` e registra la scelta in `import_duplicate_conflicts`.
+- Se nello stesso batch un record ha `cod_catastale` risolto e un altro dello stesso comune/provincia no, l'import esegue un backfill automatico prima del raggruppamento e lo riporta nel log di import.
+
+### Merge duplicati già presenti
+
+Per sanare i duplicati storici già presenti in produzione:
+
+```bash
+php analyticspro/tools/merge_duplicate_properties.php
+php analyticspro/tools/merge_duplicate_properties.php --tenant=123
+php analyticspro/tools/merge_duplicate_properties.php --apply
+```
+
+- **Default = `--dry-run`**: stampa cluster, property coinvolte, owners/note/assegnazioni e scrive un log in `analyticspro/storage/logs/`.
+- Usa `--apply` solo dopo aver verificato il report.
+- Lo script preserva storico owners, quota/titolarità per-intestatario, note, assegnazioni e aggiunge una nota di sistema sull'immobile mantenuto.
+
+### Ordine consigliato in produzione
+
+1. Eseguire `analyticspro/sql/migrations/015_add_property_owner_ownership_columns.sql`
+2. Eseguire `php analyticspro/tools/merge_duplicate_properties.php --apply`
+3. Eseguire `analyticspro/sql/migrations/016_normalize_cadastral_nulls_and_unique.sql`
+
+La migration 016 si blocca in modo esplicito se rileva duplicati incompatibili con il nuovo vincolo UNIQUE.
 
 ### Normalizzazione provincia (sigla canonica + valore originale)
 
