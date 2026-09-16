@@ -19,12 +19,20 @@ try {
     analyticspro_verify_csrf($input['csrf_token'] ?? null);
     $result = analyticspro_maintenance_run_migration((string) ($input['filename'] ?? ''));
     analyticspro_json(['ok' => true] + $result);
-} catch (Throwable $exception) {
-    $message = $exception->getMessage();
+} catch (AnalyticsproMaintenanceException $exception) {
     analyticspro_json([
         'ok' => false,
-        'error' => $message,
-        'blocked_by_duplicates' => str_contains($message, 'Migration 016 blocked:'),
-        'section_hint' => str_contains($message, 'Migration 016 blocked:') ? 'duplicates' : null,
+        'error' => $exception->getMessage(),
+        'error_code' => $exception->errorCode(),
+        'blocked_by_duplicates' => $exception->errorCode() === 'migration_016_duplicates_blocked',
+        'section_hint' => $exception->errorCode() === 'migration_016_duplicates_blocked' ? 'duplicates' : null,
+    ], 422);
+} catch (Throwable $exception) {
+    analyticspro_json([
+        'ok' => false,
+        'error' => $exception->getMessage(),
+        'error_code' => 'migration_run_failed',
+        'blocked_by_duplicates' => false,
+        'section_hint' => null,
     ], 422);
 }

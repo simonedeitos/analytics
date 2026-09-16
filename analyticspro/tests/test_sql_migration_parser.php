@@ -44,6 +44,28 @@ if (isset($customStatements[1]) && !str_contains($customStatements[1], "'token $
     $errors[] = 'Il parser non deve spezzare il delimitatore custom quando compare dentro una stringa.';
 }
 
+
+$commentSql = <<<'SQL'
+/* block comment */
+INSERT INTO demo VALUES ('keep -- text'); -- inline comment
+/* multi
+   line */
+INSERT INTO demo VALUES ('keep /* text */');
+SQL;
+$commentStatements = analyticspro_maintenance_parse_sql_statements($commentSql);
+if (count($commentStatements) !== 2) {
+    $pass = false;
+    $errors[] = 'Il parser deve ignorare commenti block e inline fuori dalle stringhe SQL.';
+}
+if (isset($commentStatements[0]) && !str_contains($commentStatements[0], "'keep -- text'")) {
+    $pass = false;
+    $errors[] = 'Il parser non deve rimuovere il testo `--` quando si trova dentro una stringa.';
+}
+if (isset($commentStatements[1]) && !str_contains($commentStatements[1], "'keep /* text */'")) {
+    $pass = false;
+    $errors[] = 'Il parser non deve rimuovere il testo `/* */` quando si trova dentro una stringa.';
+}
+
 if (count($statements) !== 4) {
     $pass = false;
     $errors[] = 'La migration 016 deve produrre 4 statement eseguibili, trovati ' . count($statements) . '.';
@@ -56,9 +78,8 @@ if (isset($statements[1]) && (!str_contains($statements[1], 'CREATE PROCEDURE _a
     $pass = false;
     $errors[] = 'Il parser deve mantenere intatto il corpo della CREATE PROCEDURE con delimitatore custom.';
 }
-if (implode("
-", $statements) !== '' && str_contains(implode("
-", $statements), 'DELIMITER')) {
+$joinedStatements = implode("\n", $statements);
+if ($joinedStatements !== '' && str_contains($joinedStatements, 'DELIMITER')) {
     $pass = false;
     $errors[] = 'Le direttive DELIMITER non devono comparire negli statement eseguiti via PDO.';
 }

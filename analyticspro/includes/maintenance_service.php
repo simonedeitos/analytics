@@ -2,6 +2,19 @@
 
 declare(strict_types=1);
 
+final class AnalyticsproMaintenanceException extends RuntimeException
+{
+    public function __construct(string $message, private string $errorCode, ?Throwable $previous = null)
+    {
+        parent::__construct($message, 0, $previous);
+    }
+
+    public function errorCode(): string
+    {
+        return $this->errorCode;
+    }
+}
+
 function analyticspro_maintenance_access_allowed(): bool
 {
     return !analyticspro_is_subuser();
@@ -182,6 +195,105 @@ function analyticspro_maintenance_find_migration(string $filename): array
     throw new RuntimeException('Migrazione non trovata.');
 }
 
+function analyticspro_maintenance_filter_sql_line(string $line, bool &$inBlockComment): string
+{
+    $result = '';
+    $length = strlen($line);
+    $inSingleQuote = false;
+    $inDoubleQuote = false;
+    $inBacktick = false;
+
+    for ($index = 0; $index < $length; $index++) {
+        $char = $line[$index];
+        $nextChar = $line[$index + 1] ?? '';
+
+        if ($inBlockComment) {
+            if ($char === '*' && $nextChar === '/') {
+                $inBlockComment = false;
+                $index++;
+            }
+            continue;
+        }
+
+        if ($inSingleQuote) {
+            $result .= $char;
+            if ($char === '\\') {
+                if ($nextChar !== '') {
+                    $result .= $nextChar;
+                    $index++;
+                }
+                continue;
+            }
+            if ($char === "'" && $nextChar === "'") {
+                $result .= $nextChar;
+                $index++;
+                continue;
+            }
+            if ($char === "'") {
+                $inSingleQuote = false;
+            }
+            continue;
+        }
+
+        if ($inDoubleQuote) {
+            $result .= $char;
+            if ($char === '\\') {
+                if ($nextChar !== '') {
+                    $result .= $nextChar;
+                    $index++;
+                }
+                continue;
+            }
+            if ($char === '"' && $nextChar === '"') {
+                $result .= $nextChar;
+                $index++;
+                continue;
+            }
+            if ($char === '"') {
+                $inDoubleQuote = false;
+            }
+            continue;
+        }
+
+        if ($inBacktick) {
+            $result .= $char;
+            if ($char === '`') {
+                $inBacktick = false;
+            }
+            continue;
+        }
+
+        if ($char === '/' && $nextChar === '*') {
+            $inBlockComment = true;
+            $index++;
+            continue;
+        }
+        $previousChar = $index > 0 ? $line[$index - 1] : '';
+        if ($char === '-' && $nextChar === '-' && ($index === 0 || ctype_space($previousChar))) {
+            break;
+        }
+        if ($char === "'") {
+            $inSingleQuote = true;
+            $result .= $char;
+            continue;
+        }
+        if ($char === '"') {
+            $inDoubleQuote = true;
+            $result .= $char;
+            continue;
+        }
+        if ($char === '`') {
+            $inBacktick = true;
+            $result .= $char;
+            continue;
+        }
+
+        $result .= $char;
+    }
+
+    return $result;
+}
+
 function analyticspro_maintenance_extract_statement_from_buffer(string &$buffer, string $delimiter): ?string
 {
     $delimiterLength = strlen($delimiter);
@@ -260,9 +372,11 @@ function analyticspro_maintenance_parse_sql_statements(string $sql): array
     $buffer = '';
     $statements = [];
     $lines = preg_split('/\R/', $sql) ?: [];
+    $inBlockComment = false;
 
     foreach ($lines as $line) {
-        if (preg_match('/^\s*--/', $line) === 1) {
+        $line = analyticspro_maintenance_filter_sql_line($line, $inBlockComment);
+        if (trim($line) === '') {
             continue;
         }
         if (preg_match('/^\s*DELIMITER\s+(\S+)\s*$/i', $line, $matches) === 1) {
@@ -270,7 +384,7 @@ function analyticspro_maintenance_parse_sql_statements(string $sql): array
             continue;
         }
 
-        $buffer .= $line . "\n";
+        $buffer .= rtrim($line) . "\n";
         while (($statement = analyticspro_maintenance_extract_statement_from_buffer($buffer, $delimiter)) !== null) {
             if ($statement !== '') {
                 $statements[] = $statement;
@@ -351,6 +465,10 @@ function analyticspro_maintenance_run_migration(string $filename): array
     } catch (Throwable $exception) {
         if ($transactionSafe && $pdo->inTransaction()) {
             $pdo->rollBack();
+        }
+        $message = $exception->getMessage();
+        if ((int) ($migration['number'] ?? 0) === 16 && str_contains($message, 'Migration 016 blocked:')) {
+            throw new AnalyticsproMaintenanceException($message, 'migration_016_duplicates_blocked', $exception);
         }
         throw $exception;
     }

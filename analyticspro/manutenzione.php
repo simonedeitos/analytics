@@ -313,7 +313,10 @@ window.addEventListener('load', function () {
         var button = document.getElementById('duplicate-apply-btn');
         if (!button) return;
         var scanValid = state.lastScan && String(state.lastScan.tenant_id || 'all') === (selectedTenantValue() === 'all' ? 'all' : String(selectedTenantValue()));
-        button.disabled = !state.ownershipReady || state.applyRunning || !scanValid || !state.lastScan || !Array.isArray(state.lastScan.clusters) || state.lastScan.clusters.length === 0;
+        var clustersValid = !!(state.lastScan && Array.isArray(state.lastScan.clusters) && state.lastScan.clusters.length > 0 && state.lastScan.clusters.every(function (cluster) {
+            return Array.isArray(cluster.property_ids) && cluster.property_ids.length >= 2;
+        }));
+        button.disabled = !state.ownershipReady || state.applyRunning || !scanValid || !clustersValid;
     }
 
     function renderNextStep() {
@@ -515,6 +518,12 @@ window.addEventListener('load', function () {
         }
         if (!state.lastScan || !state.lastScan.total_clusters) {
             setAlert('duplicate-feedback', 'warning', 'Esegui prima il dry-run e verifica i cluster da fondere.');
+            return;
+        }
+        if (!Array.isArray(state.lastScan.clusters) || state.lastScan.clusters.some(function (cluster) {
+            return !Array.isArray(cluster.property_ids) || cluster.property_ids.length < 2;
+        })) {
+            setAlert('duplicate-feedback', 'danger', 'Dry-run non valido: alcuni cluster non espongono abbastanza property_id per l'apply. Riesegui l'analisi.');
             return;
         }
         state.applyRunning = true;
