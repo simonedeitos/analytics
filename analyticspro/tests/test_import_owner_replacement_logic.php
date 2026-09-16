@@ -64,11 +64,27 @@ $missingCfChanged = analyticspro_import_owner_sets_changed(
     [['id' => 2, 'codice_fiscale' => '']],
     $missingCfPlan,
     [],
-    []
+    [],
+    ['ROSSI|MARIO|3331112222|MARIO@EXAMPLE.IT'],
+    ['BIANCHI|LUCIA|3331112222|LUCIA@EXAMPLE.IT']
 );
 if (!$missingCfChanged) {
     $pass = false;
     $errors[] = 'Owner senza CF devono essere trattati come set cambiato (richiede decisione di sostituzione).';
+}
+
+$missingCfUnchanged = analyticspro_import_owner_sets_changed(
+    [['id' => 1, 'codice_fiscale' => '']],
+    [['id' => 2, 'codice_fiscale' => '']],
+    $missingCfPlan,
+    [],
+    [],
+    ['ROSSI|MARIO|3331112222|MARIO@EXAMPLE.IT'],
+    ['ROSSI|MARIO|3331112222|MARIO@EXAMPLE.IT']
+);
+if ($missingCfUnchanged) {
+    $pass = false;
+    $errors[] = 'Owner senza CF con stessa identità fallback non devono risultare cambiati.';
 }
 
 if (analyticspro_normalize_cadastral_number('00123/A') !== '123/A') {
