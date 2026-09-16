@@ -85,6 +85,7 @@ $properties = [
         'foglio' => '0010',
         'particella' => '0200',
         'subalterno' => '0001',
+        'rendita' => 'R.100 00',
         'lat' => 45.1000,
         'lng' => 9.1000,
         'can_edit' => false,
@@ -102,6 +103,7 @@ $properties = [
         'foglio' => '10',
         'particella' => '200',
         'subalterno' => '1',
+        'rendita' => 'R.100 00',
         'lat' => 45.3000,
         'lng' => 9.3000,
         'can_edit' => true,
@@ -121,6 +123,7 @@ $properties = [
         'foglio' => '10',
         'particella' => '200',
         'subalterno' => '',
+        'rendita' => 'R.200 00',
         'can_edit' => true,
         'owners' => [
             ['id' => 31, 'nome' => 'Empty', 'cognome' => 'Sub 1', 'codice_fiscale' => 'EMPTYSUB11111111', 'telefono' => '555555'],
@@ -136,6 +139,7 @@ $properties = [
         'foglio' => '10',
         'particella' => '201',
         'subalterno' => '',
+        'rendita' => 'R.300 00',
         'can_edit' => true,
         'owners' => [
             ['id' => 41, 'nome' => 'Empty', 'cognome' => 'Sub 2', 'codice_fiscale' => 'EMPTYSUB22222222', 'telefono' => '666666'],
@@ -151,6 +155,7 @@ $properties = [
         'foglio' => '10',
         'particella' => '201',
         'subalterno' => '1',
+        'rendita' => 'R.310 00',
         'can_edit' => true,
         'owners' => [
             ['id' => 51, 'nome' => 'Candidate', 'cognome' => 'Uno', 'codice_fiscale' => 'CANDIDATE1111111', 'telefono' => '777777'],
@@ -166,6 +171,7 @@ $properties = [
         'foglio' => '10',
         'particella' => '201',
         'subalterno' => '2',
+        'rendita' => 'R.320 00',
         'can_edit' => true,
         'owners' => [
             ['id' => 61, 'nome' => 'Candidate', 'cognome' => 'Due', 'codice_fiscale' => 'CANDIDATE2222222', 'telefono' => '888888'],
@@ -177,16 +183,16 @@ $groups = group_properties_by_unit($properties);
 $pass = true;
 $errors = [];
 
-if (count($groups) !== 4) {
+if (count($groups) !== 5) {
     $pass = false;
-    $errors[] = 'Attesi 4 gruppi, trovati ' . count($groups);
+    $errors[] = 'Attesi 5 gruppi, trovati ' . count($groups);
 }
 
 $mergedGroup = null;
 $isolatedEmpty = 0;
 foreach ($groups as $group) {
     $ids = $group['_groupIds'] ?? [];
-    if ($ids === [101, 202, 303]) {
+    if ($ids === [101, 202]) {
         $mergedGroup = $group;
         continue;
     }
@@ -197,15 +203,15 @@ foreach ($groups as $group) {
 
 if ($mergedGroup === null) {
     $pass = false;
-    $errors[] = 'La property con subalterno vuoto e candidato unico deve fondersi nel gruppo [101,202,303].';
+    $errors[] = 'Le property con stesso subalterno valorizzato devono fondersi nel gruppo [101,202].';
 } else {
-    if (($mergedGroup['_editableGroupIds'] ?? []) !== [202, 303]) {
+    if (($mergedGroup['_editableGroupIds'] ?? []) !== [202]) {
         $pass = false;
-        $errors[] = 'Gli id modificabili attesi sono [202,303].';
+        $errors[] = 'Gli id modificabili attesi sono [202].';
     }
-    if (count($mergedGroup['owners'] ?? []) !== 4) {
+    if (count($mergedGroup['owners'] ?? []) !== 3) {
         $pass = false;
-        $errors[] = 'Gli intestatari unificati attesi sono 4.';
+        $errors[] = 'Gli intestatari unificati attesi sono 3.';
     } else {
         $ownersByCf = [];
         $ownersByName = [];
@@ -215,7 +221,6 @@ if ($mergedGroup === null) {
         }
         $alice = $ownersByCf['RSSLCA80A01F205X'] ?? null;
         $bruno = $ownersByCf['VRDBRN80A01F205X'] ?? null;
-        $empty = $ownersByCf['EMPTYSUB11111111'] ?? null;
         $carla = $ownersByName['Carla'] ?? null;
         if (($alice['_sourcePropertyId'] ?? null) !== 202 || ($alice['id'] ?? null) !== 22) {
             $pass = false;
@@ -224,10 +229,6 @@ if ($mergedGroup === null) {
         if (($bruno['quota'] ?? '') !== '1/2') {
             $pass = false;
             $errors[] = 'Bruno deve mantenere la quota per-intestatario 1/2.';
-        }
-        if (($empty['_sourcePropertyId'] ?? null) !== 303) {
-            $pass = false;
-            $errors[] = 'L\'owner con subalterno vuoto deve restare collegato alla property 303.';
         }
         if (($carla['_groupOwnerKey'] ?? null) !== '__idx_2') {
             $pass = false;
@@ -242,7 +243,7 @@ if ($mergedGroup === null) {
 
 if ($isolatedEmpty !== 1) {
     $pass = false;
-    $errors[] = 'Il record con subalterno vuoto e candidati multipli deve restare separato.';
+    $errors[] = 'Il record con subalterno vuoto e rendita distinta deve restare separato.';
 }
 
 if ($pass) {

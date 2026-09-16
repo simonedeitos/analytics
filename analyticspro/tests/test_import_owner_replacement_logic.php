@@ -42,9 +42,9 @@ if (($merged['nome'] ?? '') !== 'Mario') {
     $pass = false;
     $errors[] = 'La continuità deve mantenere il nome corrente quando il nuovo è vuoto.';
 }
-if (($merged['telefono'] ?? '') !== '3399990000' || ($merged['email'] ?? '') !== 'mario@example.it') {
+if (($merged['telefono'] ?? '') !== '3331112222;3399990000' || ($merged['email'] ?? '') !== 'mario@example.it') {
     $pass = false;
-    $errors[] = 'La continuità deve aggiornare i campi non vuoti del nuovo intestatario.';
+    $errors[] = 'La continuità deve accumulare i telefoni e aggiornare i campi non vuoti del nuovo intestatario.';
 }
 if (($merged['quota'] ?? '') !== '1/3' || ($merged['titolarita'] ?? '') !== 'Usufrutto') {
     $pass = false;

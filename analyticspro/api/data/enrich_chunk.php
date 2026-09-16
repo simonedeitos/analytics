@@ -25,6 +25,10 @@ require_once ANALYTICSPRO_ROOT . '/includes/importer.php';
 analyticspro_api_guard();
 analyticspro_api_require_auth();
 
+if (!analyticspro_is_admin()) {
+    analyticspro_json(['ok' => false, 'error_code' => 'forbidden', 'error' => 'Operazione consentita solo agli amministratori.'], 403);
+}
+
 /**
  * Emette una risposta di errore strutturata e termina.
  *
@@ -63,11 +67,7 @@ try {
         $sql = 'SELECT id, enrichment_status, enrichment_sync FROM import_batches WHERE id = :id';
         $params = ['id' => $batchId];
         if (($user['role'] ?? '') !== 'admin') {
-            if ($tenantId === null) {
-                _enrich_error('auth_error', 'Tenant non disponibile per l\'utente corrente.');
-            }
-            $sql .= ' AND user_id = :tenant_id';
-            $params['tenant_id'] = $tenantId;
+            _enrich_error('forbidden', 'Operazione consentita solo agli amministratori.', null, 403);
         }
         analyticspro_debug_assert_sql_params_match($sql, $params);
         $stmt = $pdo->prepare($sql);

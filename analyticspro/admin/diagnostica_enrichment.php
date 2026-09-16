@@ -43,13 +43,11 @@ $columns = [
 
 foreach ($columns as $key => $value) {
     [$table, $column] = explode('.', $key, 2);
-    $stmt = $pdo->prepare('SHOW COLUMNS FROM ' . $table . ' LIKE :col');
-    $stmt->execute(['col' => $column]);
-    $columns[$key] = (bool) $stmt->fetch();
+    $columns[$key] = analyticspro_schema_has_column($table, $column, $pdo);
 }
 
 $nullGlobal = (int) $pdo->query('SELECT COUNT(*) FROM properties WHERE lat IS NULL')->fetchColumn();
-$latestBatches = $pdo->query("SELECT id, user_id, status, enrichment_status, enrichment_processed, enrichment_total, created_at, updated_at FROM import_batches ORDER BY id DESC LIMIT 20")->fetchAll();
+$latestBatches = $pdo->query("SELECT id, user_id, status, enrichment_status, enrichment_processed, enrichment_total, created_at, completed_at FROM import_batches ORDER BY id DESC LIMIT 20")->fetchAll();
 
 analyticspro_render_header('Diagnostica enrichment', ['app_assets' => false]);
 ?>
@@ -114,7 +112,7 @@ analyticspro_render_header('Diagnostica enrichment', ['app_assets' => false]);
             <table class="table table-sm table-striped align-middle mb-0">
                 <thead>
                 <tr>
-                    <th>ID</th><th>Tenant</th><th>Status</th><th>Enrichment</th><th>Progress</th><th>Aggiornato</th>
+                    <th>ID</th><th>Tenant</th><th>Status</th><th>Enrichment</th><th>Progress</th><th>Ultimo riferimento</th>
                 </tr>
                 </thead>
                 <tbody>
@@ -125,7 +123,7 @@ analyticspro_render_header('Diagnostica enrichment', ['app_assets' => false]);
                         <td><?= analyticspro_h((string) $batch['status']) ?></td>
                         <td><?= analyticspro_h((string) ($batch['enrichment_status'] ?? '')) ?></td>
                         <td><?= (int) ($batch['enrichment_processed'] ?? 0) ?>/<?= (int) ($batch['enrichment_total'] ?? 0) ?></td>
-                        <td><?= analyticspro_h((string) ($batch['updated_at'] ?? $batch['created_at'] ?? '')) ?></td>
+                        <td><?= analyticspro_h((string) ($batch['completed_at'] ?? $batch['created_at'] ?? '')) ?></td>
                     </tr>
                 <?php endforeach; ?>
                 </tbody>

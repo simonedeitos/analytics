@@ -78,14 +78,31 @@ try {
             analyticspro_json(['ok' => false, 'error' => $e->getMessage()], 500);
         }
 
-        // Phase 2: enrichment nella stessa richiesta HTTP (sincrono), con soglia
-        // di sicurezza sulle particelle uniche per evitare timeout.
-        $syncLimit = (int) (analyticspro_env('IMPORT_SYNC_MAX_UNIQUE', '50000') ?? '50000');
-        $syncLimit = max(1, $syncLimit);
-        if (function_exists('set_time_limit')) {
-            @set_time_limit(30);
+        $enrichment = [
+            'geolocated' => 0,
+            'processed_unique' => 0,
+            'total_unique' => analyticspro_enrichment_count_unique_parcels($pdo, $batchId, null, true, true),
+            'remaining_unique' => analyticspro_enrichment_count_unique_parcels($pdo, $batchId, null, true, true),
+            'done' => false,
+            'enrichment_sync' => false,
+            'coord_source' => [],
+            'attempt_failures' => [],
+            'failure_codes' => [],
+            'unresolved_rows' => [],
+            'truncated' => false,
+            'missing_comuni' => [],
+            'missing_comuni_truncated' => false,
+            'resolved' => 0,
+            'unresolved' => 0,
+            'geolocated_rows' => 0,
+            'missing_rows' => 0,
+        ];
+
+        $enrichWorker = ANALYTICSPRO_ROOT . '/cron/enrich_property_coordinates.php';
+        if (analyticspro_launch_background($enrichWorker, [$batchId])) {
+            $pdo->prepare("UPDATE import_batches SET enrichment_status = 'processing' WHERE id = :id AND enrichment_status = 'pending'")
+                ->execute(['id' => $batchId]);
         }
-        $enrichment = analyticspro_enrich_batch_coordinates_sync($batchId, $syncLimit);
 
         analyticspro_json([
             'ok' => true,

@@ -362,6 +362,12 @@
         return numberPart + String(match[2] || '');
     }
 
+    function normalizeRendita(value) {
+        var text = String(value === null || value === undefined ? '' : value).trim().toUpperCase();
+        if (!text) return '';
+        return text.replace(/\s+/g, '').replace(/,/g, '.');
+    }
+
     function resolveTenantGroupingId(property) {
         if (!property || typeof property !== 'object') return '';
         var keys = ['tenant_id', 'tenantId', 'user_id', 'parent_user_id'];
@@ -383,7 +389,8 @@
             sezione: normalizeText(record && record.sezione || ''),
             foglio: normalizeCadastralNumber(record && record.foglio || ''),
             particella: normalizeCadastralNumber(record && record.particella || ''),
-            subalterno: normalizeCadastralNumber(record && record.subalterno || '')
+            subalterno: normalizeCadastralNumber(record && record.subalterno || ''),
+            rendita: normalizeRendita(record && record.rendita || '')
         };
     }
 
@@ -419,16 +426,11 @@
         return !!(comune && cluster && cluster.comuni && cluster.comuni[comune]);
     }
 
-    function clusterMatchesMissingSubalterno(cluster, identity) {
-        var clusterCode = String(cluster && cluster.cod_catastale || '');
-        var identityCode = String(identity && identity.cod_catastale || '');
-        if (clusterCode && identityCode) {
-            return clusterCode === identityCode;
-        }
-        return !!(identity && identity.comune && cluster && cluster.comuni && cluster.comuni[identity.comune]);
+    function cadastralDiscriminatorKey(identity) {
+        return identity && identity.subalterno ? ('SUB:' + identity.subalterno) : ('REN:' + String(identity && identity.rendita || ''));
     }
 
-    function buildNonEmptySubalternoClusters(entries) {
+    function buildCadastralDiscriminatorClusters(entries) {
         var coded = {};
         var codedOrder = [];
         var missingCode = {};
@@ -491,42 +493,22 @@
         var groups = [];
         bucketOrder.forEach(function (bucketKey) {
             var entries = buckets[bucketKey] || [];
-            var bySubalterno = {};
-            var subalternoOrder = [];
-            var emptySubalterno = [];
+            var byDiscriminator = {};
+            var discriminatorOrder = [];
             entries.forEach(function (entry) {
-                var subalterno = entry.identity.subalterno;
-                if (!subalterno) {
-                    emptySubalterno.push(entry);
-                    return;
+                var discriminator = cadastralDiscriminatorKey(entry.identity);
+                if (!byDiscriminator[discriminator]) {
+                    byDiscriminator[discriminator] = [];
+                    discriminatorOrder.push(discriminator);
                 }
-                if (!bySubalterno[subalterno]) {
-                    bySubalterno[subalterno] = [];
-                    subalternoOrder.push(subalterno);
-                }
-                bySubalterno[subalterno].push(entry);
+                byDiscriminator[discriminator].push(entry);
             });
 
             var clusters = [];
-            subalternoOrder.forEach(function (subalterno) {
-                buildNonEmptySubalternoClusters(bySubalterno[subalterno]).forEach(function (cluster) {
+            discriminatorOrder.forEach(function (discriminator) {
+                buildCadastralDiscriminatorClusters(byDiscriminator[discriminator]).forEach(function (cluster) {
                     clusters.push(cluster);
                 });
-            });
-
-            var nonEmptyClusterCount = clusters.length;
-            emptySubalterno.forEach(function (entry) {
-                var candidates = [];
-                for (var clusterIndex = 0; clusterIndex < nonEmptyClusterCount; clusterIndex++) {
-                    if (clusterMatchesMissingSubalterno(clusters[clusterIndex], entry.identity)) {
-                        candidates.push(clusterIndex);
-                    }
-                }
-                if (candidates.length === 1) {
-                    appendEntriesToCadastralCluster(clusters[candidates[0]], [entry]);
-                    return;
-                }
-                clusters.push(makeCadastralCluster([entry]));
             });
 
             clusters.forEach(function (cluster) {
@@ -1342,6 +1324,7 @@
             // Elenco degli id di tutte le properties nel gruppo (per uso futuro)
             prim._groupIds = groupedProperties.map(function (gp) { return gp.id; });
             prim._editableGroupIds = groupedProperties.filter(function (gp) { return !!gp.can_edit; }).map(function (gp) { return gp.id; });
+            prim._groupProperties = groupedProperties.map(function (gp) { return JSON.parse(JSON.stringify(gp)); });
             prim.can_edit = prim._editableGroupIds.length > 0;
             prim.is_assigned = groupedProperties.some(function (gp) { return !!gp.is_assigned; }) || prim.assignments.length > 0;
 
@@ -1400,6 +1383,88 @@
                     + '</div>';
             }).join('')
             + '<button id="btn-select-all-categorie" class="btn btn-xs btn-outline-secondary" style="font-size:0.7rem;padding:0.1rem 0.4rem;margin-left:1rem;">Seleziona tutte</button>';
+    }
+
+    function isApproximateCoordSource(coordSource) {
+        return ['address', 'street', 'municipality_center', 'nominatim'].indexOf(String(coordSource || '').trim().toLowerCase()) !== -1;
+    }
+
+    function groupHasApproximateCoordinates(property) {
+        var groupProperties = property && Array.isArray(property._groupProperties) ? property._groupProperties : [property];
+        return groupProperties.some(function (item) { return isApproximateCoordSource(item && item.coord_source); });
+    }
+
+    function draggableApproximateProperties(property) {
+        var groupProperties = property && Array.isArray(property._groupProperties) ? property._groupProperties : [property];
+        return groupProperties.filter(function (item) {
+            return !!(item && item.can_edit && isApproximateCoordSource(item.coord_source));
+        });
+    }
+
+    function buildApproximateMarkerIcon(fillColor) {
+        var safeFill = /^#[0-9a-fA-F]{3,8}$/.test(fillColor || '') ? fillColor : '#2A519F';
+        return L.divIcon({
+            className: 'analyticspro-approx-marker',
+            iconSize: [22, 22],
+            iconAnchor: [11, 11],
+            popupAnchor: [0, -11],
+            html: '<span style="display:block;width:18px;height:18px;border-radius:50%;background:' + safeFill + ';border:3px solid #dc3545;box-shadow:0 0 0 2px rgba(255,255,255,.9);"></span>'
+        });
+    }
+
+    function promptMarkerMoveTarget(property) {
+        var candidates = draggableApproximateProperties(property);
+        if (!candidates.length) {
+            throw new Error('Non hai proprietà approssimative modificabili in questo gruppo.');
+        }
+        if (candidates.length === 1) {
+            return candidates[0];
+        }
+
+        var promptLines = candidates.map(function (item) {
+            return '#' + item.id + ' — ' + unitLabel(item) + ' — ' + (((item.indirizzo || '') + ' ' + (item.civico || '')).trim() || item.comune || 'Immobile');
+        });
+        var selectedId = window.prompt('Questo marker rappresenta più proprietà. Inserisci l\'ID della proprietà da aggiornare:\n' + promptLines.join('\n'), String(candidates[0].id || ''));
+        if (selectedId === null) {
+            return null;
+        }
+        selectedId = Number(selectedId);
+        for (var i = 0; i < candidates.length; i++) {
+            if (Number(candidates[i].id || 0) === selectedId) {
+                return candidates[i];
+            }
+        }
+        throw new Error('ID proprietà non valido.');
+    }
+
+    async function handleApproximateMarkerDrag(marker, property, oldLatLng) {
+        var targetProperty;
+        try {
+            targetProperty = promptMarkerMoveTarget(property);
+        } catch (error) {
+            marker.setLatLng(oldLatLng);
+            showMapFeedback(error && error.message ? error.message : 'Selezione proprietà non valida.', 'warning', 2600);
+            return;
+        }
+        if (!targetProperty) {
+            marker.setLatLng(oldLatLng);
+            return;
+        }
+
+        var confirmed = window.confirm('È questa la posizione corretta per la proprietà #' + targetProperty.id + '?');
+        if (!confirmed) {
+            marker.setLatLng(oldLatLng);
+            return;
+        }
+
+        var newLatLng = marker.getLatLng();
+        await savePropertyPayload({
+            action: 'update_coordinates',
+            property_id: Number(targetProperty.id || 0),
+            lat: Number(newLatLng.lat),
+            lng: Number(newLatLng.lng)
+        }, { preserveMapView: true });
+        showMapFeedback('Coordinate aggiornate per la proprietà #' + targetProperty.id + '.', 'success', 2400);
     }
 
     function renderMap() {
@@ -1534,16 +1599,43 @@
             if (categorieFilter !== null && categorieFilter.indexOf(String(property.categoria || '').trim()) === -1) continue;
 
             var color  = property.colore_marker || '#2A519F';
-            var marker = L.circleMarker([lat, lng], {
-                radius: 9,
-                color: color,
-                fillColor: color,
-                fillOpacity: 0.92,
-                weight: 2,
-            });
+            var approximate = groupHasApproximateCoordinates(property);
+            var canDragApproximate = draggableApproximateProperties(property).length > 0;
+            var marker = approximate
+                ? L.marker([lat, lng], {
+                    draggable: canDragApproximate,
+                    icon: buildApproximateMarkerIcon(color),
+                    color: '#dc3545',
+                    fillColor: color,
+                })
+                : L.circleMarker([lat, lng], {
+                    radius: 9,
+                    color: color,
+                    fillColor: color,
+                    fillOpacity: 0.92,
+                    weight: 2,
+                });
             marker._analyticsPropertyId = Number(property.id);
             marker._analyticsPropertyData = property;
             marker.bindPopup(buildPopupHtml(property), { maxWidth: 460 });
+            if (approximate) {
+                marker.bindTooltip('Bordo rosso: posizione approssimativa' + (canDragApproximate ? ' — trascina per correggere' : ''), { direction: 'top' });
+                if (canDragApproximate) {
+                    (function (layer, groupProperty, originalLat, originalLng) {
+                        layer.on('dragstart', function () {
+                            if (typeof this.closePopup === 'function') this.closePopup();
+                            this._analyticsOldLatLng = this.getLatLng();
+                        });
+                        layer.on('dragend', function () {
+                            var activeLayer = this;
+                            Promise.resolve(handleApproximateMarkerDrag(activeLayer, groupProperty, activeLayer._analyticsOldLatLng || L.latLng(originalLat, originalLng))).catch(function (error) {
+                                activeLayer.setLatLng(activeLayer._analyticsOldLatLng || L.latLng(originalLat, originalLng));
+                                showMapFeedback(error && error.message ? error.message : 'Salvataggio coordinate non riuscito.', 'danger', 3200);
+                            });
+                        });
+                    })(marker, property, lat, lng);
+                }
+            }
             state.markers.addLayer(marker);
             points.push(property);
         }
@@ -2612,6 +2704,64 @@
         return best.delimiter;
     }
 
+    var SUPPORTED_IMPORT_HEADERS = {
+        'provincia': 'Provincia',
+        'comune': 'Comune',
+        'sezione': 'Sezione',
+        'foglio': 'Foglio',
+        'particella': 'Particella',
+        'subalterno': 'Subalterno',
+        'zona': 'Zona',
+        'categoria': 'Categoria',
+        'partita': 'Partita',
+        'rendita': 'Rendita',
+        'indirizzo': 'Indirizzo',
+        'civico': 'Civico',
+        'piano': 'Piano',
+        'consistenza': 'Consistenza',
+        'nome': 'Nome',
+        'nome1': 'Nome1',
+        'nome2': 'Nome2',
+        'nome3': 'Nome3',
+        'nato a': 'Nato A',
+        'data nascita': 'Data Nascita',
+        'codice fiscale': 'Codice Fiscale',
+        'titolarita': 'Titolarita',
+        'titolarità': 'Titolarità',
+        'quota': 'Quota',
+        'altri dati': 'Altri Dati',
+        'classe': 'Classe',
+        'contatti': 'Contatti',
+        'note': 'Note'
+    };
+    var REQUIRED_IMPORT_HEADERS = ['Provincia', 'Comune', 'Foglio', 'Particella', 'Nome', 'Codice Fiscale', 'Titolarita', 'Quota'];
+
+    function normalizeImportHeader(header) {
+        return String(header || '').trim().toLowerCase();
+    }
+
+    function analyzeImportHeaders(headers, fileName) {
+        var warnings = [];
+        var missing = [];
+        var normalizedHeaders = headers.map(normalizeImportHeader);
+        headers.forEach(function (header) {
+            var trimmed = String(header || '').trim();
+            if (!trimmed) return;
+            if (!SUPPORTED_IMPORT_HEADERS[normalizeImportHeader(trimmed)]) {
+                warnings.push('È presente una colonna "' + trimmed + '" che non è riconosciuta, pertanto verrà ignorata');
+            }
+        });
+        REQUIRED_IMPORT_HEADERS.forEach(function (header) {
+            if (normalizedHeaders.indexOf(normalizeImportHeader(header)) === -1) {
+                missing.push(header);
+            }
+        });
+        if (missing.length) {
+            warnings.push('File "' + fileName + '": mancano le colonne obbligatorie ' + missing.join(', '));
+        }
+        return { warnings: warnings, missing: missing };
+    }
+
     function parseCsvFile(text, fileName) {
         var parsedRows = [];
         var warnings = [];
@@ -2638,6 +2788,11 @@
             headerCounts[header] = 1;
             return header;
         });
+        var headerAnalysis = analyzeImportHeaders(headers, fileName);
+        warnings = warnings.concat(headerAnalysis.warnings || []);
+        if ((headerAnalysis.missing || []).length) {
+            return { rows: parsedRows, warnings: warnings };
+        }
 
         for (var ri = headerRowIndex + 1; ri < rows.length; ri++) {
             var current = rows[ri];
@@ -2681,6 +2836,10 @@
             headerCounts[header] = 1;
             return header;
         });
+        var headerAnalysis = analyzeImportHeaders(headers, fileName);
+        if ((headerAnalysis.missing || []).length) {
+            return { name: fileName, rows: [], warnings: headerAnalysis.warnings || [] };
+        }
         var parsedRows = [];
         for (var ri = 1; ri < rows.length; ri++) {
             var current = rows[ri];
@@ -2690,7 +2849,7 @@
             rowPayload.__source_row = ri + 1;
             parsedRows.push(rowPayload);
         }
-        return { name: fileName, rows: parsedRows, warnings: [] };
+        return { name: fileName, rows: parsedRows, warnings: headerAnalysis.warnings || [] };
     }
 
     async function parseFiles(files) {
@@ -3012,26 +3171,29 @@
         importLog('info', 'Fase Lettura file avviata');
         try {
             var parseResult = await parseFiles(files);
-            var rows = parseResult.rows || [];
             var parsedFiles = parseResult.files || [];
             (parseResult.warnings || []).forEach(function (warningMessage) {
                 importLog('warning', warningMessage);
             });
-            if (!rows.length) {
+            var sourceFiles = parsedFiles.filter(function (file) { return file.rows && file.rows.length; });
+            if (!sourceFiles.length) {
                 importLog('warning', 'Nessuna riga valida trovata.');
                 finalizeImportUi('warning', 'Nessuna riga valida trovata.');
                 return;
             }
 
-            setWeightedImportPhase('read', 1, importProgressLabel(0, rows.length) + ' · Righe lette: ' + rows.length);
-            importLog('info', 'Righe lette: ' + rows.length);
-            setWeightedImportPhase('analyze', 0.5, importProgressLabel(0, rows.length) + ' · Analisi duplicati in corso...');
-            var decisions = {};
-            var keepAssignmentsOnReplace = true;
-            var sourceFiles = parsedFiles.length ? parsedFiles : [{ name: Array.from(files).map(function (f) { return f.name; }).join(', '), rows: rows }];
+            var totalRows = sourceFiles.reduce(function (sum, file) { return sum + Number((file.rows || []).length || 0); }, 0);
+            setWeightedImportPhase('read', 1, importProgressLabel(0, totalRows) + ' · Righe lette: ' + totalRows);
+            importLog('info', 'Righe lette: ' + totalRows);
+
+            var totalSavedRows = 0;
+            var totalSkippedRows = 0;
             for (var sf = 0; sf < sourceFiles.length; sf++) {
                 var sourceFile = sourceFiles[sf];
                 if (!sourceFile.rows || !sourceFile.rows.length) continue;
+                setWeightedImportPhase('analyze', 0.5, 'File ' + (sf + 1) + '/' + sourceFiles.length + ' · Analisi duplicati in corso...');
+                var decisions = {};
+                var keepAssignmentsOnReplace = true;
                 var analysis = await api(state.importEndpoint, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -3039,89 +3201,64 @@
                 });
                 var conflicts = analysis.conflicts || [];
                 importLog('info', 'Duplicati rilevati in "' + (sourceFile.name || ('file #' + (sf + 1))) + '": ' + conflicts.length);
-                if (!conflicts.length) continue;
-                var modalDecision = await openImportConflictDecisionModal(conflicts, sourceFile.name || ('file #' + (sf + 1)));
-                keepAssignmentsOnReplace = keepAssignmentsOnReplace && modalDecision.keepAssignments;
-                Object.keys(modalDecision.decisions || {}).forEach(function (decisionKey) {
-                    decisions[decisionKey] = modalDecision.decisions[decisionKey];
-                });
-            }
-
-            setWeightedImportPhase('save', 0.5, importProgressLabel(0, rows.length) + ' · Salvataggio dati in corso...');
-            importLog('info', 'Fase Salvataggio dati avviata');
-            var processPayload = await api(state.importEndpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ csrf_token: state.csrfToken, mode: 'process', filename: Array.from(files).map(function(f){return f.name;}).join(', '), decisions: decisions, keep_assignments_on_replace: keepAssignmentsOnReplace, rows: rows }) });
-            state.currentImportStats = {
-                savedRows: Number(processPayload.saved_rows || 0),
-                totalRows: Number(processPayload.total_rows || rows.length)
-            };
-            updateEnrichmentPhase({
-                processed: processPayload.processed_parcels || 0,
-                total: processPayload.total_unique_parcels || 0,
-                done: !!processPayload.enrichment_done
-            });
-            importLog('info', 'Righe salvate: ' + (processPayload.saved_rows !== undefined ? processPayload.saved_rows : rows.length));
-            if (Number(processPayload.backfilled_rows || 0) > 0) {
-                importLog('info', 'Codici catastali backfillati nello stesso batch: ' + Number(processPayload.backfilled_rows || 0));
-            }
-            if (processPayload.skipped_rows) {
-                importLog('warning', 'Righe saltate: ' + processPayload.skipped_rows);
-            }
-            Object.keys(processPayload.skipped_reasons || {}).forEach(function (reasonKey) {
-                var reasonCount = Number(processPayload.skipped_reasons[reasonKey] || 0);
-                if (!reasonCount) return;
-                var reasonLabel = reasonKey === 'missing_cadastral_fields'
-                    ? 'mancano i campi catastali minimi'
-                    : reasonKey === 'unrecognized_province'
-                        ? 'provincia non riconosciuta'
-                    : reasonKey;
-                importLog('warning', reasonCount + ' righe saltate: ' + reasonLabel);
-            });
-            (processPayload.warnings || []).forEach(function (warningMessage) {
-                if (warningMessage) {
-                    importLog('warning', String(warningMessage));
+                if (conflicts.length) {
+                    var modalDecision = await openImportConflictDecisionModal(conflicts, sourceFile.name || ('file #' + (sf + 1)));
+                    keepAssignmentsOnReplace = keepAssignmentsOnReplace && modalDecision.keepAssignments;
+                    Object.keys(modalDecision.decisions || {}).forEach(function (decisionKey) {
+                        decisions[decisionKey] = modalDecision.decisions[decisionKey];
+                    });
                 }
-            });
-            if (processPayload.notes_imported) {
-                importLog('info', 'Note importate: ' + processPayload.notes_imported);
-            }
-            importLog('info', 'Particelle geolocalizzate nel giro corrente: ' + (processPayload.geolocated_parcels || 0));
-            renderEnrichmentReport({
-                coord_source: processPayload.coord_source || {},
-                attempt_failures: processPayload.attempt_failures || {},
-                failure_codes: processPayload.failure_codes || {},
-                unresolved_rows: processPayload.unresolved_rows || [],
-                truncated: !!processPayload.unresolved_truncated,
-                missing_comuni: processPayload.missing_comuni || [],
-                missing_comuni_truncated: !!processPayload.missing_comuni_truncated
-            });
-            await loadProperties();
-            if (!processPayload.batch_id) {
-                importLog('error', 'Import completato senza batch_id di enrichment.');
-                finalizeImportUi('danger', 'Errore: batch di geolocalizzazione non disponibile.');
-                return;
-            }
-            if (processPayload.enrichment_done) {
-                var initialReport = normalizeEnrichmentReport({
-                    coord_source: processPayload.coord_source || {},
-                    attempt_failures: processPayload.attempt_failures || {},
-                    failure_codes: processPayload.failure_codes || {},
-                    unresolved_rows: processPayload.unresolved_rows || [],
-                    truncated: !!processPayload.unresolved_truncated,
-                    missing_comuni: processPayload.missing_comuni || [],
-                    missing_comuni_truncated: !!processPayload.missing_comuni_truncated
+
+                setWeightedImportPhase('save', 0.5, 'File ' + (sf + 1) + '/' + sourceFiles.length + ' · Salvataggio dati in corso...');
+                importLog('info', 'Salvataggio file "' + (sourceFile.name || ('file #' + (sf + 1))) + '" avviato');
+                var processPayload = await api(state.importEndpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ csrf_token: state.csrfToken, mode: 'process', filename: sourceFile.name || ('file #' + (sf + 1)), decisions: decisions, keep_assignments_on_replace: keepAssignmentsOnReplace, rows: sourceFile.rows }) });
+                totalSavedRows += Number(processPayload.saved_rows || 0);
+                totalSkippedRows += Number(processPayload.skipped_rows || 0);
+                state.currentImportStats = {
+                    savedRows: totalSavedRows,
+                    totalRows: totalRows
+                };
+                updateEnrichmentPhase({
+                    processed: processPayload.processed_parcels || 0,
+                    total: processPayload.total_unique_parcels || 0,
+                    done: !!processPayload.enrichment_done
                 });
-                var terminalState = buildEnrichmentTerminalState(
-                    processPayload,
-                    initialReport,
-                    Number(processPayload.resolved || countReportBucket(initialReport.coord_source)),
-                    Number(processPayload.unresolved || countReportBucket(initialReport.failure_codes))
-                );
-                finalizeImportUi(terminalState.kind, terminalState.text);
-                importLog(terminalState.kind === 'warning' ? 'warning' : 'info', terminalState.text);
-                return;
+                importLog('info', 'File "' + (sourceFile.name || ('file #' + (sf + 1))) + '" salvato: ' + Number(processPayload.saved_rows || 0) + ' righe');
+                if (Number(processPayload.backfilled_rows || 0) > 0) {
+                    importLog('info', 'Codici catastali backfillati nello stesso batch: ' + Number(processPayload.backfilled_rows || 0));
+                }
+                Object.keys(processPayload.skipped_reasons || {}).forEach(function (reasonKey) {
+                    var reasonCount = Number(processPayload.skipped_reasons[reasonKey] || 0);
+                    if (!reasonCount) return;
+                    var reasonLabel = reasonKey === 'missing_cadastral_fields'
+                        ? 'mancano i campi catastali minimi'
+                        : reasonKey === 'unrecognized_province'
+                            ? 'provincia non riconosciuta'
+                            : reasonKey === 'identical_import'
+                                ? 'dati già presenti e identici'
+                                : reasonKey;
+                    importLog(reasonKey === 'identical_import' ? 'info' : 'warning', reasonCount + ' righe: ' + reasonLabel);
+                });
+                (processPayload.warnings || []).forEach(function (warningMessage) {
+                    if (warningMessage) {
+                        importLog('warning', String(warningMessage));
+                    }
+                });
+                if (processPayload.notes_imported) {
+                    importLog('info', 'Note importate: ' + processPayload.notes_imported);
+                }
+                importLog('info', 'Geolocalizzazione batch "' + (sourceFile.name || ('file #' + (sf + 1))) + '" avviata in background.');
+                if (processPayload.remaining_unique_parcels) {
+                    importLog('info', 'Particelle residue eleggibili: ' + (processPayload.remaining_unique_parcels || 0));
+                }
+                await loadProperties();
             }
-            importLog('info', 'Particelle residue eleggibili: ' + (processPayload.remaining_unique_parcels || 0));
-            await enrichChunkLoop(processPayload.batch_id);
+            setWeightedImportPhase('save', 1, 'Import completato. Geolocalizzazione in background.');
+            if (totalSkippedRows > 0 && totalSavedRows === 0) {
+                finalizeImportUi('warning', 'Nessuna modifica salvata: i dati erano già presenti o non validi.');
+            } else {
+                finalizeImportUi('success', 'Import completato. La geolocalizzazione prosegue in background.');
+            }
         } catch (error) {
             importLog('error', 'Import fallito: ' + (error && error.message ? error.message : 'Errore sconosciuto'));
             finalizeImportUi('danger', 'Errore durante l\'import: ' + (error && error.message ? error.message : 'Errore sconosciuto'));

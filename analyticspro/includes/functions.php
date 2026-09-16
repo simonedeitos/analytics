@@ -472,3 +472,59 @@ function analyticspro_table_exists(PDO $pdo, string $table): bool
         return false;
     }
 }
+
+function analyticspro_schema_has_column(string $table, string $column, ?PDO $pdo = null): bool
+{
+    static $cache = [];
+
+    $table = trim($table);
+    $column = trim($column);
+    if ($table === '' || $column === '') {
+        return false;
+    }
+
+    $pdo ??= analyticspro_db();
+    try {
+        $driver = strtolower((string) $pdo->getAttribute(PDO::ATTR_DRIVER_NAME));
+    } catch (Throwable $exception) {
+        error_log('[analyticspro_schema_has_column] Impossibile determinare il driver per ' . $table . '.' . $column . ': ' . $exception->getMessage());
+        return false;
+    }
+
+    $cacheKey = $driver . '|' . strtolower($table) . '|' . strtolower($column);
+    if (array_key_exists($cacheKey, $cache)) {
+        return $cache[$cacheKey];
+    }
+
+    try {
+        if ($driver === 'sqlite') {
+            $pragma = $pdo->query('PRAGMA table_info(' . preg_replace('/[^A-Za-z0-9_]/', '', $table) . ')');
+            foreach ($pragma ? ($pragma->fetchAll() ?: []) : [] as $row) {
+                if (strcasecmp((string) ($row['name'] ?? ''), $column) === 0) {
+                    $cache[$cacheKey] = true;
+                    return true;
+                }
+            }
+            $cache[$cacheKey] = false;
+            return false;
+        }
+
+        $stmt = $pdo->prepare(
+            'SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE()
+               AND TABLE_NAME = :table
+               AND COLUMN_NAME = :column
+             LIMIT 1'
+        );
+        $stmt->execute([
+            'table' => $table,
+            'column' => $column,
+        ]);
+        $cache[$cacheKey] = (bool) $stmt->fetchColumn();
+    } catch (Throwable $exception) {
+        error_log('[analyticspro_schema_has_column] Errore su ' . $table . '.' . $column . ': ' . $exception->getMessage());
+        $cache[$cacheKey] = false;
+    }
+
+    return $cache[$cacheKey];
+}

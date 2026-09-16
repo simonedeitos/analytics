@@ -68,6 +68,52 @@ try {
     if ($action !== '' && !analyticspro_property_can_edit($user, $property)) {
         throw new RuntimeException('Non puoi modificare questo marker.');
     }
+    if ($action === 'update_coordinates') {
+        $newLat = filter_var($input['lat'] ?? null, FILTER_VALIDATE_FLOAT);
+        $newLng = filter_var($input['lng'] ?? null, FILTER_VALIDATE_FLOAT);
+        if ($newLat === false || $newLng === false) {
+            throw new RuntimeException('Coordinate non valide.');
+        }
+
+        $pdo = analyticspro_db();
+        $pdo->beginTransaction();
+        try {
+            $propertyStmt = $pdo->prepare('SELECT id, user_id, lat, lng, comune, foglio, particella, subalterno FROM properties WHERE id = :id LIMIT 1 FOR UPDATE');
+            $propertyStmt->execute(['id' => $propertyId]);
+            $lockedProperty = $propertyStmt->fetch();
+            if (!$lockedProperty) {
+                throw new RuntimeException('Immobile non trovato.');
+            }
+
+            $updateStmt = $pdo->prepare("UPDATE properties SET lat = :lat, lng = :lng, posizione_verificata = 1, coord_source = 'manual' WHERE id = :id");
+            $updateStmt->execute([
+                'lat' => $newLat,
+                'lng' => $newLng,
+                'id' => $propertyId,
+            ]);
+
+            $noteStmt = $pdo->prepare('INSERT INTO property_notes (property_id, author_id, author_name_snapshot, testo) VALUES (:property_id, :author_id, :author_name_snapshot, :testo)');
+            $noteStmt->execute([
+                'property_id' => $propertyId,
+                'author_id' => (int) ($user['id'] ?? 0),
+                'author_name_snapshot' => 'Sistema',
+                'testo' => 'Posizione marker aggiornata da ' . analyticspro_full_name($user)
+                    . ' il ' . date('d/m/Y H:i')
+                    . '. Coordinate precedenti: '
+                    . trim((string) ($lockedProperty['lat'] ?? '')) . ', ' . trim((string) ($lockedProperty['lng'] ?? ''))
+                    . ' — nuove coordinate: ' . $newLat . ', ' . $newLng . '.',
+            ]);
+
+            $pdo->commit();
+        } catch (Throwable $exception) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $exception;
+        }
+
+        analyticspro_json(['ok' => true, 'updated_ids' => [$propertyId]]);
+    }
     if ($action === 'add_owner_phone') {
         $ownerId = (int) ($input['owner_id'] ?? 0);
         $phoneToAdd = trim((string) ($input['phone'] ?? ''));
