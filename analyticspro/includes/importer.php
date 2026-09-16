@@ -1032,6 +1032,7 @@ function analyticspro_find_existing_property_for_import(PDO $pdo, int $tenantId,
         'provincia' => (string) ($property['provincia'] ?? ''),
     ];
     $codCatastale = trim((string) ($property['cod_catastale'] ?? ''));
+    $codCatastaleNormalized = analyticspro_normalize_text($codCatastale);
     $comuneLike = strtoupper(substr(trim((string) ($property['comune'] ?? '')), 0, 6)) . '%';
     $sezione = trim((string) ($property['sezione'] ?? ''));
     $foglio = trim((string) ($property['foglio'] ?? ''));
@@ -1045,6 +1046,11 @@ function analyticspro_find_existing_property_for_import(PDO $pdo, int $tenantId,
         $stmt = $pdo->prepare('SELECT * FROM properties WHERE user_id = :user_id AND provincia = :provincia AND cod_catastale = :cod_catastale');
         $stmt->execute($baseParams + ['cod_catastale' => $codCatastale]);
         $candidates = $stmt->fetchAll() ?: [];
+        if ($candidates === [] && $codCatastaleNormalized !== '' && $codCatastaleNormalized !== $codCatastale) {
+            $stmt = $pdo->prepare('SELECT * FROM properties WHERE user_id = :user_id AND provincia = :provincia AND TRIM(UPPER(cod_catastale)) = :cod_catastale_normalized');
+            $stmt->execute($baseParams + ['cod_catastale_normalized' => $codCatastaleNormalized]);
+            $candidates = $stmt->fetchAll() ?: [];
+        }
     }
     if ($candidates === [] && $comuneLike !== '%') {
         $fallbackSql = 'SELECT * FROM properties

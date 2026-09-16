@@ -119,6 +119,21 @@ $copyAssignments = $pdo->prepare('INSERT IGNORE INTO property_assignments (prope
 $deleteAssignments = $pdo->prepare('DELETE FROM property_assignments WHERE property_id = :loser_id');
 $deleteProperty = $pdo->prepare('DELETE FROM properties WHERE id = :id');
 $insertSystemNote = $pdo->prepare('INSERT INTO property_notes (property_id, author_id, author_name_snapshot, testo) VALUES (:property_id, :author_id, :author_name_snapshot, :testo)');
+$relationshipMoves = [
+    static function (int $keeperId, int $loserId) use ($copyAssignments, $deleteAssignments): void {
+        $copyAssignments->execute(['keeper_id' => $keeperId, 'loser_id' => $loserId]);
+        $deleteAssignments->execute(['loser_id' => $loserId]);
+    },
+    static function (int $keeperId, int $loserId) use ($moveNotes): void {
+        $moveNotes->execute(['keeper_id' => $keeperId, 'loser_id' => $loserId]);
+    },
+    static function (int $keeperId, int $loserId) use ($moveHistory): void {
+        $moveHistory->execute(['keeper_id' => $keeperId, 'loser_id' => $loserId]);
+    },
+    static function (int $keeperId, int $loserId) use ($moveConflicts): void {
+        $moveConflicts->execute(['keeper_id' => $keeperId, 'loser_id' => $loserId]);
+    },
+];
 
 foreach ($clusters as $clusterIndex => $cluster) {
     $preview = analyticspro_preview_duplicate_property_merge($cluster);
@@ -199,11 +214,9 @@ foreach ($clusters as $clusterIndex => $cluster) {
         }
 
         foreach ($absorbedIds as $loserId) {
-            $copyAssignments->execute(['keeper_id' => $keeperId, 'loser_id' => $loserId]);
-            $deleteAssignments->execute(['loser_id' => $loserId]);
-            $moveNotes->execute(['keeper_id' => $keeperId, 'loser_id' => $loserId]);
-            $moveHistory->execute(['keeper_id' => $keeperId, 'loser_id' => $loserId]);
-            $moveConflicts->execute(['keeper_id' => $keeperId, 'loser_id' => $loserId]);
+            foreach ($relationshipMoves as $relationshipMove) {
+                $relationshipMove($keeperId, $loserId);
+            }
             $deleteProperty->execute(['id' => $loserId]);
         }
 
