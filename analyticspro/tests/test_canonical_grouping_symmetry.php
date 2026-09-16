@@ -5,11 +5,12 @@ declare(strict_types=1);
 require __DIR__ . '/../includes/importer.php';
 
 $records = [
-    ['id' => 1, 'tenant_id' => 7, 'provincia' => 'MI', 'comune' => 'Milàno', 'cod_catastale' => 'F205', 'sezione' => '', 'foglio' => '0010', 'particella' => '0123', 'subalterno' => '0001'],
-    ['id' => 2, 'tenant_id' => 7, 'provincia' => 'MI', 'comune' => 'MILANO', 'cod_catastale' => '', 'sezione' => '', 'foglio' => '10', 'particella' => '123', 'subalterno' => '1'],
-    ['id' => 3, 'tenant_id' => 7, 'provincia' => 'MI', 'comune' => 'MILANO', 'cod_catastale' => 'F205', 'sezione' => '', 'foglio' => '10', 'particella' => '123', 'subalterno' => ''],
-    ['id' => 4, 'tenant_id' => 7, 'provincia' => 'MI', 'comune' => 'MILANO', 'cod_catastale' => 'F205', 'sezione' => '', 'foglio' => '10', 'particella' => '123', 'subalterno' => '2'],
-    ['id' => 5, 'tenant_id' => 7, 'provincia' => 'MI', 'comune' => 'MILANO', 'cod_catastale' => '', 'sezione' => '', 'foglio' => '10', 'particella' => '123', 'subalterno' => ''],
+    ['id' => 1, 'tenant_id' => 7, 'provincia' => 'MI', 'comune' => 'Milàno', 'cod_catastale' => 'F205', 'sezione' => '', 'foglio' => '0010', 'particella' => '0123', 'subalterno' => '0001', 'rendita' => 'R.100 00'],
+    ['id' => 2, 'tenant_id' => 7, 'provincia' => 'MI', 'comune' => 'MILANO', 'cod_catastale' => '', 'sezione' => '', 'foglio' => '10', 'particella' => '123', 'subalterno' => '1', 'rendita' => 'R.100 00'],
+    ['id' => 3, 'tenant_id' => 7, 'provincia' => 'MI', 'comune' => 'MILANO', 'cod_catastale' => 'F205', 'sezione' => '', 'foglio' => '10', 'particella' => '123', 'subalterno' => '', 'rendita' => 'R.200 00'],
+    ['id' => 4, 'tenant_id' => 7, 'provincia' => 'MI', 'comune' => 'MILANO', 'cod_catastale' => 'F205', 'sezione' => '', 'foglio' => '10', 'particella' => '123', 'subalterno' => '2', 'rendita' => 'R.300 00'],
+    ['id' => 5, 'tenant_id' => 7, 'provincia' => 'MI', 'comune' => 'MILANO', 'cod_catastale' => '', 'sezione' => '', 'foglio' => '10', 'particella' => '123', 'subalterno' => '', 'rendita' => 'R.200 00'],
+    ['id' => 6, 'tenant_id' => 7, 'provincia' => 'MI', 'comune' => 'MILANO', 'cod_catastale' => '', 'sezione' => '', 'foglio' => '10', 'particella' => '123', 'subalterno' => '', 'rendita' => 'R.250 00'],
 ];
 
 $phpGroups = array_map(static function (array $group): array {
@@ -39,6 +40,11 @@ function normalizeCadastralNumber(value) {
   if (!numberPart) numberPart = '0';
   return numberPart + String(match[2] || '');
 }
+function normalizeRendita(value) {
+  var text = String(value === null || value === undefined ? '' : value).trim().toUpperCase();
+  if (!text) return '';
+  return text.replace(/\s+/g, '').replace(/,/g, '.');
+}
 function resolveTenantGroupingId(property) {
   var keys = ['tenant_id', 'tenantId', 'user_id', 'parent_user_id'];
   for (var i = 0; i < keys.length; i++) {
@@ -56,7 +62,8 @@ function normalizeCadastralIdentity(record) {
     sezione: normalizeText(record.sezione || ''),
     foglio: normalizeCadastralNumber(record.foglio || ''),
     particella: normalizeCadastralNumber(record.particella || ''),
-    subalterno: normalizeCadastralNumber(record.subalterno || '')
+    subalterno: normalizeCadastralNumber(record.subalterno || ''),
+    rendita: normalizeRendita(record.rendita || '')
   };
 }
 function cadastralBaseBucketKey(identity) {
@@ -77,13 +84,10 @@ function appendEntriesToCadastralCluster(cluster, entries) {
 function clusterMatchesMissingCodeGroup(cluster, comune) {
   return !!(comune && cluster.comuni && cluster.comuni[comune]);
 }
-function clusterMatchesMissingSubalterno(cluster, identity) {
-  var clusterCode = String(cluster.cod_catastale || '');
-  var identityCode = String(identity.cod_catastale || '');
-  if (clusterCode && identityCode) return clusterCode === identityCode;
-  return !!(identity.comune && cluster.comuni && cluster.comuni[identity.comune]);
+function cadastralDiscriminatorKey(identity) {
+  return identity.subalterno ? ('SUB:' + identity.subalterno) : ('REN:' + identity.rendita);
 }
-function buildNonEmptySubalternoClusters(entries) {
+function buildDiscriminatorClusters(entries) {
   var coded = {};
   var codedOrder = [];
   var missingCode = {};
@@ -126,24 +130,15 @@ function groupCanonicalRecords(records) {
   var groups = [];
   order.forEach(function (key) {
     var entries = buckets[key] || [];
-    var bySub = {};
-    var subOrder = [];
-    var emptySub = [];
+    var byDiscriminator = {};
+    var discriminatorOrder = [];
     entries.forEach(function (entry) {
-      if (!entry.identity.subalterno) { emptySub.push(entry); return; }
-      if (!bySub[entry.identity.subalterno]) { bySub[entry.identity.subalterno] = []; subOrder.push(entry.identity.subalterno); }
-      bySub[entry.identity.subalterno].push(entry);
+      var discriminator = cadastralDiscriminatorKey(entry.identity);
+      if (!byDiscriminator[discriminator]) { byDiscriminator[discriminator] = []; discriminatorOrder.push(discriminator); }
+      byDiscriminator[discriminator].push(entry);
     });
     var clusters = [];
-    subOrder.forEach(function (sub) { buildNonEmptySubalternoClusters(bySub[sub]).forEach(function (cluster) { clusters.push(cluster); }); });
-    emptySub.forEach(function (entry) {
-      var candidates = [];
-      clusters.forEach(function (cluster, index) {
-        if (clusterMatchesMissingSubalterno(cluster, entry.identity)) candidates.push(index);
-      });
-      if (candidates.length === 1) appendEntriesToCadastralCluster(clusters[candidates[0]], [entry]);
-      else clusters.push(makeCadastralCluster([entry]));
-    });
+    discriminatorOrder.forEach(function (discriminator) { buildDiscriminatorClusters(byDiscriminator[discriminator]).forEach(function (cluster) { clusters.push(cluster); }); });
     clusters.forEach(function (cluster) {
       groups.push(cluster.entries.map(function (entry) { return entry.record.id; }).sort(function (a, b) { return a - b; }));
     });

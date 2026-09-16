@@ -92,7 +92,7 @@ analyticspro_render_header('Importa dati', ['app_assets' => true]);
 </div>
                 <div class="d-flex align-items-center gap-2 flex-wrap">
                     <div id="missing-coordinates-manual-action-slot" class="d-flex gap-2"></div>
-                    <button id="rigenera-coordinate-btn" class="btn btn-outline-secondary">
+                    <button id="rigenera-coordinate-btn" class="btn btn-outline-secondary<?= analyticspro_is_admin() ? '' : ' d-none' ?>">
                         <i class="bi bi-geo-alt me-1"></i>Rigenera coordinate mancanti
                     </button>
                 </div>

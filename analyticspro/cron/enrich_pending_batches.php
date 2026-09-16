@@ -38,16 +38,12 @@ try {
     exit(1);
 }
 
-// Fetch all pending batches plus stale processing batches.
+// Fetch all pending batches plus previously-started processing batches.
 try {
     $stmt = $pdo->prepare(
         "SELECT id FROM import_batches
          WHERE enrichment_status = 'pending'
-            OR (
-                enrichment_status = 'processing'
-                AND enrichment_started_at IS NOT NULL
-                AND enrichment_started_at < NOW() - INTERVAL " . STALE_PROCESSING_MINUTES . " MINUTE
-            )
+           OR enrichment_status = 'processing'
          ORDER BY id ASC"
     );
     $stmt->execute();
