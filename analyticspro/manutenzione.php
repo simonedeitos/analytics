@@ -526,11 +526,15 @@ window.addEventListener('load', function () {
         if (state.applyRunning) {
             return;
         }
-        if (!state.lastScan || !state.lastScan.total_clusters) {
+        if (!state.lastScan) {
             setAlert('duplicate-feedback', 'warning', 'Esegui prima il dry-run e verifica i cluster da fondere.');
             return;
         }
-        if (!Array.isArray(state.lastScan.clusters) || state.lastScan.clusters.some(function (cluster) {
+        if (!Array.isArray(state.lastScan.clusters) || state.lastScan.clusters.length === 0) {
+            setAlert('duplicate-feedback', 'info', 'Il dry-run è stato eseguito e non ha trovato cluster da fondere.');
+            return;
+        }
+        if (state.lastScan.clusters.some(function (cluster) {
             return !Array.isArray(cluster.property_ids) || cluster.property_ids.length < 2;
         })) {
             setAlert('duplicate-feedback', 'danger', 'Dry-run non valido: alcuni cluster non espongono abbastanza property_id per l'apply. Riesegui l'analisi.');

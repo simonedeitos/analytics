@@ -95,6 +95,39 @@ if (isset($statements[1]) && (!str_contains($statements[1], 'CREATE PROCEDURE _a
     $pass = false;
     $errors[] = 'Il parser deve mantenere intatto il corpo della CREATE PROCEDURE con delimitatore custom.';
 }
+
+$invalidDelimiterSql = "SELECT 1
+DELIMITER $$
+";
+try {
+    analyticspro_maintenance_parse_sql_statements($invalidDelimiterSql);
+    $pass = false;
+    $errors[] = 'Il parser deve fallire quando trova SQL pendente prima di un cambio DELIMITER.';
+} catch (RuntimeException $exception) {
+    if (!str_contains($exception->getMessage(), 'DELIMITER')) {
+        $pass = false;
+        $errors[] = 'Il parser deve segnalare esplicitamente un errore di cambio DELIMITER non valido.';
+    }
+}
+
+$unterminatedCustomDelimiterSql = <<<'SQL'
+DELIMITER $$
+CREATE PROCEDURE broken()
+BEGIN
+    SELECT 1;
+END
+SQL;
+try {
+    analyticspro_maintenance_parse_sql_statements($unterminatedCustomDelimiterSql);
+    $pass = false;
+    $errors[] = 'Il parser deve fallire quando un blocco con delimitatore custom non viene terminato.';
+} catch (RuntimeException $exception) {
+    if (!str_contains($exception->getMessage(), 'incompleto')) {
+        $pass = false;
+        $errors[] = 'Il parser deve segnalare esplicitamente un blocco SQL incompleto con delimitatore custom.';
+    }
+}
+
 $joinedStatements = implode("\n", $statements);
 if ($joinedStatements !== '' && str_contains($joinedStatements, 'DELIMITER')) {
     $pass = false;

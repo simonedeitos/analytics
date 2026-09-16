@@ -438,6 +438,9 @@ function analyticspro_maintenance_parse_sql_statements(string $sql): array
 
     $buffer = trim($buffer);
     if ($buffer !== '') {
+        if ($delimiter !== ';') {
+            throw new RuntimeException('Blocco SQL incompleto: delimitatore custom non terminato correttamente.');
+        }
         $statements[] = $buffer;
     }
 
