@@ -380,6 +380,11 @@ function analyticspro_maintenance_parse_sql_statements(string $sql): array
             continue;
         }
         if (preg_match('/^\s*DELIMITER\s+(\S+)\s*$/i', $line, $matches) === 1) {
+            while (($statement = analyticspro_maintenance_extract_statement_from_buffer($buffer, $delimiter)) !== null) {
+                if ($statement !== '') {
+                    $statements[] = $statement;
+                }
+            }
             $delimiter = (string) $matches[1];
             continue;
         }
@@ -448,6 +453,9 @@ function analyticspro_maintenance_assert_migration_prerequisites(array $migratio
             if (($requiredMigration['status'] ?? 'unknown') !== 'applied') {
                 throw new AnalyticsproMaintenanceException('Prima di eseguire la migrazione 016 devi completare le migrazioni 014 e 015 e poi il merge duplicati.', 'migration_prerequisite_missing');
             }
+        }
+        if (analyticspro_duplicate_merge_count_clusters(null) > 0) {
+            throw new AnalyticsproMaintenanceException('Migrazione 016 bloccata: completa prima il merge duplicati nella Sezione B e riprova.', 'migration_016_duplicates_blocked');
         }
     }
 }

@@ -94,7 +94,7 @@ analyticspro_render_header('Manutenzione database', ['app_assets' => true]);
                     </div>
                 </div>
             </div>
-            <div id="maintenance-global-feedback" class="alert d-none mt-3 mb-0"></div>
+            <div id="maintenance-global-feedback" class="alert d-none mt-3 mb-0" role="status" aria-live="polite" aria-atomic="true"></div>
         </div>
     </div>
 
@@ -173,13 +173,13 @@ analyticspro_render_header('Manutenzione database', ['app_assets' => true]);
             <div id="duplicate-prereq-alert" class="alert <?= $ownershipReady ? 'd-none' : 'alert-warning' ?> small">
                 Il merge è disponibile solo dopo la migrazione <strong>015</strong>, perché quota e titolarità devono essere già presenti su <code>property_owners</code>.
             </div>
-            <div id="duplicate-feedback" class="alert d-none small"></div>
+            <div id="duplicate-feedback" class="alert d-none small" role="status" aria-live="polite" aria-atomic="true"></div>
             <div class="row g-3 mb-3" id="duplicate-summary-row">
                 <div class="col-md-4"><div class="border rounded-4 p-3 h-100"><div class="small text-uppercase text-muted fw-semibold mb-1">Cluster</div><div class="fs-4 fw-bold" id="duplicate-summary-clusters">0</div></div></div>
                 <div class="col-md-4"><div class="border rounded-4 p-3 h-100"><div class="small text-uppercase text-muted fw-semibold mb-1">Properties coinvolte</div><div class="fs-4 fw-bold" id="duplicate-summary-properties">0</div></div></div>
                 <div class="col-md-4"><div class="border rounded-4 p-3 h-100"><div class="small text-uppercase text-muted fw-semibold mb-1">Owners coinvolti</div><div class="fs-4 fw-bold" id="duplicate-summary-owners">0</div></div></div>
             </div>
-            <div id="duplicate-progress-card" class="border rounded-4 p-3 mb-3 d-none">
+            <div id="duplicate-progress-card" class="border rounded-4 p-3 mb-3 d-none" role="status" aria-live="polite" aria-atomic="false">
                 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
                     <div class="fw-semibold">Avanzamento merge</div>
                     <a id="duplicate-log-download" class="small d-none" href="#">Scarica log</a>
@@ -187,8 +187,8 @@ analyticspro_render_header('Manutenzione database', ['app_assets' => true]);
                 <div class="progress mb-2" style="height: 10px;">
                     <div id="duplicate-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" style="width: 0%;"></div>
                 </div>
-                <div id="duplicate-progress-text" class="small text-muted">In attesa di esecuzione.</div>
-                <pre id="duplicate-progress-log" class="bg-dark text-light small p-3 rounded-4 mt-3 mb-0" style="max-height: 240px; overflow: auto; white-space: pre-wrap;"></pre>
+                <div id="duplicate-progress-text" class="small text-muted" role="status" aria-live="polite" aria-atomic="true">In attesa di esecuzione.</div>
+                <pre id="duplicate-progress-log" class="bg-dark text-light small p-3 rounded-4 mt-3 mb-0" style="max-height: 240px; overflow: auto; white-space: pre-wrap;" aria-live="polite"></pre>
             </div>
             <div class="table-responsive">
                 <table class="table table-sm table-striped table-hover w-100 align-middle" id="duplicate-clusters-table">
