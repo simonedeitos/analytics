@@ -12,21 +12,51 @@ declare(strict_types=1);
  * Exit code: 0 = pass, 1 = fail.
  */
 
+function normalize_text(string $value): string
+{
+    $value = strtoupper(trim($value));
+    $value = strtr($value, ['À' => 'A', 'È' => 'E', 'É' => 'E', 'Ì' => 'I', 'Ò' => 'O', 'Ù' => 'U']);
+    $value = preg_replace('/[^A-Z0-9\/]+/', ' ', $value) ?? $value;
+    return trim(preg_replace('/\s+/', ' ', $value) ?? $value);
+}
+
+function normalize_cadastral_number(string $value): string
+{
+    $value = strtoupper(trim($value));
+    $value = preg_replace('/\s+/', '', $value) ?? $value;
+    if ($value === '') {
+        return '';
+    }
+    if (preg_match('/^([0-9]+)(.*)$/', $value, $matches) !== 1) {
+        return $value;
+    }
+
+    $number = ltrim((string) ($matches[1] ?? ''), '0');
+    if ($number === '') {
+        $number = '0';
+    }
+
+    return $number . (string) ($matches[2] ?? '');
+}
+
 function group_by_unit(array $owners): array
 {
     $groups = [];
-    foreach ($owners as $owner) {
-        $codCatastale = strtoupper(trim($owner['cod_catastale'] ?? ''));
-        $comune = strtoupper(trim($owner['comune'] ?? ''));
+    foreach ($owners as $index => $owner) {
+        $codCatastale = normalize_text((string) ($owner['cod_catastale'] ?? ''));
+        $comune = normalize_text((string) ($owner['comune'] ?? ''));
+        $subalterno = normalize_cadastral_number((string) ($owner['subalterno'] ?? ''));
         $comuneKey = $codCatastale !== '' ? ('COD:' . $codCatastale) : ('COM:' . $comune);
+        $subalternoKey = $subalterno !== '' ? $subalterno : ('SUB:__NONE__#' . (string) ($owner['id'] ?? $index));
+        $tenantId = (string) ($owner['tenant_id'] ?? $owner['user_id'] ?? '');
         $key = implode('|', [
-            strtoupper(trim($owner['provincia'] ?? '')),
+            normalize_text((string) ($owner['provincia'] ?? '')),
             $comuneKey,
-            $comune,
-            strtoupper(trim($owner['sezione'] ?? '')),
-            strtoupper(trim($owner['foglio'] ?? '')),
-            strtoupper(trim($owner['particella'] ?? '')),
-            strtoupper(trim($owner['subalterno'] ?? '')),
+            normalize_text((string) ($owner['sezione'] ?? '')),
+            normalize_cadastral_number((string) ($owner['foglio'] ?? '')),
+            normalize_cadastral_number((string) ($owner['particella'] ?? '')),
+            $subalternoKey,
+            $tenantId,
         ]);
         $groups[$key][] = $owner;
     }
@@ -34,10 +64,11 @@ function group_by_unit(array $owners): array
 }
 
 $owners = [
-    ['provincia' => 'MI', 'cod_catastale' => 'F205', 'comune' => 'Milano', 'sezione' => '', 'foglio' => '10', 'particella' => '200', 'subalterno' => 'A', 'nome' => 'Mario'],
-    ['provincia' => 'MI', 'cod_catastale' => 'F205', 'comune' => 'MILANO', 'sezione' => '', 'foglio' => '10', 'particella' => '200', 'subalterno' => 'A', 'nome' => 'Lucia'],
-    ['provincia' => 'MI', 'cod_catastale' => 'F205', 'comune' => 'Milano', 'sezione' => '', 'foglio' => '10', 'particella' => '200', 'subalterno' => 'B', 'nome' => 'Paolo'],
-    ['provincia' => 'BS', 'cod_catastale' => 'B157', 'comune' => 'Brescia', 'sezione' => '', 'foglio' => '10', 'particella' => '200', 'subalterno' => 'A', 'nome' => 'Gianni'],
+    ['id' => 1, 'tenant_id' => 50, 'provincia' => 'mi', 'cod_catastale' => 'f205', 'comune' => 'Milàno', 'sezione' => '', 'foglio' => '0010', 'particella' => '00123/A', 'subalterno' => '0001', 'nome' => 'Mario'],
+    ['id' => 2, 'tenant_id' => 50, 'provincia' => 'MI', 'cod_catastale' => 'F205', 'comune' => 'MILANO!!', 'sezione' => null, 'foglio' => '10', 'particella' => '123/A', 'subalterno' => '1', 'nome' => 'Lucia'],
+    ['id' => 3, 'tenant_id' => 50, 'provincia' => 'MI', 'cod_catastale' => 'F205', 'comune' => 'Milano', 'sezione' => '', 'foglio' => '10', 'particella' => '123/A', 'subalterno' => '', 'nome' => 'Paolo'],
+    ['id' => 4, 'tenant_id' => 50, 'provincia' => 'MI', 'cod_catastale' => 'F205', 'comune' => 'Milano', 'sezione' => '', 'foglio' => '10', 'particella' => '123/A', 'subalterno' => null, 'nome' => 'Gianni'],
+    ['id' => 5, 'tenant_id' => 99, 'provincia' => 'MI', 'cod_catastale' => 'F205', 'comune' => 'Milano', 'sezione' => '', 'foglio' => '10', 'particella' => '123/A', 'subalterno' => '1', 'nome' => 'Altro tenant'],
 ];
 
 $groups = group_by_unit($owners);
@@ -45,16 +76,16 @@ $groups = group_by_unit($owners);
 $pass = true;
 $errors = [];
 
-if (count($groups) !== 3) {
+if (count($groups) !== 4) {
     $pass = false;
-    $errors[] = 'Attesi 3 gruppi, trovati ' . count($groups);
+    $errors[] = 'Attesi 4 gruppi, trovati ' . count($groups);
 }
 
 $groupSizes = array_map('count', $groups);
 sort($groupSizes);
-if ($groupSizes !== [1, 1, 2]) {
+if ($groupSizes !== [1, 1, 1, 2]) {
     $pass = false;
-    $errors[] = 'Dimensioni gruppi attese [1,1,2], trovate ' . implode(',', $groupSizes);
+    $errors[] = 'Dimensioni gruppi attese [1,1,1,2], trovate ' . implode(',', $groupSizes);
 }
 
 $subAGroup = null;
@@ -74,18 +105,9 @@ if ($subAGroup === null) {
         $errors[] = 'Gruppo da 2 contiene ' . implode(',', $names) . ' invece di Mario,Lucia';
     }
 
-    $mixedComuneGroupFound = false;
-    foreach ($groups as $group) {
-        $names = array_column($group, 'nome');
-        sort($names);
-        if ($names === ['Gianni', 'Lucia', 'Mario']) {
-            $mixedComuneGroupFound = true;
-            break;
-        }
-    }
-    if ($mixedComuneGroupFound) {
+    if (in_array('Altro tenant', $names, true)) {
         $pass = false;
-        $errors[] = 'Proprietà con comune diverso non devono essere accorpate nello stesso gruppo';
+        $errors[] = 'Tenant diversi non devono essere accorpati nello stesso gruppo';
     }
 }
 

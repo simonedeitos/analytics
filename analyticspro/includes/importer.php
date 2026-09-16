@@ -71,6 +71,64 @@ function analyticspro_normalize_quota(?string $value): string
     return $value;
 }
 
+function analyticspro_normalize_text(?string $value): string
+{
+    $value = trim((string) $value);
+    if ($value === '') {
+        return '';
+    }
+
+    $value = mb_strtoupper($value, 'UTF-8');
+    if (class_exists('Normalizer')) {
+        $normalized = Normalizer::normalize($value, Normalizer::FORM_D);
+        if (is_string($normalized)) {
+            $value = $normalized;
+        }
+    }
+    $value = preg_replace('/\p{Mn}+/u', '', $value) ?? $value;
+    $value = strtr($value, [
+        'À' => 'A', 'Á' => 'A', 'Â' => 'A', 'Ä' => 'A', 'Ã' => 'A', 'Å' => 'A',
+        'È' => 'E', 'É' => 'E', 'Ê' => 'E', 'Ë' => 'E',
+        'Ì' => 'I', 'Í' => 'I', 'Î' => 'I', 'Ï' => 'I',
+        'Ò' => 'O', 'Ó' => 'O', 'Ô' => 'O', 'Ö' => 'O', 'Õ' => 'O',
+        'Ù' => 'U', 'Ú' => 'U', 'Û' => 'U', 'Ü' => 'U',
+        'Ç' => 'C', 'Ñ' => 'N',
+    ]);
+    $value = preg_replace('/[^A-Z0-9\/]+/u', ' ', $value) ?? $value;
+    $value = preg_replace('/\s+/u', ' ', $value) ?? $value;
+
+    return trim($value);
+}
+
+function analyticspro_normalize_cadastral_number(?string $value): string
+{
+    $value = strtoupper(trim((string) $value));
+    $value = preg_replace('/\s+/u', '', $value) ?? $value;
+    if ($value === '') {
+        return '';
+    }
+    if (preg_match('/^([0-9]+)(.*)$/', $value, $matches) !== 1) {
+        return $value;
+    }
+
+    $number = ltrim((string) ($matches[1] ?? ''), '0');
+    if ($number === '') {
+        $number = '0';
+    }
+
+    return $number . (string) ($matches[2] ?? '');
+}
+
+function analyticspro_owner_cf_signature(array $owner): string
+{
+    return analyticspro_hash($owner['codice_fiscale'] ?? null) ?? '';
+}
+
+function analyticspro_owner_cf_hash_from_row(array $owner): string
+{
+    return analyticspro_hash((string) ($owner['codice_fiscale'] ?? '')) ?? '';
+}
+
 function analyticspro_parse_coordinate(?string $value): ?float
 {
     $value = trim((string) $value);
@@ -116,13 +174,7 @@ function analyticspro_guess_gender(?string $cf): ?string
 
 function analyticspro_owner_identity_signature(array $owner): string
 {
-    $parts = [
-        analyticspro_hash($owner['nome'] ?? null),
-        analyticspro_hash($owner['cognome'] ?? null),
-        analyticspro_hash($owner['codice_fiscale'] ?? null),
-        analyticspro_hash($owner['telefono'] ?? null),
-    ];
-    return implode('|', array_map(static fn ($part) => $part ?? '', $parts));
+    return analyticspro_owner_cf_signature($owner);
 }
 
 function analyticspro_normalize_import_header(string $header): string
@@ -486,17 +538,134 @@ function analyticspro_extract_row_payload(array $row, ?int $rowNumber = null): a
     ];
 }
 
+function analyticspro_import_unit_key(array $property, int $tenantId, ?int $propertyId = null, ?int $rowIndex = null): string
+{
+    $provincia = analyticspro_normalize_text((string) ($property['provincia'] ?? ''));
+    $comune = analyticspro_normalize_text((string) ($property['comune'] ?? ''));
+    $codCatastale = analyticspro_normalize_text((string) ($property['cod_catastale'] ?? ''));
+    $sezione = analyticspro_normalize_text((string) ($property['sezione'] ?? ''));
+    $foglio = analyticspro_normalize_cadastral_number((string) ($property['foglio'] ?? ''));
+    $particella = analyticspro_normalize_cadastral_number((string) ($property['particella'] ?? ''));
+    $subalterno = analyticspro_normalize_cadastral_number((string) ($property['subalterno'] ?? ''));
+    $comuneKey = $codCatastale !== '' ? ('COD:' . $codCatastale) : ('COM:' . $comune);
+    $subalternoKey = $subalterno !== '' ? $subalterno : ('SUB:__NONE__#' . ($propertyId !== null ? $propertyId : ('row' . (int) ($rowIndex ?? 0))));
+
+    return implode('|', [$provincia, $comuneKey, $sezione, $foglio, $particella, $subalternoKey, (string) $tenantId]);
+}
+
+function analyticspro_merge_import_property_values(array $current, array $incoming): array
+{
+    foreach ($incoming as $field => $value) {
+        if (!array_key_exists($field, $current)) {
+            $current[$field] = $value;
+            continue;
+        }
+        if (is_string($value) && trim($value) !== '') {
+            $current[$field] = $value;
+            continue;
+        }
+        if (($field === 'lat' || $field === 'lng') && $value !== null) {
+            $current[$field] = $value;
+        }
+    }
+
+    return $current;
+}
+
+function analyticspro_merge_import_owner_values(array $current, array $incoming): array
+{
+    $updatable = ['tipo', 'nome', 'cognome', 'codice_fiscale', 'telefono', 'indirizzo', 'email', 'data_nascita', 'luogo_nascita', 'genere'];
+    foreach ($updatable as $field) {
+        if (!array_key_exists($field, $incoming)) {
+            continue;
+        }
+        $value = $incoming[$field];
+        if (is_string($value)) {
+            if (trim($value) === '') {
+                continue;
+            }
+            $current[$field] = $value;
+            continue;
+        }
+        if ($value !== null) {
+            $current[$field] = $value;
+        }
+    }
+
+    return $current;
+}
+
+/**
+ * @return array<string,array{property:array<string,mixed>,owners:array<int,array<string,mixed>>,owner_hashes:array<int,string>,row_indexes:array<int,int>,notes:array<int,string>,warnings:array<int,string>,source_files:array<int,string>}>
+ */
+function analyticspro_group_import_rows_by_unit(array $rows, int $tenantId): array
+{
+    $groups = [];
+    foreach ($rows as $index => $row) {
+        $payload = analyticspro_extract_row_payload($row, (int) $index);
+        $property = $payload['property'];
+        $owner = $payload['owner'];
+        $unitKey = analyticspro_import_unit_key($property, $tenantId, null, (int) $index);
+        if (!isset($groups[$unitKey])) {
+            $groups[$unitKey] = [
+                'property' => $property,
+                'owners' => [],
+                'owner_hashes' => [],
+                'row_indexes' => [],
+                'notes' => [],
+                'warnings' => [],
+                'source_files' => [],
+            ];
+        } else {
+            $groups[$unitKey]['property'] = analyticspro_merge_import_property_values($groups[$unitKey]['property'], $property);
+        }
+        $groups[$unitKey]['row_indexes'][] = (int) $index;
+        $groups[$unitKey]['warnings'] = array_values(array_unique(array_merge(
+            $groups[$unitKey]['warnings'],
+            array_values(array_filter(array_map(static fn ($warning): string => trim((string) $warning), $payload['warnings'] ?? []), static fn (string $warning): bool => $warning !== ''))
+        )));
+        $sourceFile = trim((string) ($row['__source_file'] ?? ''));
+        if ($sourceFile !== '') {
+            $groups[$unitKey]['source_files'][] = $sourceFile;
+            $groups[$unitKey]['source_files'] = array_values(array_unique($groups[$unitKey]['source_files']));
+        }
+        $note = trim((string) ($payload['note'] ?? ''));
+        if ($note !== '') {
+            $groups[$unitKey]['notes'][] = $note;
+        }
+        $cfHash = analyticspro_owner_cf_hash_from_row($owner);
+        if ($cfHash === '') {
+            continue;
+        }
+        $ownerIndex = array_search($cfHash, $groups[$unitKey]['owner_hashes'], true);
+        if ($ownerIndex === false) {
+            $groups[$unitKey]['owner_hashes'][] = $cfHash;
+            $groups[$unitKey]['owners'][] = $owner;
+            continue;
+        }
+        $groups[$unitKey]['owners'][(int) $ownerIndex] = analyticspro_merge_import_owner_values(
+            $groups[$unitKey]['owners'][(int) $ownerIndex],
+            $owner
+        );
+    }
+
+    return $groups;
+}
+
+/**
+ * @return array<int,array<string,mixed>>
+ */
 function analyticspro_find_conflicts(array $rows, int $tenantId): array
 {
     $pdo = analyticspro_db();
-    $findProperty = $pdo->prepare('SELECT id, comune, foglio, particella, subalterno FROM properties WHERE user_id = :user_id AND provincia = :provincia AND comune = :comune AND sezione <=> :sezione AND foglio = :foglio AND particella = :particella AND subalterno <=> :subalterno LIMIT 1');
-    $findOwner = $pdo->prepare('SELECT * FROM property_owners WHERE property_id = :property_id AND is_current = 1 LIMIT 1');
+    $findProperty = $pdo->prepare('SELECT id, comune, foglio, particella, subalterno, indirizzo FROM properties WHERE user_id = :user_id AND provincia = :provincia AND comune = :comune AND sezione <=> :sezione AND foglio = :foglio AND particella = :particella AND subalterno <=> :subalterno LIMIT 1');
+    $findOwners = $pdo->prepare('SELECT nome_enc, cognome_enc, codice_fiscale_enc, codice_fiscale_hash FROM property_owners WHERE property_id = :property_id AND is_current = 1 ORDER BY id ASC');
     $conflicts = [];
+    $grouped = analyticspro_group_import_rows_by_unit($rows, $tenantId);
 
-    foreach ($rows as $index => $row) {
-        $payload = analyticspro_extract_row_payload($row, $index);
-        $property = $payload['property'];
-        if ($property['provincia'] === '' || $property['comune'] === '' || $property['foglio'] === '' || $property['particella'] === '') {
+    foreach ($grouped as $group) {
+        $property = $group['property'];
+        if (($property['provincia'] ?? '') === '' || ($property['comune'] ?? '') === '' || ($property['foglio'] ?? '') === '' || ($property['particella'] ?? '') === '') {
             continue;
         }
 
@@ -514,30 +683,48 @@ function analyticspro_find_conflicts(array $rows, int $tenantId): array
             continue;
         }
 
-        $findOwner->execute(['property_id' => $existing['id']]);
-        $owner = $findOwner->fetch();
-        if (!$owner) {
+        $findOwners->execute(['property_id' => $existing['id']]);
+        $currentOwnersRaw = $findOwners->fetchAll() ?: [];
+        $currentCfHashes = [];
+        $currentOwners = [];
+        foreach ($currentOwnersRaw as $ownerRow) {
+            $cfHash = (string) ($ownerRow['codice_fiscale_hash'] ?? '');
+            if ($cfHash !== '') {
+                $currentCfHashes[] = $cfHash;
+            }
+            $currentOwners[] = [
+                'nome' => analyticspro_decrypt($ownerRow['nome_enc'] ?? null),
+                'cognome' => analyticspro_decrypt($ownerRow['cognome_enc'] ?? null),
+                'codice_fiscale' => analyticspro_decrypt($ownerRow['codice_fiscale_enc'] ?? null),
+            ];
+        }
+        sort($currentCfHashes);
+        $incomingCfHashes = $group['owner_hashes'];
+        sort($incomingCfHashes);
+        if ($currentCfHashes === $incomingCfHashes) {
             continue;
         }
 
-        $existingSignature = implode('|', [
-            $owner['nome_hash'] ?? '',
-            $owner['cognome_hash'] ?? '',
-            $owner['codice_fiscale_hash'] ?? '',
-            $owner['telefono_hash'] ?? '',
-        ]);
-        $incomingSignature = analyticspro_owner_identity_signature($payload['owner']);
-        if ($existingSignature !== $incomingSignature) {
-            $conflicts[] = [
-                'row_index' => $index,
-                'property_id' => (int) $existing['id'],
-                'comune' => $existing['comune'],
-                'foglio' => $existing['foglio'],
-                'particella' => $existing['particella'],
-                'subalterno' => $existing['subalterno'],
-                'incoming_owner' => trim(($payload['owner']['cognome'] ?? '') . ' ' . ($payload['owner']['nome'] ?? '')),
-            ];
-        }
+        $incomingOwners = array_map(static fn (array $owner): array => [
+            'nome' => (string) ($owner['nome'] ?? ''),
+            'cognome' => (string) ($owner['cognome'] ?? ''),
+            'codice_fiscale' => (string) ($owner['codice_fiscale'] ?? ''),
+        ], $group['owners']);
+        $rowIndexes = array_values(array_unique(array_map(static fn ($rowIndex): int => (int) $rowIndex, $group['row_indexes'])));
+        sort($rowIndexes);
+        $conflicts[] = [
+            'decision_key' => 'property:' . (int) $existing['id'],
+            'row_index' => $rowIndexes[0] ?? null,
+            'row_indexes' => $rowIndexes,
+            'property_id' => (int) $existing['id'],
+            'comune' => (string) ($existing['comune'] ?? $property['comune'] ?? ''),
+            'foglio' => (string) ($existing['foglio'] ?? $property['foglio'] ?? ''),
+            'particella' => (string) ($existing['particella'] ?? $property['particella'] ?? ''),
+            'subalterno' => (string) ($existing['subalterno'] ?? $property['subalterno'] ?? ''),
+            'indirizzo' => (string) (($property['indirizzo'] ?? '') !== '' ? $property['indirizzo'] : ($existing['indirizzo'] ?? '')),
+            'current_owners' => $currentOwners,
+            'incoming_owners' => $incomingOwners,
+        ];
     }
 
     return $conflicts;
@@ -1544,6 +1731,105 @@ function analyticspro_lookup_postgis_coordinates(array $property): array
     return analyticspro_lookup_cadastral_coordinates($property);
 }
 
+function analyticspro_import_decision_for_group(array $decisions, int $propertyId, array $rowIndexes): string
+{
+    $keys = ['property:' . $propertyId, (string) $propertyId];
+    foreach ($rowIndexes as $rowIndex) {
+        $keys[] = 'row:' . (int) $rowIndex;
+        $keys[] = (string) (int) $rowIndex;
+    }
+    foreach ($keys as $key) {
+        if (!array_key_exists($key, $decisions)) {
+            continue;
+        }
+        return $decisions[$key] === 'updated' ? 'updated' : 'kept_old';
+    }
+
+    return 'kept_old';
+}
+
+function analyticspro_property_owners_has_valid_to_column(): bool
+{
+    static $hasColumn = null;
+    if ($hasColumn !== null) {
+        return $hasColumn;
+    }
+    try {
+        $stmt = analyticspro_db()->prepare('SHOW COLUMNS FROM property_owners LIKE :column');
+        $stmt->execute(['column' => 'valid_to']);
+        $hasColumn = (bool) $stmt->fetch();
+    } catch (Throwable) {
+        $hasColumn = false;
+    }
+
+    return $hasColumn;
+}
+
+function analyticspro_import_owner_display_name(array $owner): string
+{
+    $fullName = trim((string) (($owner['nome'] ?? '') . ' ' . ($owner['cognome'] ?? '')));
+    if ($fullName === '') {
+        $fullName = trim((string) (($owner['cognome'] ?? '') . ' ' . ($owner['nome'] ?? '')));
+    }
+    $fullName = trim($fullName);
+    return $fullName !== '' ? $fullName : 'N/D';
+}
+
+function analyticspro_import_owner_note_chunk(array $owner): string
+{
+    $name = analyticspro_import_owner_display_name($owner);
+    $cf = trim((string) ($owner['codice_fiscale'] ?? ''));
+
+    return $name . ($cf !== '' ? (' (' . $cf . ')') : '');
+}
+
+/**
+ * @param array<string,array<string,mixed>> $currentByCfHash
+ * @param array<string,array<string,mixed>> $incomingByCfHash
+ * @return array{changed:bool,close_hashes:array<int,string>,keep_hashes:array<int,string>,insert_hashes:array<int,string>}
+ */
+function analyticspro_build_owner_replacement_plan(array $currentByCfHash, array $incomingByCfHash): array
+{
+    $currentHashes = array_keys($currentByCfHash);
+    $incomingHashes = array_keys($incomingByCfHash);
+    sort($currentHashes);
+    sort($incomingHashes);
+    $closeHashes = [];
+    $keepHashes = [];
+    $insertHashes = [];
+    foreach ($currentHashes as $cfHash) {
+        if (isset($incomingByCfHash[$cfHash])) {
+            $keepHashes[] = $cfHash;
+        } else {
+            $closeHashes[] = $cfHash;
+        }
+    }
+    foreach ($incomingHashes as $cfHash) {
+        if (!isset($currentByCfHash[$cfHash])) {
+            $insertHashes[] = $cfHash;
+        }
+    }
+
+    return [
+        'changed' => $currentHashes !== $incomingHashes,
+        'close_hashes' => $closeHashes,
+        'keep_hashes' => $keepHashes,
+        'insert_hashes' => $insertHashes,
+    ];
+}
+
+/**
+ * @return array{stato:null,stato_personalizzato:null,colore_marker:string}
+ */
+function analyticspro_import_reset_state_values(): array
+{
+    return [
+        'stato' => null,
+        'stato_personalizzato' => null,
+        'colore_marker' => '#2A519F',
+    ];
+}
+
 function analyticspro_process_import_batch_payload(int $batchId, array $payload): array
 {
     $pdo = analyticspro_db();
@@ -1552,6 +1838,9 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
     $uploaderId = (int) ($payload['uploaded_by'] ?? 0);
     $uploaderName = trim((string) ($payload['uploaded_by_name'] ?? 'Import automatico'));
     $decisions = $payload['decisions'] ?? [];
+    $keepAssignmentsOnReplace = !array_key_exists('keep_assignments_on_replace', $payload)
+        || (bool) $payload['keep_assignments_on_replace'];
+    $groupedRows = analyticspro_group_import_rows_by_unit($rows, $tenantId);
 
     $hasPianoColumn = analyticspro_properties_has_piano_column();
     $hasProvinciaOriginaleColumn = analyticspro_properties_has_provincia_originale_column();
@@ -1599,11 +1888,16 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
         'posizione_verificata = :posizione_verificata',
         'coord_source = :coord_source',
     ])) . ' WHERE id = :id');
-    $selectCurrentOwner = $pdo->prepare('SELECT * FROM property_owners WHERE property_id = :property_id AND is_current = 1 LIMIT 1');
-    $closeOwners = $pdo->prepare('UPDATE property_owners SET is_current = 0, valid_to = NOW() WHERE property_id = :property_id AND is_current = 1');
+    $selectCurrentOwners = $pdo->prepare('SELECT * FROM property_owners WHERE property_id = :property_id AND is_current = 1 ORDER BY id ASC');
+    $closeOwnerById = analyticspro_property_owners_has_valid_to_column()
+        ? $pdo->prepare('UPDATE property_owners SET is_current = 0, valid_to = NOW() WHERE id = :id AND is_current = 1')
+        : $pdo->prepare('UPDATE property_owners SET is_current = 0 WHERE id = :id AND is_current = 1');
     $insertOwner = $pdo->prepare('INSERT INTO property_owners (property_id, tipo, nome_enc, cognome_enc, codice_fiscale_enc, telefono_enc, indirizzo_enc, email_enc, nome_hash, cognome_hash, codice_fiscale_hash, telefono_hash, data_nascita, luogo_nascita_enc, genere, is_current, valid_from) VALUES (:property_id, :tipo, :nome_enc, :cognome_enc, :codice_fiscale_enc, :telefono_enc, :indirizzo_enc, :email_enc, :nome_hash, :cognome_hash, :codice_fiscale_hash, :telefono_hash, :data_nascita, :luogo_nascita_enc, :genere, 1, NOW())');
+    $updateCurrentOwner = $pdo->prepare('UPDATE property_owners SET tipo = :tipo, nome_enc = :nome_enc, cognome_enc = :cognome_enc, codice_fiscale_enc = :codice_fiscale_enc, telefono_enc = :telefono_enc, indirizzo_enc = :indirizzo_enc, email_enc = :email_enc, nome_hash = :nome_hash, cognome_hash = :cognome_hash, codice_fiscale_hash = :codice_fiscale_hash, telefono_hash = :telefono_hash, data_nascita = :data_nascita, luogo_nascita_enc = :luogo_nascita_enc, genere = :genere WHERE id = :id AND is_current = 1');
     $insertConflict = $pdo->prepare('INSERT INTO import_duplicate_conflicts (import_batch_id, property_id, action_taken, resolved_by, resolved_at) VALUES (:import_batch_id, :property_id, :action_taken, :resolved_by, NOW())');
     $insertNote = $pdo->prepare('INSERT INTO property_notes (property_id, author_id, author_name_snapshot, testo) VALUES (:property_id, :author_id, :author_name_snapshot, :testo)');
+    $resetPropertyState = $pdo->prepare('UPDATE properties SET stato = NULL, stato_personalizzato = NULL, colore_marker = :colore_marker WHERE id = :id');
+    $clearAssignments = $pdo->prepare('DELETE FROM property_assignments WHERE property_id = :property_id');
     $updateBatch = $pdo->prepare('UPDATE import_batches SET processed_rows = :processed_rows WHERE id = :id');
 
     try {
@@ -1613,22 +1907,23 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
         $notesImported = 0;
         $skippedReasons = ['missing_cadastral_fields' => 0, 'unrecognized_province' => 0];
         $warnings = [];
-        foreach ($rows as $index => $row) {
-            $entry = analyticspro_extract_row_payload($row, $index);
-            $property = $entry['property'];
-            foreach (($entry['warnings'] ?? []) as $warningMessage) {
+        foreach ($groupedRows as $group) {
+            $property = $group['property'];
+            $rowIndexes = array_values(array_unique(array_map(static fn ($rowIndex): int => (int) $rowIndex, $group['row_indexes'] ?? [])));
+            $rowCount = max(1, count($rowIndexes));
+            foreach ($group['warnings'] ?? [] as $warningMessage) {
                 $warningMessage = trim((string) $warningMessage);
                 if ($warningMessage !== '') {
                     $warnings[] = $warningMessage;
                 }
             }
-            if ($property['provincia'] === '' && trim((string) ($property['provincia_originale'] ?? '')) !== '') {
-                $skippedReasons['unrecognized_province']++;
+            if (($property['provincia'] ?? '') === '' && trim((string) ($property['provincia_originale'] ?? '')) !== '') {
+                $skippedReasons['unrecognized_province'] += $rowCount;
             }
-            if ($property['provincia'] === '' || $property['comune'] === '' || $property['foglio'] === '' || $property['particella'] === '') {
-                $processed++;
-                $skippedRows++;
-                $skippedReasons['missing_cadastral_fields']++;
+            if (($property['provincia'] ?? '') === '' || ($property['comune'] ?? '') === '' || ($property['foglio'] ?? '') === '' || ($property['particella'] ?? '') === '') {
+                $processed += $rowCount;
+                $skippedRows += $rowCount;
+                $skippedReasons['missing_cadastral_fields'] += $rowCount;
                 $updateBatch->execute(['processed_rows' => $processed, 'id' => $batchId]);
                 continue;
             }
@@ -1643,6 +1938,15 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
                 'subalterno' => $property['subalterno'] !== '' ? $property['subalterno'] : null,
             ]);
             $existingProperty = $findProperty->fetch();
+            $incomingOwners = $group['owners'] ?? [];
+            $incomingByCfHash = [];
+            foreach ($incomingOwners as $incomingOwner) {
+                $cfHash = analyticspro_owner_cf_hash_from_row($incomingOwner);
+                if ($cfHash === '') {
+                    continue;
+                }
+                $incomingByCfHash[$cfHash] = $incomingOwner;
+            }
 
             if ($existingProperty) {
                 $propertyId = (int) $existingProperty['id'];
@@ -1674,15 +1978,28 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
                 } else {
                     $updateProperty->execute($updateParams);
                 }
-                $selectCurrentOwner->execute(['property_id' => $propertyId]);
-                $currentOwner = $selectCurrentOwner->fetch();
-                $incomingSignature = analyticspro_owner_identity_signature($entry['owner']);
-                $currentSignature = $currentOwner
-                    ? implode('|', [$currentOwner['nome_hash'] ?? '', $currentOwner['cognome_hash'] ?? '', $currentOwner['codice_fiscale_hash'] ?? '', $currentOwner['telefono_hash'] ?? ''])
-                    : '';
 
-                if ($currentOwner && $currentSignature !== $incomingSignature) {
-                    $decision = $decisions[$index] ?? 'kept_old';
+                $selectCurrentOwners->execute(['property_id' => $propertyId]);
+                $currentOwners = $selectCurrentOwners->fetchAll() ?: [];
+                $currentByCfHash = [];
+                $currentOwnerListForNote = [];
+                foreach ($currentOwners as $currentOwner) {
+                    $cfHash = (string) ($currentOwner['codice_fiscale_hash'] ?? '');
+                    if ($cfHash !== '') {
+                        $currentByCfHash[$cfHash] = $currentOwner;
+                    }
+                    $currentOwnerListForNote[] = [
+                        'nome' => analyticspro_decrypt($currentOwner['nome_enc'] ?? null),
+                        'cognome' => analyticspro_decrypt($currentOwner['cognome_enc'] ?? null),
+                        'codice_fiscale' => analyticspro_decrypt($currentOwner['codice_fiscale_enc'] ?? null),
+                    ];
+                }
+
+                $replacementPlan = analyticspro_build_owner_replacement_plan($currentByCfHash, $incomingByCfHash);
+                $ownersChanged = (bool) ($replacementPlan['changed'] ?? false);
+
+                if ($ownersChanged) {
+                    $decision = analyticspro_import_decision_for_group($decisions, $propertyId, $rowIndexes);
                     $insertConflict->execute([
                         'import_batch_id' => $batchId,
                         'property_id' => $propertyId,
@@ -1691,29 +2008,117 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
                     ]);
 
                     if ($decision === 'updated') {
-                        $closeOwners->execute(['property_id' => $propertyId]);
+                        $resetValues = analyticspro_import_reset_state_values();
+                        foreach (($replacementPlan['close_hashes'] ?? []) as $cfHash) {
+                            $currentOwner = $currentByCfHash[$cfHash] ?? null;
+                            if (!is_array($currentOwner)) {
+                                continue;
+                            }
+                            $closeOwnerById->execute(['id' => (int) $currentOwner['id']]);
+                        }
+
+                        foreach ($incomingByCfHash as $cfHash => $incomingOwner) {
+                            if (in_array($cfHash, $replacementPlan['keep_hashes'] ?? [], true)) {
+                                $existingOwner = $currentByCfHash[$cfHash];
+                                $mergedOwner = analyticspro_merge_import_owner_values([
+                                    'tipo' => (string) ($existingOwner['tipo'] ?? ''),
+                                    'nome' => analyticspro_decrypt($existingOwner['nome_enc'] ?? null),
+                                    'cognome' => analyticspro_decrypt($existingOwner['cognome_enc'] ?? null),
+                                    'codice_fiscale' => analyticspro_decrypt($existingOwner['codice_fiscale_enc'] ?? null),
+                                    'telefono' => analyticspro_decrypt($existingOwner['telefono_enc'] ?? null),
+                                    'indirizzo' => analyticspro_decrypt($existingOwner['indirizzo_enc'] ?? null),
+                                    'email' => analyticspro_decrypt($existingOwner['email_enc'] ?? null),
+                                    'data_nascita' => $existingOwner['data_nascita'],
+                                    'luogo_nascita' => analyticspro_decrypt($existingOwner['luogo_nascita_enc'] ?? null),
+                                    'genere' => $existingOwner['genere'],
+                                ], $incomingOwner);
+                                $updateCurrentOwner->execute([
+                                    'id' => (int) $existingOwner['id'],
+                                    'tipo' => $mergedOwner['tipo'] !== '' ? $mergedOwner['tipo'] : 'persona',
+                                    'nome_enc' => analyticspro_encrypt($mergedOwner['nome'] ?? ''),
+                                    'cognome_enc' => analyticspro_encrypt($mergedOwner['cognome'] ?? ''),
+                                    'codice_fiscale_enc' => analyticspro_encrypt($mergedOwner['codice_fiscale'] ?? ''),
+                                    'telefono_enc' => analyticspro_encrypt($mergedOwner['telefono'] ?? ''),
+                                    'indirizzo_enc' => analyticspro_encrypt($mergedOwner['indirizzo'] ?? ''),
+                                    'email_enc' => analyticspro_encrypt($mergedOwner['email'] ?? ''),
+                                    'nome_hash' => analyticspro_hash($mergedOwner['nome'] ?? ''),
+                                    'cognome_hash' => analyticspro_hash($mergedOwner['cognome'] ?? ''),
+                                    'codice_fiscale_hash' => analyticspro_hash($mergedOwner['codice_fiscale'] ?? ''),
+                                    'telefono_hash' => analyticspro_hash($mergedOwner['telefono'] ?? ''),
+                                    'data_nascita' => $mergedOwner['data_nascita'] ?? null,
+                                    'luogo_nascita_enc' => analyticspro_encrypt($mergedOwner['luogo_nascita'] ?? ''),
+                                    'genere' => $mergedOwner['genere'] ?? null,
+                                ]);
+                                continue;
+                            }
+                            if (!in_array($cfHash, $replacementPlan['insert_hashes'] ?? [], true)) {
+                                continue;
+                            }
+                            $insertOwner->execute([
+                                'property_id' => $propertyId,
+                                'tipo' => $incomingOwner['tipo'],
+                                'nome_enc' => analyticspro_encrypt($incomingOwner['nome']),
+                                'cognome_enc' => analyticspro_encrypt($incomingOwner['cognome']),
+                                'codice_fiscale_enc' => analyticspro_encrypt($incomingOwner['codice_fiscale']),
+                                'telefono_enc' => analyticspro_encrypt($incomingOwner['telefono']),
+                                'indirizzo_enc' => analyticspro_encrypt($incomingOwner['indirizzo']),
+                                'email_enc' => analyticspro_encrypt($incomingOwner['email']),
+                                'nome_hash' => analyticspro_hash($incomingOwner['nome']),
+                                'cognome_hash' => analyticspro_hash($incomingOwner['cognome']),
+                                'codice_fiscale_hash' => analyticspro_hash($incomingOwner['codice_fiscale']),
+                                'telefono_hash' => analyticspro_hash($incomingOwner['telefono']),
+                                'data_nascita' => $incomingOwner['data_nascita'],
+                                'luogo_nascita_enc' => analyticspro_encrypt($incomingOwner['luogo_nascita'] ?? ''),
+                                'genere' => $incomingOwner['genere'],
+                            ]);
+                        }
+
+                        $resetPropertyState->execute([
+                            'id' => $propertyId,
+                            'colore_marker' => $resetValues['colore_marker'],
+                        ]);
+                        if (!$keepAssignmentsOnReplace) {
+                            $clearAssignments->execute(['property_id' => $propertyId]);
+                        }
+
+                        $incomingOwnerListForNote = array_values(array_map(static fn (array $owner): array => [
+                            'nome' => (string) ($owner['nome'] ?? ''),
+                            'cognome' => (string) ($owner['cognome'] ?? ''),
+                            'codice_fiscale' => (string) ($owner['codice_fiscale'] ?? ''),
+                        ], $incomingByCfHash));
+                        $insertNote->execute([
+                            'property_id' => $propertyId,
+                            'author_id' => $uploaderId,
+                            'author_name_snapshot' => 'Sistema',
+                            'testo' => 'Cambio di intestatario (import del ' . date('d/m/Y H:i') . '). Precedenti: '
+                                . implode(', ', array_map(static fn (array $owner): string => analyticspro_import_owner_note_chunk($owner), $currentOwnerListForNote))
+                                . ' — Nuovi: '
+                                . implode(', ', array_map(static fn (array $owner): string => analyticspro_import_owner_note_chunk($owner), $incomingOwnerListForNote)),
+                        ]);
+                    }
+                } elseif ($currentOwners === [] && $incomingByCfHash !== []) {
+                    foreach ($incomingByCfHash as $incomingOwner) {
                         $insertOwner->execute([
                             'property_id' => $propertyId,
-                            'tipo' => $entry['owner']['tipo'],
-                            'nome_enc' => analyticspro_encrypt($entry['owner']['nome']),
-                            'cognome_enc' => analyticspro_encrypt($entry['owner']['cognome']),
-                            'codice_fiscale_enc' => analyticspro_encrypt($entry['owner']['codice_fiscale']),
-                            'telefono_enc' => analyticspro_encrypt($entry['owner']['telefono']),
-                            'indirizzo_enc' => analyticspro_encrypt($entry['owner']['indirizzo']),
-                            'email_enc' => analyticspro_encrypt($entry['owner']['email']),
-                            'nome_hash' => analyticspro_hash($entry['owner']['nome']),
-                            'cognome_hash' => analyticspro_hash($entry['owner']['cognome']),
-                            'codice_fiscale_hash' => analyticspro_hash($entry['owner']['codice_fiscale']),
-                            'telefono_hash' => analyticspro_hash($entry['owner']['telefono']),
-                            'data_nascita' => $entry['owner']['data_nascita'],
-                            'luogo_nascita_enc' => analyticspro_encrypt($entry['owner']['luogo_nascita'] ?? ''),
-                            'genere' => $entry['owner']['genere'],
+                            'tipo' => $incomingOwner['tipo'],
+                            'nome_enc' => analyticspro_encrypt($incomingOwner['nome']),
+                            'cognome_enc' => analyticspro_encrypt($incomingOwner['cognome']),
+                            'codice_fiscale_enc' => analyticspro_encrypt($incomingOwner['codice_fiscale']),
+                            'telefono_enc' => analyticspro_encrypt($incomingOwner['telefono']),
+                            'indirizzo_enc' => analyticspro_encrypt($incomingOwner['indirizzo']),
+                            'email_enc' => analyticspro_encrypt($incomingOwner['email']),
+                            'nome_hash' => analyticspro_hash($incomingOwner['nome']),
+                            'cognome_hash' => analyticspro_hash($incomingOwner['cognome']),
+                            'codice_fiscale_hash' => analyticspro_hash($incomingOwner['codice_fiscale']),
+                            'telefono_hash' => analyticspro_hash($incomingOwner['telefono']),
+                            'data_nascita' => $incomingOwner['data_nascita'],
+                            'luogo_nascita_enc' => analyticspro_encrypt($incomingOwner['luogo_nascita'] ?? ''),
+                            'genere' => $incomingOwner['genere'],
                         ]);
                     }
                 }
-
             } else {
-                $insertParams = [
+                $insertParams = array_merge(analyticspro_import_reset_state_values(), [
                     'user_id' => $tenantId,
                     'import_batch_id' => $batchId,
                     'provincia' => $property['provincia'],
@@ -1736,36 +2141,45 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
                     'lng' => $property['lng'],
                     'posizione_verificata' => ($property['lat'] !== null && $property['lng'] !== null) ? 1 : 0,
                     'coord_source' => ($property['lat'] !== null && $property['lng'] !== null) ? 'manual' : null,
-                    'stato' => null,
-                    'stato_personalizzato' => null,
-                    'colore_marker' => '#0d6efd',
-                ] + ($hasPianoColumn ? ['piano' => $property['piano'] !== '' ? $property['piano'] : null] : []);
+                ] + ($hasPianoColumn ? ['piano' => $property['piano'] !== '' ? $property['piano'] : null] : []));
                 if ($hasProvinciaOriginaleColumn) {
                     $insertParams['provincia_originale'] = (string) ($property['provincia_originale'] ?? '');
                 }
                 $insertProperty->execute($insertParams);
                 $propertyId = (int) $pdo->lastInsertId();
-                $insertOwner->execute([
+                foreach ($incomingByCfHash as $incomingOwner) {
+                    $insertOwner->execute([
+                        'property_id' => $propertyId,
+                        'tipo' => $incomingOwner['tipo'],
+                        'nome_enc' => analyticspro_encrypt($incomingOwner['nome']),
+                        'cognome_enc' => analyticspro_encrypt($incomingOwner['cognome']),
+                        'codice_fiscale_enc' => analyticspro_encrypt($incomingOwner['codice_fiscale']),
+                        'telefono_enc' => analyticspro_encrypt($incomingOwner['telefono']),
+                        'indirizzo_enc' => analyticspro_encrypt($incomingOwner['indirizzo']),
+                        'email_enc' => analyticspro_encrypt($incomingOwner['email']),
+                        'nome_hash' => analyticspro_hash($incomingOwner['nome']),
+                        'cognome_hash' => analyticspro_hash($incomingOwner['cognome']),
+                        'codice_fiscale_hash' => analyticspro_hash($incomingOwner['codice_fiscale']),
+                        'telefono_hash' => analyticspro_hash($incomingOwner['telefono']),
+                        'data_nascita' => $incomingOwner['data_nascita'],
+                        'luogo_nascita_enc' => analyticspro_encrypt($incomingOwner['luogo_nascita'] ?? ''),
+                        'genere' => $incomingOwner['genere'],
+                    ]);
+                }
+                $sourceFileLabel = implode(', ', array_values(array_unique($group['source_files'] ?? [])));
+                $insertNote->execute([
                     'property_id' => $propertyId,
-                    'tipo' => $entry['owner']['tipo'],
-                    'nome_enc' => analyticspro_encrypt($entry['owner']['nome']),
-                    'cognome_enc' => analyticspro_encrypt($entry['owner']['cognome']),
-                    'codice_fiscale_enc' => analyticspro_encrypt($entry['owner']['codice_fiscale']),
-                    'telefono_enc' => analyticspro_encrypt($entry['owner']['telefono']),
-                    'indirizzo_enc' => analyticspro_encrypt($entry['owner']['indirizzo']),
-                    'email_enc' => analyticspro_encrypt($entry['owner']['email']),
-                    'nome_hash' => analyticspro_hash($entry['owner']['nome']),
-                    'cognome_hash' => analyticspro_hash($entry['owner']['cognome']),
-                    'codice_fiscale_hash' => analyticspro_hash($entry['owner']['codice_fiscale']),
-                    'telefono_hash' => analyticspro_hash($entry['owner']['telefono']),
-                    'data_nascita' => $entry['owner']['data_nascita'],
-                    'luogo_nascita_enc' => analyticspro_encrypt($entry['owner']['luogo_nascita'] ?? ''),
-                    'genere' => $entry['owner']['genere'],
+                    'author_id' => $uploaderId,
+                    'author_name_snapshot' => 'Sistema',
+                    'testo' => 'Immobile importato il ' . date('d/m/Y H:i') . ($sourceFileLabel !== '' ? (' — file ' . $sourceFileLabel) : ''),
                 ]);
             }
 
-            $note = trim((string) ($entry['note'] ?? ''));
-            if ($note !== '') {
+            foreach (($group['notes'] ?? []) as $note) {
+                $note = trim((string) $note);
+                if ($note === '') {
+                    continue;
+                }
                 $insertNote->execute([
                     'property_id' => $propertyId,
                     'author_id' => $uploaderId,
@@ -1775,8 +2189,8 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
                 $notesImported++;
             }
 
-            $processed++;
-            $savedRows++;
+            $processed += $rowCount;
+            $savedRows += $rowCount;
             $updateBatch->execute(['processed_rows' => $processed, 'id' => $batchId]);
         }
 

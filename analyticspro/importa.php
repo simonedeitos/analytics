@@ -70,7 +70,7 @@ analyticspro_render_header('Importa dati', ['app_assets' => true]);
                     <p class="text-muted small mt-3 mb-0">Formati supportati: <strong>.csv</strong>, <strong>.xlsx</strong>, <strong>.xls</strong></p>
                 </div>
             </div>
-            <div class="form-text">In caso di duplicato catastale con intestatario diverso verrà chiesta conferma prima dell'aggiornamento.</div>
+            <div class="form-text">In caso di duplicati con intestatari diversi verrà mostrata una tabella di confronto per scegliere quali immobili sostituire.</div>
         </div>
     </div>
 
@@ -150,6 +150,53 @@ analyticspro_render_header('Importa dati', ['app_assets' => true]);
         <p id="import-progress-text" class="small mb-2 text-muted">Preparazione import...</p>
         <pre id="import-log-console" class="bg-dark text-light small p-3 rounded-4 mb-2" style="max-height:220px;overflow:auto;white-space:pre-wrap;"></pre>
         <div id="enrichment-report" class="small d-none"></div>
+    </div>
+</div>
+
+<div class="modal fade" id="import-conflicts-modal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <h5 class="modal-title mb-1">Conflitti intestatari rilevati</h5>
+                    <div id="import-conflicts-file-label" class="small text-muted"></div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-2 align-items-center mb-3">
+                    <div class="col-md-7">
+                        <input type="search" id="import-conflicts-search" class="form-control" placeholder="Cerca per immobile o intestatario...">
+                    </div>
+                    <div class="col-md-5">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" value="1" id="import-conflicts-keep-assignments" checked>
+                            <label class="form-check-label" for="import-conflicts-keep-assignments">
+                                Mantieni le assegnazioni ai subutenti
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th style="width:48px"></th>
+                                <th>Immobile (Comune F./P./Sub.)</th>
+                                <th>Vecchi intestatari</th>
+                                <th>Nuovi intestatari</th>
+                            </tr>
+                        </thead>
+                        <tbody id="import-conflicts-body"></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" id="import-conflicts-select-visible">Seleziona tutti</button>
+                <button type="button" class="btn btn-outline-secondary" id="import-conflicts-cancel" data-bs-dismiss="modal">Annulla</button>
+                <button type="button" class="btn btn-primary" id="import-conflicts-replace-selected">Sostituisci</button>
+            </div>
+        </div>
     </div>
 </div>
 <?php require __DIR__ . '/includes/manual_record_modal.php'; ?>

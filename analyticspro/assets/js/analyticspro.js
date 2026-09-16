@@ -343,6 +343,37 @@
         return '__idx_' + String(Number(fallbackIndex) || 0);
     }
 
+    function normalizeText(value) {
+        var text = String(value === null || value === undefined ? '' : value).trim().toUpperCase();
+        if (!text) return '';
+        text = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        text = text.replace(/[^A-Z0-9\/]+/g, ' ');
+        text = text.replace(/\s+/g, ' ').trim();
+        return text;
+    }
+
+    function normalizeCadastralNumber(value) {
+        var text = String(value === null || value === undefined ? '' : value).trim().toUpperCase().replace(/\s+/g, '');
+        if (!text) return '';
+        var match = text.match(/^([0-9]+)(.*)$/);
+        if (!match) return text;
+        var numberPart = String(match[1] || '').replace(/^0+/, '');
+        if (!numberPart) numberPart = '0';
+        return numberPart + String(match[2] || '');
+    }
+
+    function resolveTenantGroupingId(property) {
+        if (!property || typeof property !== 'object') return '';
+        var keys = ['tenant_id', 'tenantId', 'user_id', 'parent_user_id'];
+        for (var i = 0; i < keys.length; i++) {
+            var value = property[keys[i]];
+            if (value !== null && value !== undefined && String(value).trim() !== '') {
+                return String(value).trim();
+            }
+        }
+        return '';
+    }
+
     function paletteEntryByColor(color) {
         return MARKER_COLOR_PALETTE.find(function (item) { return item.value.toLowerCase() === String(color || '').toLowerCase(); }) || null;
     }
@@ -1018,12 +1049,14 @@
 
     function renderAssignedTable() {
         if (!document.getElementById('assigned-table')) return;
-        initDataTable('#assigned-table', buildTableData(getAssignedPropertiesForDisplay(), 'assigned'), state.canExport || state.role !== 'subuser', 'assigned');
+        var grouped = groupPropertiesByUnit(getAssignedPropertiesForDisplay());
+        initDataTable('#assigned-table', buildTableData(grouped, 'assigned'), state.canExport || state.role !== 'subuser', 'assigned');
     }
 
     function renderReportTable() {
         if (!document.getElementById('report-table')) return;
-        initDataTable('#report-table', buildTableData(state.properties, 'report'), state.role !== 'subuser', 'report');
+        var grouped = groupPropertiesByUnit(state.properties);
+        initDataTable('#report-table', buildTableData(grouped, 'report'), state.role !== 'subuser', 'report');
         hydrateReportFilters();
         if (state.reportQuery) {
             var comuneInput = document.getElementById('report-filter-comune');
@@ -1085,15 +1118,19 @@
 
         for (var i = 0; i < properties.length; i++) {
             var p = properties[i];
-            var provincia  = String(p.provincia  || '').trim().toUpperCase();
-            var comune     = String(p.comune     || '').trim().toUpperCase();
-            var codCatastale = String(p.cod_catastale || '').trim().toUpperCase();
-            var sezione    = String(p.sezione    || '').trim().toUpperCase();
-            var foglio     = String(p.foglio     || '').trim().toUpperCase();
-            var particella = String(p.particella || '').trim().toUpperCase();
-            var subalterno = String(p.subalterno || '').trim().toUpperCase();
-            var comuneKey  = codCatastale !== '' ? ('COD:' + codCatastale) : ('COM:' + comune);
-            var unitKey    = provincia + '|' + comuneKey + '|' + comune + '|' + sezione + '|' + foglio + '|' + particella + '|' + subalterno + '|' + String(p.user_id || '');
+            var provinciaNorm = normalizeText(p.provincia || '');
+            var comuneNorm = normalizeText(p.comune || '');
+            var codCatastaleNorm = normalizeText(p.cod_catastale || '');
+            var sezioneNorm = normalizeText(p.sezione || '');
+            var foglioNorm = normalizeCadastralNumber(p.foglio || '');
+            var particellaNorm = normalizeCadastralNumber(p.particella || '');
+            var subalternoNorm = normalizeCadastralNumber(p.subalterno || '');
+            var tenantId = resolveTenantGroupingId(p);
+            var comuneKey = codCatastaleNorm !== '' ? ('COD:' + codCatastaleNorm) : ('COM:' + comuneNorm);
+            var subalternoKey = subalternoNorm === ''
+                ? ('SUB:__NONE__#' + String(p.id || ('idx_' + i)))
+                : subalternoNorm;
+            var unitKey = provinciaNorm + '|' + comuneKey + '|' + sezioneNorm + '|' + foglioNorm + '|' + particellaNorm + '|' + subalternoKey + '|' + tenantId;
 
             if (!groups[unitKey]) {
                 // Prima property del gruppo: diventa la "principale"
@@ -1173,6 +1210,27 @@
             prim._groupIds = group.properties.map(function (gp) { return gp.id; });
             prim._editableGroupIds = group.properties.filter(function (gp) { return !!gp.can_edit; }).map(function (gp) { return gp.id; });
             prim.can_edit = prim._editableGroupIds.length > 0;
+            prim.is_assigned = group.properties.some(function (gp) { return !!gp.is_assigned; }) || prim.assignments.length > 0;
+
+            var latSum = 0;
+            var lngSum = 0;
+            var coordCount = 0;
+            for (var ci = 0; ci < group.properties.length; ci++) {
+                var coordProperty = group.properties[ci];
+                var lat = Number(coordProperty && coordProperty.lat);
+                var lng = Number(coordProperty && coordProperty.lng);
+                if (!isFinite(lat) || !isFinite(lng)) continue;
+                latSum += lat;
+                lngSum += lng;
+                coordCount++;
+            }
+            if (coordCount > 0) {
+                prim.lat = latSum / coordCount;
+                prim.lng = lngSum / coordCount;
+            } else {
+                prim.lat = null;
+                prim.lng = null;
+            }
 
             result.push(prim);
         }
@@ -1986,12 +2044,22 @@
         return true;
     }
 
-    async function deleteProperty(propertyId) {
+    async function deleteProperty(propertyIds) {
         if (!state.propertyDeleteEndpoint) throw new Error('Endpoint eliminazione non configurato.');
+        var ids = Array.isArray(propertyIds) ? propertyIds : [propertyIds];
+        ids = ids.map(function (id) { return Number(id || 0); }).filter(function (id, index, collection) {
+            return id > 0 && collection.indexOf(id) === index;
+        });
+        if (!ids.length) {
+            throw new Error('Immobile non valido.');
+        }
+        var payload = ids.length > 1
+            ? { csrf_token: state.csrfToken, property_ids: ids }
+            : { csrf_token: state.csrfToken, property_id: ids[0] };
         await api(state.propertyDeleteEndpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ csrf_token: state.csrfToken, property_id: propertyId })
+            body: JSON.stringify(payload)
         });
         await loadProperties();
     }
@@ -2448,50 +2516,61 @@
             }
             var rowPayload = {};
             headers.forEach(function (header, ci) { rowPayload[header] = current[ci] !== undefined ? String(current[ci]).trim() : ''; });
+            rowPayload.__source_file = fileName;
+            rowPayload.__source_row = ri + 1;
             parsedRows.push(rowPayload);
         }
 
         return { rows: parsedRows, warnings: warnings };
     }
 
+    async function parseSingleFile(file) {
+        var buffer = await file.arrayBuffer();
+        var fileName = String(file.name || '');
+        var isCsv = fileName.toLowerCase().endsWith('.csv');
+        if (isCsv) {
+            var csvText = new TextDecoder('utf-8').decode(buffer);
+            var csvResult = parseCsvFile(csvText, fileName);
+            return { name: fileName, rows: csvResult.rows, warnings: csvResult.warnings };
+        }
+        var workbook = XLSX.read(buffer, { type: 'array', raw: false, dateNF: 'yyyy-mm-dd' });
+        var sheet = workbook.Sheets[workbook.SheetNames[0]];
+        var rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', blankrows: false, raw: false });
+        if (!rows.length) return { name: fileName, rows: [], warnings: [] };
+        var headerCounts = {};
+        var headers = rows[0].map(function (v, index) {
+            var header = String(v || '').trim();
+            if (!header) header = 'ColonnaVuota ' + (index + 1);
+            if (headerCounts[header]) {
+                headerCounts[header]++;
+                return header + ' DUP ' + headerCounts[header];
+            }
+            headerCounts[header] = 1;
+            return header;
+        });
+        var parsedRows = [];
+        for (var ri = 1; ri < rows.length; ri++) {
+            var current = rows[ri];
+            var rowPayload = {};
+            headers.forEach(function (header, ci) { rowPayload[header] = current[ci] !== undefined ? String(current[ci]).trim() : ''; });
+            rowPayload.__source_file = fileName;
+            rowPayload.__source_row = ri + 1;
+            parsedRows.push(rowPayload);
+        }
+        return { name: fileName, rows: parsedRows, warnings: [] };
+    }
+
     async function parseFiles(files) {
         var parsedRows = [];
         var warnings = [];
+        var parsedFiles = [];
         for (var fi = 0; fi < files.length; fi++) {
-            var file   = files[fi];
-            var buffer = await file.arrayBuffer();
-            var fileName = String(file.name || '');
-            var isCsv = fileName.toLowerCase().endsWith('.csv');
-            if (isCsv) {
-                var csvText = new TextDecoder('utf-8').decode(buffer);
-                var csvResult = parseCsvFile(csvText, fileName);
-                parsedRows = parsedRows.concat(csvResult.rows);
-                warnings = warnings.concat(csvResult.warnings);
-                continue;
-            }
-            var workbook = XLSX.read(buffer, { type: 'array', raw: false, dateNF: 'yyyy-mm-dd' });
-            var sheet = workbook.Sheets[workbook.SheetNames[0]];
-            var rows  = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', blankrows: false, raw: false });
-            if (!rows.length) continue;
-            var headerCounts = {};
-            var headers = rows[0].map(function (v, index) {
-                var header = String(v || '').trim();
-                if (!header) header = 'ColonnaVuota ' + (index + 1);
-                if (headerCounts[header]) {
-                    headerCounts[header]++;
-                    return header + ' DUP ' + headerCounts[header];
-                }
-                headerCounts[header] = 1;
-                return header;
-            });
-            for (var ri = 1; ri < rows.length; ri++) {
-                var current    = rows[ri];
-                var rowPayload = {};
-                headers.forEach(function (header, ci) { rowPayload[header] = current[ci] !== undefined ? String(current[ci]).trim() : ''; });
-                parsedRows.push(rowPayload);
-            }
+            var parsedFile = await parseSingleFile(files[fi]);
+            parsedFiles.push(parsedFile);
+            parsedRows = parsedRows.concat(parsedFile.rows || []);
+            warnings = warnings.concat(parsedFile.warnings || []);
         }
-        return { rows: parsedRows, warnings: warnings };
+        return { rows: parsedRows, warnings: warnings, files: parsedFiles };
     }
 
     function importLoggerReset() {
@@ -2606,6 +2685,156 @@
         setWeightedImportPhase('enrich', ratio, importPrefix + 'Geolocalizzazione: ' + processed + '/' + total + ' particelle uniche (' + clampPercent(Math.round(ratio * 100)) + '%)');
     }
 
+    function conflictDecisionKey(conflict, fallbackIndex) {
+        var explicit = String(conflict && conflict.decision_key ? conflict.decision_key : '').trim();
+        if (explicit) return explicit;
+        var propertyId = Number(conflict && conflict.property_id ? conflict.property_id : 0);
+        if (propertyId > 0) return 'property:' + propertyId;
+        if (Array.isArray(conflict && conflict.row_indexes) && conflict.row_indexes.length) {
+            return 'rows:' + conflict.row_indexes.join(',');
+        }
+        var rowIndex = Number(conflict && conflict.row_index !== undefined ? conflict.row_index : -1);
+        if (rowIndex >= 0) return 'row:' + rowIndex;
+        return 'conflict:' + String(Number(fallbackIndex) || 0);
+    }
+
+    function formatConflictOwnersHtml(owners) {
+        var list = Array.isArray(owners) ? owners : [];
+        if (!list.length) {
+            return '<span class="text-muted small">N/D</span>';
+        }
+        return list.map(function (owner) {
+            var fullName = String(((owner && owner.cognome) || '') + ' ' + ((owner && owner.nome) || '')).trim() || 'N/D';
+            var cf = String(owner && owner.codice_fiscale ? owner.codice_fiscale : '').trim();
+            return '<div class="small mb-1"><strong>' + escapeHtml(fullName) + '</strong>' + (cf ? ' <span class="text-muted">(' + escapeHtml(cf) + ')</span>' : '') + '</div>';
+        }).join('');
+    }
+
+    function formatConflictUnitLabel(conflict) {
+        var comune = String(conflict && conflict.comune ? conflict.comune : '').trim() || 'N/D';
+        var foglio = String(conflict && conflict.foglio ? conflict.foglio : '').trim() || '—';
+        var particella = String(conflict && conflict.particella ? conflict.particella : '').trim() || '—';
+        var subalterno = String(conflict && conflict.subalterno ? conflict.subalterno : '').trim();
+        return comune + ' F.' + foglio + ' P.' + particella + (subalterno ? ' Sub.' + subalterno : '');
+    }
+
+    function renderImportConflictRows(conflicts, tableBody) {
+        if (!tableBody) return;
+        tableBody.innerHTML = conflicts.map(function (conflict, index) {
+            var key = conflictDecisionKey(conflict, index);
+            return '<tr data-conflict-row="1" data-search="' + escapeHtml((formatConflictUnitLabel(conflict) + ' ' + JSON.stringify(conflict.current_owners || []) + ' ' + JSON.stringify(conflict.incoming_owners || [])).toUpperCase()) + '">'
+                + '<td><input type="checkbox" class="form-check-input import-conflict-check" data-decision-key="' + escapeHtml(key) + '" data-row-index="' + escapeHtml(String(conflict.row_index !== undefined ? conflict.row_index : '')) + '"></td>'
+                + '<td>' + escapeHtml(formatConflictUnitLabel(conflict)) + '</td>'
+                + '<td>' + formatConflictOwnersHtml(conflict.current_owners || []) + '</td>'
+                + '<td>' + formatConflictOwnersHtml(conflict.incoming_owners || []) + '</td>'
+                + '</tr>';
+        }).join('');
+    }
+
+    function applyImportConflictSearchFilter(query, tableBody) {
+        if (!tableBody) return;
+        var token = String(query || '').trim().toUpperCase();
+        Array.from(tableBody.querySelectorAll('tr[data-conflict-row="1"]')).forEach(function (row) {
+            var haystack = String(row.dataset.search || '');
+            row.style.display = token === '' || haystack.indexOf(token) !== -1 ? '' : 'none';
+        });
+    }
+
+    async function openImportConflictDecisionModal(conflicts, fileName) {
+        var modalEl = document.getElementById('import-conflicts-modal');
+        if (!modalEl || !Array.isArray(conflicts) || !conflicts.length) {
+            return { decisions: {}, keepAssignments: true };
+        }
+        var titleEl = document.getElementById('import-conflicts-file-label');
+        var searchEl = document.getElementById('import-conflicts-search');
+        var tableBody = document.getElementById('import-conflicts-body');
+        var keepAssignmentsEl = document.getElementById('import-conflicts-keep-assignments');
+        var modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+        if (titleEl) {
+            titleEl.textContent = fileName ? ('File: ' + fileName) : '';
+        }
+        if (searchEl) {
+            searchEl.value = '';
+        }
+        if (keepAssignmentsEl) {
+            keepAssignmentsEl.checked = true;
+        }
+        renderImportConflictRows(conflicts, tableBody);
+        applyImportConflictSearchFilter('', tableBody);
+
+        return await new Promise(function (resolve) {
+            var resolved = false;
+            var selectAllBtn = document.getElementById('import-conflicts-select-visible');
+            var replaceBtn = document.getElementById('import-conflicts-replace-selected');
+            var cancelBtn = document.getElementById('import-conflicts-cancel');
+
+            function cleanup() {
+                if (searchEl) searchEl.removeEventListener('input', onSearch);
+                if (selectAllBtn) selectAllBtn.removeEventListener('click', onSelectVisible);
+                if (replaceBtn) replaceBtn.removeEventListener('click', onReplaceSelected);
+                if (cancelBtn) cancelBtn.removeEventListener('click', onCancel);
+                modalEl.removeEventListener('hidden.bs.modal', onHidden);
+            }
+
+            function done(decisions) {
+                if (resolved) return;
+                resolved = true;
+                cleanup();
+                resolve({
+                    decisions: decisions || {},
+                    keepAssignments: keepAssignmentsEl ? !!keepAssignmentsEl.checked : true
+                });
+            }
+
+            function onSearch() {
+                applyImportConflictSearchFilter(searchEl ? searchEl.value : '', tableBody);
+            }
+
+            function onSelectVisible(event) {
+                event.preventDefault();
+                var visibleChecks = Array.from((tableBody || document).querySelectorAll('tr[data-conflict-row="1"]'))
+                    .filter(function (row) { return row.style.display !== 'none'; })
+                    .map(function (row) { return row.querySelector('.import-conflict-check'); })
+                    .filter(Boolean);
+                var shouldCheckAll = visibleChecks.some(function (check) { return !check.checked; });
+                visibleChecks.forEach(function (check) { check.checked = shouldCheckAll; });
+            }
+
+            function onReplaceSelected(event) {
+                event.preventDefault();
+                var selected = {};
+                Array.from((tableBody || document).querySelectorAll('.import-conflict-check')).forEach(function (check) {
+                    var key = String(check.dataset.decisionKey || '').trim();
+                    var rowIndex = String(check.dataset.rowIndex || '').trim();
+                    var value = check.checked ? 'updated' : 'kept_old';
+                    if (key) selected[key] = value;
+                    if (rowIndex !== '' && !Number.isNaN(Number(rowIndex))) {
+                        selected[String(Number(rowIndex))] = value;
+                    }
+                });
+                done(selected);
+                modal.hide();
+            }
+
+            function onCancel(event) {
+                event.preventDefault();
+                done({});
+                modal.hide();
+            }
+
+            function onHidden() {
+                done({});
+            }
+
+            if (searchEl) searchEl.addEventListener('input', onSearch);
+            if (selectAllBtn) selectAllBtn.addEventListener('click', onSelectVisible);
+            if (replaceBtn) replaceBtn.addEventListener('click', onReplaceSelected);
+            if (cancelBtn) cancelBtn.addEventListener('click', onCancel);
+            modalEl.addEventListener('hidden.bs.modal', onHidden);
+            modal.show();
+        });
+    }
+
     function syncEnrichmentReportLog(report) {
         report = report || {};
         ['attempt_failures', 'failure_codes'].forEach(function (bucket) {
@@ -2628,6 +2857,7 @@
         try {
             var parseResult = await parseFiles(files);
             var rows = parseResult.rows || [];
+            var parsedFiles = parseResult.files || [];
             (parseResult.warnings || []).forEach(function (warningMessage) {
                 importLog('warning', warningMessage);
             });
@@ -2640,18 +2870,30 @@
             setWeightedImportPhase('read', 1, importProgressLabel(0, rows.length) + ' · Righe lette: ' + rows.length);
             importLog('info', 'Righe lette: ' + rows.length);
             setWeightedImportPhase('analyze', 0.5, importProgressLabel(0, rows.length) + ' · Analisi duplicati in corso...');
-            var analysis = await api(state.importEndpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ csrf_token: state.csrfToken, mode: 'analyze', rows: rows }) });
-            importLog('info', 'Duplicati rilevati: ' + (analysis.conflicts || []).length);
             var decisions = {};
-            for (var ci = 0; ci < (analysis.conflicts || []).length; ci++) {
-                var conflict = analysis.conflicts[ci];
-                var confirmUpdate = window.confirm('Duplicato per ' + conflict.comune + ' F.' + conflict.foglio + ' P.' + conflict.particella + (conflict.subalterno ? '/' + conflict.subalterno : '') + '.\nNuovo intestatario: ' + (conflict.incoming_owner || conflict.new_owner || 'N/D') + '.\nSostituire?');
-                decisions[conflict.row_index] = confirmUpdate ? 'updated' : 'kept_old';
+            var keepAssignmentsOnReplace = true;
+            var sourceFiles = parsedFiles.length ? parsedFiles : [{ name: Array.from(files).map(function (f) { return f.name; }).join(', '), rows: rows }];
+            for (var sf = 0; sf < sourceFiles.length; sf++) {
+                var sourceFile = sourceFiles[sf];
+                if (!sourceFile.rows || !sourceFile.rows.length) continue;
+                var analysis = await api(state.importEndpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ csrf_token: state.csrfToken, mode: 'analyze', rows: sourceFile.rows })
+                });
+                var conflicts = analysis.conflicts || [];
+                importLog('info', 'Duplicati rilevati in "' + (sourceFile.name || ('file #' + (sf + 1))) + '": ' + conflicts.length);
+                if (!conflicts.length) continue;
+                var modalDecision = await openImportConflictDecisionModal(conflicts, sourceFile.name || ('file #' + (sf + 1)));
+                keepAssignmentsOnReplace = keepAssignmentsOnReplace && modalDecision.keepAssignments;
+                Object.keys(modalDecision.decisions || {}).forEach(function (decisionKey) {
+                    decisions[decisionKey] = modalDecision.decisions[decisionKey];
+                });
             }
 
             setWeightedImportPhase('save', 0.5, importProgressLabel(0, rows.length) + ' · Salvataggio dati in corso...');
             importLog('info', 'Fase Salvataggio dati avviata');
-            var processPayload = await api(state.importEndpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ csrf_token: state.csrfToken, mode: 'process', filename: Array.from(files).map(function(f){return f.name;}).join(', '), decisions: decisions, rows: rows }) });
+            var processPayload = await api(state.importEndpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ csrf_token: state.csrfToken, mode: 'process', filename: Array.from(files).map(function(f){return f.name;}).join(', '), decisions: decisions, keep_assignments_on_replace: keepAssignmentsOnReplace, rows: rows }) });
             state.currentImportStats = {
                 savedRows: Number(processPayload.saved_rows || 0),
                 totalRows: Number(processPayload.total_rows || rows.length)
@@ -4023,7 +4265,13 @@
     }
 
     document.addEventListener('change', function (event) {
-        if (event.target.id === 'import-files' && event.target.files && event.target.files.length) { runImport(event.target.files).catch(function (e) { if (state.overlay) state.overlay.hide(); alert(e.message); }); }
+        if (event.target.id === 'import-files' && event.target.files && event.target.files.length) {
+            runImport(event.target.files).catch(function (e) {
+                if (state.overlay) state.overlay.hide();
+                importLog('error', 'Import fallito: ' + (e && e.message ? e.message : 'Errore sconosciuto'));
+                finalizeImportUi('danger', 'Errore durante l\'import.');
+            });
+        }
         if (event.target.classList.contains('state-select')) { var wr = event.target.closest('[data-property-id]') || event.target.closest('tr'); var ci = wr && wr.querySelector('.color-input'); if (ci) ci.value = defaultColorForState(event.target.value); }
         if (event.target.id === 'editor-state') {
             var ce2 = document.getElementById('editor-color');
@@ -4196,8 +4444,14 @@
             event.preventDefault();
             var deleteId = Number(deleteBtn.dataset.propertyId || 0);
             if (!deleteId) return;
-            if (!window.confirm('Confermi l\'eliminazione definitiva di questo immobile?')) return;
-            deleteProperty(deleteId).catch(function (error) { window.alert(error.message); });
+            var deletePropertyGroup = findPropertyGroupById(deleteId);
+            var deleteIds = normalizedPropertyGroupIds(deletePropertyGroup);
+            if (!deleteIds.length) deleteIds = [deleteId];
+            var message = deleteIds.length > 1
+                ? 'Confermi l\'eliminazione definitiva di ' + deleteIds.length + ' immobili del gruppo?'
+                : 'Confermi l\'eliminazione definitiva di questo immobile?';
+            if (!window.confirm(message)) return;
+            deleteProperty(deleteIds).catch(function (error) { window.alert(error.message); });
             return;
         }
         var assignBtn = t.closest('.assignment-picker-btn'); if (assignBtn)   { event.preventDefault(); openAssignmentPicker(Number(assignBtn.dataset.propertyId || 0)); return; }
@@ -4328,7 +4582,11 @@
             var validExts = ['.csv','.xlsx','.xls'];
             var files = Array.from(e.dataTransfer.files).filter(function (f) { return validExts.some(function (ext) { return f.name.toLowerCase().endsWith(ext); }); });
             if (!files.length) { alert('Nessun file valido. Formati: .csv, .xlsx, .xls'); return; }
-            runImport(files).catch(function (e2) { if (state.overlay) state.overlay.hide(); alert(e2.message); });
+            runImport(files).catch(function (e2) {
+                if (state.overlay) state.overlay.hide();
+                importLog('error', 'Import fallito: ' + (e2 && e2.message ? e2.message : 'Errore sconosciuto'));
+                finalizeImportUi('danger', 'Errore durante l\'import.');
+            });
         });
         zone.addEventListener('click',   function (e) { if (!e.target.closest('label')) { var inp=document.getElementById('import-files'); if(inp)inp.click(); } });
         zone.addEventListener('keydown', function (e) { if (e.key==='Enter'||e.key===' ') { e.preventDefault(); var inp=document.getElementById('import-files'); if(inp)inp.click(); } });
