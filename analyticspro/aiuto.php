@@ -217,6 +217,28 @@ analyticspro_render_header('Aiuto');
                         </div>
                     </div>
 
+
+                    <!-- ── MANUTENZIONE DATABASE ── -->
+                    <div class="accordion-item guide-item">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#g4b">
+                                <i class="bi bi-tools me-2 text-primary"></i>Manutenzione database
+                            </button>
+                        </h2>
+                        <div id="g4b" class="accordion-collapse collapse" data-bs-parent="#guideAccordion">
+                            <div class="accordion-body small">
+                                <p>La pagina <strong>Manutenzione</strong> è disponibile dal menu solo per utente principale e admin. Permette di eseguire da browser sia le migrazioni SQL sia il merge dei duplicati storici, con protezione CSRF e log scaricabile.</p>
+                                <ol>
+                                    <li>Esegui prima le migrazioni <strong>014</strong> e <strong>015</strong>.</li>
+                                    <li>Apri la sezione <strong>Merge duplicati</strong>, lancia <strong>Analizza duplicati (dry-run)</strong> e controlla il riepilogo dei cluster.</li>
+                                    <li>Dopo backup confermato, usa <strong>Applica merge</strong> per elaborare i cluster a batch.</li>
+                                    <li>Solo a merge concluso esegui la migrazione <strong>016</strong>, che normalizza i campi catastali e rafforza il vincolo univoco.</li>
+                                </ol>
+                                <p>Se la migrazione 016 segnala che sono ancora presenti duplicati da risolvere, significa che devi tornare alla sezione di merge duplicati e completarla prima di riprovare.</p>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- ── SUBUTENTI E PERMESSI ── -->
                     <div class="accordion-item guide-item">
                         <h2 class="accordion-header">

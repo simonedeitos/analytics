@@ -8,17 +8,13 @@ if (PHP_SAPI !== 'cli') {
 }
 
 require dirname(__DIR__) . '/includes/bootstrap.php';
+require_once ANALYTICSPRO_ROOT . '/includes/duplicate_merge_service.php';
 
 $options = getopt('', ['tenant::', 'apply', 'dry-run']);
 $tenantFilter = isset($options['tenant']) ? (int) $options['tenant'] : null;
 $apply = array_key_exists('apply', $options);
 $dryRun = !$apply || array_key_exists('dry-run', $options);
-
-$logDir = ANALYTICSPRO_ROOT . '/storage/logs';
-if (!is_dir($logDir)) {
-    @mkdir($logDir, 0775, true);
-}
-$logPath = $logDir . '/merge_duplicate_properties_' . date('Ymd_His') . '.log';
+$logPath = analyticspro_duplicate_merge_create_log_path();
 
 $log = static function (string $message) use ($logPath): void {
     $line = '[' . date('Y-m-d H:i:s') . '] ' . $message;
@@ -26,133 +22,32 @@ $log = static function (string $message) use ($logPath): void {
     @file_put_contents($logPath, $line . PHP_EOL, FILE_APPEND);
 };
 
-$ownerHistoryKey = static function (array $owner): string {
-    return implode('|', [
-        analyticspro_duplicate_owner_merge_key($owner),
-        (string) ((int) ($owner['is_current'] ?? 0)),
-        trim((string) ($owner['valid_from'] ?? '')),
-        trim((string) ($owner['valid_to'] ?? '')),
-        trim((string) ($owner['quota'] ?? '')),
-        trim((string) ($owner['titolarita'] ?? '')),
-    ]);
-};
-
-$pdo = analyticspro_db();
-if (!analyticspro_property_owners_has_ownership_columns()) {
-    $log('Precondizione non soddisfatta: eseguire prima analyticspro/sql/migrations/015_add_property_owner_ownership_columns.sql.');
+try {
+    $scan = analyticspro_duplicate_merge_scan($tenantFilter, 0, 0);
+} catch (Throwable $exception) {
+    $log($exception->getMessage());
     exit(1);
 }
 
-$propertySql = 'SELECT * FROM properties';
-$params = [];
-if ($tenantFilter !== null && $tenantFilter > 0) {
-    $propertySql .= ' WHERE user_id = :tenant_id';
-    $params['tenant_id'] = $tenantFilter;
-}
-$propertySql .= ' ORDER BY user_id ASC, id ASC';
-$propertyStmt = $pdo->prepare($propertySql);
-$propertyStmt->execute($params);
-$properties = $propertyStmt->fetchAll() ?: [];
-
-if ($properties === []) {
+if (($scan['source_properties'] ?? 0) === 0) {
     $log('Nessuna property trovata per il filtro richiesto. Log: ' . $logPath);
     exit(0);
 }
 
-$propertyIds = array_map(static fn (array $property): int => (int) $property['id'], $properties);
-$placeholders = implode(',', array_fill(0, count($propertyIds), '?'));
-
-$ownersStmt = $pdo->prepare("SELECT * FROM property_owners WHERE property_id IN ($placeholders) ORDER BY property_id ASC, is_current DESC, id ASC");
-$ownersStmt->execute($propertyIds);
-$ownersByProperty = [];
-foreach ($ownersStmt->fetchAll() ?: [] as $owner) {
-    $ownersByProperty[(int) $owner['property_id']][] = $owner;
-}
-
-$notesStmt = $pdo->prepare("SELECT * FROM property_notes WHERE property_id IN ($placeholders) ORDER BY created_at ASC, id ASC");
-$notesStmt->execute($propertyIds);
-$notesByProperty = [];
-foreach ($notesStmt->fetchAll() ?: [] as $note) {
-    $notesByProperty[(int) $note['property_id']][] = $note;
-}
-
-$assignStmt = $pdo->prepare("SELECT * FROM property_assignments WHERE property_id IN ($placeholders) ORDER BY property_id ASC, subuser_id ASC");
-$assignStmt->execute($propertyIds);
-$assignmentsByProperty = [];
-foreach ($assignStmt->fetchAll() ?: [] as $assignment) {
-    $assignmentsByProperty[(int) $assignment['property_id']][] = $assignment;
-}
-
-$clusterInput = array_map(static function (array $property) use ($ownersByProperty, $notesByProperty, $assignmentsByProperty): array {
-    $propertyId = (int) $property['id'];
-    $property['owners'] = $ownersByProperty[$propertyId] ?? [];
-    $property['notes'] = $notesByProperty[$propertyId] ?? [];
-    $property['assignments'] = $assignmentsByProperty[$propertyId] ?? [];
-    return $property;
-}, $properties);
-
-$clusters = array_values(array_filter(
-    analyticspro_group_records_by_canonical_unit($clusterInput),
-    static fn (array $cluster): bool => count($cluster) > 1
-));
-
-$summary = [
-    'clusters' => count($clusters),
-    'properties' => 0,
-    'owners' => 0,
-    'notes' => 0,
-    'assignments' => 0,
-];
-
 $log('Modalità: ' . ($dryRun ? 'DRY-RUN' : 'APPLY') . ' — tenant filter: ' . ($tenantFilter !== null && $tenantFilter > 0 ? (string) $tenantFilter : 'tutti') . '. Log: ' . $logPath);
-$log('Cluster duplicati rilevati: ' . count($clusters));
+$log('Cluster duplicati rilevati: ' . (int) ($scan['total_clusters'] ?? 0));
 
-$updateProperty = $pdo->prepare('UPDATE properties SET cod_catastale = :cod_catastale, indirizzo = :indirizzo, civico = :civico, categoria = :categoria, classe = :classe, rendita = :rendita, consistenza = :consistenza, superficie = :superficie, piano = :piano, titolarita = :titolarita, quota = :quota, lat = :lat, lng = :lng, posizione_verificata = :posizione_verificata, coord_source = :coord_source WHERE id = :id');
-$backfillOwnerOwnership = $pdo->prepare('UPDATE property_owners SET quota = COALESCE(NULLIF(quota, \'\'), :quota), titolarita = COALESCE(NULLIF(titolarita, \'\'), :titolarita) WHERE property_id = :property_id');
-$closeDuplicateOwner = $pdo->prepare('UPDATE property_owners SET is_current = 0, valid_to = COALESCE(valid_to, NOW()) WHERE id = :id AND is_current = 1');
-$moveOwnerRow = $pdo->prepare('UPDATE property_owners SET property_id = :keeper_id WHERE id = :id');
-$deleteOwnerRow = $pdo->prepare('DELETE FROM property_owners WHERE id = :id');
-$moveNotes = $pdo->prepare('UPDATE property_notes SET property_id = :keeper_id WHERE property_id = :loser_id');
-$moveHistory = $pdo->prepare('UPDATE property_status_history SET property_id = :keeper_id WHERE property_id = :loser_id');
-$moveConflicts = $pdo->prepare('UPDATE import_duplicate_conflicts SET property_id = :keeper_id WHERE property_id = :loser_id');
-$copyAssignments = $pdo->prepare('INSERT IGNORE INTO property_assignments (property_id, subuser_id, assigned_by, assigned_at) SELECT :keeper_id, subuser_id, assigned_by, assigned_at FROM property_assignments WHERE property_id = :loser_id');
-$deleteAssignments = $pdo->prepare('DELETE FROM property_assignments WHERE property_id = :loser_id');
-$deleteProperty = $pdo->prepare('DELETE FROM properties WHERE id = :id');
-$insertSystemNote = $pdo->prepare('INSERT INTO property_notes (property_id, author_id, author_name_snapshot, testo) VALUES (:property_id, :author_id, :author_name_snapshot, :testo)');
-$relationshipMoves = [
-    static function (int $keeperId, int $loserId) use ($copyAssignments, $deleteAssignments): void {
-        $copyAssignments->execute(['keeper_id' => $keeperId, 'loser_id' => $loserId]);
-        $deleteAssignments->execute(['loser_id' => $loserId]);
-    },
-    static function (int $keeperId, int $loserId) use ($moveNotes): void {
-        $moveNotes->execute(['keeper_id' => $keeperId, 'loser_id' => $loserId]);
-    },
-    static function (int $keeperId, int $loserId) use ($moveHistory): void {
-        $moveHistory->execute(['keeper_id' => $keeperId, 'loser_id' => $loserId]);
-    },
-    static function (int $keeperId, int $loserId) use ($moveConflicts): void {
-        $moveConflicts->execute(['keeper_id' => $keeperId, 'loser_id' => $loserId]);
-    },
-];
-
-foreach ($clusters as $clusterIndex => $cluster) {
-    $preview = analyticspro_preview_duplicate_property_merge($cluster);
-    $keeper = $preview['keeper'];
-    $keeperId = (int) ($keeper['id'] ?? 0);
-    $absorbedIds = $preview['absorbed_ids'];
-    $summary['properties'] += count($cluster);
-    $summary['owners'] += count($preview['owners']);
-    $summary['notes'] += count($preview['notes']);
-    $summary['assignments'] += count($preview['assignments']);
-
+foreach ($scan['clusters'] as $clusterIndex => $item) {
+    $preview = $item['preview'];
+    $public = $item['public'];
     $log(sprintf(
         'Cluster %d: keeper #%d, assorbiti [%s], owners=%d, notes=%d, assignments=%d',
         $clusterIndex + 1,
-        $keeperId,
-        implode(', ', $absorbedIds),
-        count($preview['owners']),
-        count($preview['notes']),
-        count($preview['assignments'])
+        (int) ($public['keeper_id'] ?? 0),
+        implode(', ', array_map('strval', $public['absorbed_ids'] ?? [])),
+        (int) ($public['owners_count'] ?? 0),
+        (int) ($public['notes_count'] ?? 0),
+        (int) ($public['assignments_count'] ?? 0)
     ));
 
     if ($dryRun) {
@@ -160,98 +55,21 @@ foreach ($clusters as $clusterIndex => $cluster) {
     }
 
     try {
-        $pdo->beginTransaction();
-        foreach ($cluster as $property) {
-            $backfillOwnerOwnership->execute([
-                'property_id' => (int) $property['id'],
-                'quota' => trim((string) ($property['quota'] ?? '')) !== '' ? (string) $property['quota'] : null,
-                'titolarita' => trim((string) ($property['titolarita'] ?? '')) !== '' ? (string) $property['titolarita'] : null,
-            ]);
-        }
-
-        $updateProperty->execute([
-            'id' => $keeperId,
-            'cod_catastale' => (string) ($keeper['cod_catastale'] ?? ''),
-            'indirizzo' => trim((string) ($keeper['indirizzo'] ?? '')) !== '' ? $keeper['indirizzo'] : null,
-            'civico' => trim((string) ($keeper['civico'] ?? '')) !== '' ? $keeper['civico'] : null,
-            'categoria' => trim((string) ($keeper['categoria'] ?? '')) !== '' ? $keeper['categoria'] : null,
-            'classe' => trim((string) ($keeper['classe'] ?? '')) !== '' ? $keeper['classe'] : null,
-            'rendita' => trim((string) ($keeper['rendita'] ?? '')) !== '' ? $keeper['rendita'] : null,
-            'consistenza' => trim((string) ($keeper['consistenza'] ?? '')) !== '' ? $keeper['consistenza'] : null,
-            'superficie' => trim((string) ($keeper['superficie'] ?? '')) !== '' ? $keeper['superficie'] : null,
-            'piano' => trim((string) ($keeper['piano'] ?? '')) !== '' ? $keeper['piano'] : null,
-            'titolarita' => trim((string) ($keeper['titolarita'] ?? '')) !== '' ? $keeper['titolarita'] : null,
-            'quota' => trim((string) ($keeper['quota'] ?? '')) !== '' ? $keeper['quota'] : null,
-            'lat' => isset($keeper['lat']) && $keeper['lat'] !== '' ? $keeper['lat'] : null,
-            'lng' => isset($keeper['lng']) && $keeper['lng'] !== '' ? $keeper['lng'] : null,
-            'posizione_verificata' => !empty($keeper['posizione_verificata']) ? 1 : 0,
-            'coord_source' => trim((string) ($keeper['coord_source'] ?? '')) !== '' ? $keeper['coord_source'] : null,
-        ]);
-
-        foreach ($preview['owners'] as $owner) {
-            if (!empty($owner['close_duplicate_current']) && !empty($owner['id'])) {
-                $closeDuplicateOwner->execute(['id' => (int) $owner['id']]);
-            }
-        }
-
-        $seenOwnerHistory = [];
-        foreach ($preview['owners'] as $owner) {
-            $ownerId = (int) ($owner['id'] ?? 0);
-            if ($ownerId <= 0) {
-                continue;
-            }
-            $historyKey = $ownerHistoryKey($owner);
-            if ((int) ($owner['property_id'] ?? 0) === $keeperId) {
-                $seenOwnerHistory[$historyKey] = true;
-                continue;
-            }
-            if (isset($seenOwnerHistory[$historyKey])) {
-                $deleteOwnerRow->execute(['id' => $ownerId]);
-                continue;
-            }
-            $moveOwnerRow->execute(['keeper_id' => $keeperId, 'id' => $ownerId]);
-            $seenOwnerHistory[$historyKey] = true;
-        }
-
-        foreach ($absorbedIds as $loserId) {
-            foreach ($relationshipMoves as $relationshipMove) {
-                $relationshipMove($keeperId, $loserId);
-            }
-            $deleteProperty->execute(['id' => $loserId]);
-        }
-
-        if ($preview['state_note'] !== '') {
-            $insertSystemNote->execute([
-                'property_id' => $keeperId,
-                'author_id' => (int) ($keeper['user_id'] ?? 0),
-                'author_name_snapshot' => 'Sistema',
-                'testo' => $preview['state_note'],
-            ]);
-        }
-        $insertSystemNote->execute([
-            'property_id' => $keeperId,
-            'author_id' => (int) ($keeper['user_id'] ?? 0),
-            'author_name_snapshot' => 'Sistema',
-            'testo' => $preview['summary_note'],
-        ]);
-
-        $pdo->commit();
+        analyticspro_duplicate_merge_apply_cluster($item['cluster']);
     } catch (Throwable $exception) {
-        if ($pdo->inTransaction()) {
-            $pdo->rollBack();
-        }
         $log('ERRORE cluster #' . ($clusterIndex + 1) . ': ' . $exception->getMessage());
         exit(1);
     }
 }
 
+$summary = $scan['summary'] ?? ['clusters' => 0, 'properties' => 0, 'owners' => 0, 'notes' => 0, 'assignments' => 0];
 $log(sprintf(
     'Report finale: clusters=%d, properties coinvolte=%d, owners coinvolti=%d, notes coinvolte=%d, assignments coinvolte=%d',
-    $summary['clusters'],
-    $summary['properties'],
-    $summary['owners'],
-    $summary['notes'],
-    $summary['assignments']
+    (int) ($summary['clusters'] ?? 0),
+    (int) ($summary['properties'] ?? 0),
+    (int) ($summary['owners'] ?? 0),
+    (int) ($summary['notes'] ?? 0),
+    (int) ($summary['assignments'] ?? 0)
 ));
 
 exit(0);
