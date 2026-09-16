@@ -100,6 +100,16 @@ function analyticspro_normalize_text(?string $value): string
     return trim($value);
 }
 
+function analyticspro_collapse_spaces(?string $value): string
+{
+    $value = trim((string) $value);
+    if ($value === '') {
+        return '';
+    }
+
+    return trim(preg_replace('/\s+/u', ' ', $value) ?? $value);
+}
+
 function analyticspro_normalize_cadastral_number(?string $value): string
 {
     $value = strtoupper(trim((string) $value));
@@ -740,7 +750,7 @@ function analyticspro_extract_row_payload(array $row, ?int $rowNumber = null): a
     }
     $cf = analyticspro_extract_row_value($row, ['Codice Fiscale']);
     $provinciaRaw = analyticspro_extract_row_value($row, ['Provincia', 'Prov']);
-    $comune = analyticspro_extract_row_value($row, ['Comune', 'Comune Catastale', 'Comune Immobile']);
+    $comune = analyticspro_collapse_spaces(analyticspro_extract_row_value($row, ['Comune', 'Comune Catastale', 'Comune Immobile']));
     $codCatastale = analyticspro_extract_row_value($row, ['Codice Catastale', 'Codice Comune', 'Cod Comune', 'Codice Belfiore', 'Belfiore', 'Cod_Catastale']);
     $provinciaNormalized = analyticspro_import_normalize_provincia($provinciaRaw, $comune, $codCatastale, $rowNumber);
     $provincia = $provinciaNormalized['sigla'];
@@ -756,10 +766,10 @@ function analyticspro_extract_row_payload(array $row, ?int $rowNumber = null): a
             'provincia_originale' => $provinciaNormalized['originale'],
             'comune' => $comune,
             'cod_catastale' => trim((string) ($resolvedCod['cod'] ?? '')),
-            'sezione' => analyticspro_extract_row_value($row, ['Sezione']),
-            'foglio' => analyticspro_extract_row_value($row, ['Foglio']),
-            'particella' => analyticspro_extract_row_value($row, ['Particella']),
-            'subalterno' => analyticspro_extract_row_value($row, ['Subalterno', 'Sub']),
+            'sezione' => analyticspro_normalize_text(analyticspro_extract_row_value($row, ['Sezione'])),
+            'foglio' => analyticspro_normalize_cadastral_number(analyticspro_extract_row_value($row, ['Foglio'])),
+            'particella' => analyticspro_normalize_cadastral_number(analyticspro_extract_row_value($row, ['Particella'])),
+            'subalterno' => analyticspro_normalize_cadastral_number(analyticspro_extract_row_value($row, ['Subalterno', 'Sub'])),
             'indirizzo' => analyticspro_extract_row_value($row, ['Indirizzo']),
             'civico' => analyticspro_extract_row_value($row, ['Civico']),
             'categoria' => analyticspro_extract_row_value($row, ['Categoria']),

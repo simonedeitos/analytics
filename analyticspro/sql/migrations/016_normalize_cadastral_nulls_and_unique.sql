@@ -50,10 +50,54 @@ BEGIN
     END IF;
 
     UPDATE properties
-    SET cod_catastale = COALESCE(cod_catastale, ''),
-        sezione = COALESCE(sezione, ''),
-        subalterno = COALESCE(subalterno, '')
-    WHERE cod_catastale IS NULL OR sezione IS NULL OR subalterno IS NULL;
+    SET comune = REGEXP_REPLACE(TRIM(comune), '[[:space:]]+', ' '),
+        cod_catastale = UPPER(TRIM(COALESCE(cod_catastale, ''))),
+        sezione = UPPER(TRIM(COALESCE(sezione, ''))),
+        foglio = CASE
+            WHEN UPPER(TRIM(foglio)) REGEXP '^[0-9]+' THEN CONCAT(
+                COALESCE(NULLIF(TRIM(LEADING '0' FROM REGEXP_SUBSTR(UPPER(TRIM(foglio)), '^[0-9]+')), ''), '0'),
+                REGEXP_REPLACE(UPPER(TRIM(foglio)), '^[0-9]+', '')
+            )
+            ELSE UPPER(TRIM(foglio))
+        END,
+        particella = CASE
+            WHEN UPPER(TRIM(particella)) REGEXP '^[0-9]+' THEN CONCAT(
+                COALESCE(NULLIF(TRIM(LEADING '0' FROM REGEXP_SUBSTR(UPPER(TRIM(particella)), '^[0-9]+')), ''), '0'),
+                REGEXP_REPLACE(UPPER(TRIM(particella)), '^[0-9]+', '')
+            )
+            ELSE UPPER(TRIM(particella))
+        END,
+        subalterno = CASE
+            WHEN UPPER(TRIM(COALESCE(subalterno, ''))) REGEXP '^[0-9]+' THEN CONCAT(
+                COALESCE(NULLIF(TRIM(LEADING '0' FROM REGEXP_SUBSTR(UPPER(TRIM(COALESCE(subalterno, ''))), '^[0-9]+')), ''), '0'),
+                REGEXP_REPLACE(UPPER(TRIM(COALESCE(subalterno, ''))), '^[0-9]+', '')
+            )
+            ELSE UPPER(TRIM(COALESCE(subalterno, '')))
+        END
+    WHERE comune <> REGEXP_REPLACE(TRIM(comune), '[[:space:]]+', ' ')
+       OR COALESCE(cod_catastale, '') <> UPPER(TRIM(COALESCE(cod_catastale, '')))
+       OR COALESCE(sezione, '') <> UPPER(TRIM(COALESCE(sezione, '')))
+       OR foglio <> CASE
+            WHEN UPPER(TRIM(foglio)) REGEXP '^[0-9]+' THEN CONCAT(
+                COALESCE(NULLIF(TRIM(LEADING '0' FROM REGEXP_SUBSTR(UPPER(TRIM(foglio)), '^[0-9]+')), ''), '0'),
+                REGEXP_REPLACE(UPPER(TRIM(foglio)), '^[0-9]+', '')
+            )
+            ELSE UPPER(TRIM(foglio))
+        END
+       OR particella <> CASE
+            WHEN UPPER(TRIM(particella)) REGEXP '^[0-9]+' THEN CONCAT(
+                COALESCE(NULLIF(TRIM(LEADING '0' FROM REGEXP_SUBSTR(UPPER(TRIM(particella)), '^[0-9]+')), ''), '0'),
+                REGEXP_REPLACE(UPPER(TRIM(particella)), '^[0-9]+', '')
+            )
+            ELSE UPPER(TRIM(particella))
+        END
+       OR COALESCE(subalterno, '') <> CASE
+            WHEN UPPER(TRIM(COALESCE(subalterno, ''))) REGEXP '^[0-9]+' THEN CONCAT(
+                COALESCE(NULLIF(TRIM(LEADING '0' FROM REGEXP_SUBSTR(UPPER(TRIM(COALESCE(subalterno, ''))), '^[0-9]+')), ''), '0'),
+                REGEXP_REPLACE(UPPER(TRIM(COALESCE(subalterno, ''))), '^[0-9]+', '')
+            )
+            ELSE UPPER(TRIM(COALESCE(subalterno, '')))
+        END;
 
     IF EXISTS (
         SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS

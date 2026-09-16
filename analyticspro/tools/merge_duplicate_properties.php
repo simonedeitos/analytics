@@ -38,6 +38,11 @@ $ownerHistoryKey = static function (array $owner): string {
 };
 
 $pdo = analyticspro_db();
+if (!analyticspro_property_owners_has_ownership_columns()) {
+    $log('Precondizione non soddisfatta: eseguire prima analyticspro/sql/migrations/015_add_property_owner_ownership_columns.sql.');
+    exit(1);
+}
+
 $propertySql = 'SELECT * FROM properties';
 $params = [];
 if ($tenantFilter !== null && $tenantFilter > 0) {
@@ -102,7 +107,7 @@ $summary = [
 $log('Modalità: ' . ($dryRun ? 'DRY-RUN' : 'APPLY') . ' — tenant filter: ' . ($tenantFilter !== null && $tenantFilter > 0 ? (string) $tenantFilter : 'tutti') . '. Log: ' . $logPath);
 $log('Cluster duplicati rilevati: ' . count($clusters));
 
-$updateProperty = $pdo->prepare('UPDATE properties SET cod_catastale = :cod_catastale, indirizzo = :indirizzo, civico = :civico, categoria = :categoria, classe = :classe, rendita = :rendita, consistenza = :consistenza, superficie = :superficie, piano = :piano, titolarita = :titolarita, quota = :quota WHERE id = :id');
+$updateProperty = $pdo->prepare('UPDATE properties SET cod_catastale = :cod_catastale, indirizzo = :indirizzo, civico = :civico, categoria = :categoria, classe = :classe, rendita = :rendita, consistenza = :consistenza, superficie = :superficie, piano = :piano, titolarita = :titolarita, quota = :quota, lat = :lat, lng = :lng, posizione_verificata = :posizione_verificata, coord_source = :coord_source WHERE id = :id');
 $backfillOwnerOwnership = $pdo->prepare('UPDATE property_owners SET quota = COALESCE(NULLIF(quota, \'\'), :quota), titolarita = COALESCE(NULLIF(titolarita, \'\'), :titolarita) WHERE property_id = :property_id');
 $closeDuplicateOwner = $pdo->prepare('UPDATE property_owners SET is_current = 0, valid_to = COALESCE(valid_to, NOW()) WHERE id = :id AND is_current = 1');
 $moveOwnerRow = $pdo->prepare('UPDATE property_owners SET property_id = :keeper_id WHERE id = :id');
@@ -162,6 +167,10 @@ foreach ($clusters as $clusterIndex => $cluster) {
             'piano' => trim((string) ($keeper['piano'] ?? '')) !== '' ? $keeper['piano'] : null,
             'titolarita' => trim((string) ($keeper['titolarita'] ?? '')) !== '' ? $keeper['titolarita'] : null,
             'quota' => trim((string) ($keeper['quota'] ?? '')) !== '' ? $keeper['quota'] : null,
+            'lat' => isset($keeper['lat']) && $keeper['lat'] !== '' ? $keeper['lat'] : null,
+            'lng' => isset($keeper['lng']) && $keeper['lng'] !== '' ? $keeper['lng'] : null,
+            'posizione_verificata' => !empty($keeper['posizione_verificata']) ? 1 : 0,
+            'coord_source' => trim((string) ($keeper['coord_source'] ?? '')) !== '' ? $keeper['coord_source'] : null,
         ]);
 
         foreach ($preview['owners'] as $owner) {
