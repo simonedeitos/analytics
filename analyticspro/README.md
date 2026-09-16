@@ -40,6 +40,8 @@ php analyticspro/tools/merge_duplicate_properties.php --tenant=123
 php analyticspro/tools/merge_duplicate_properties.php --apply
 ```
 
+In alternativa, l'utente principale può usare la pagina web `analyticspro/manutenzione.php` per eseguire le stesse operazioni da browser (dry-run, apply a batch, log scaricabile e migrazioni SQL).
+
 - **Default = `--dry-run`**: stampa cluster, property coinvolte, owners/note/assegnazioni e scrive un log in `analyticspro/storage/logs/`.
 - Usa `--apply` solo dopo aver verificato il report.
 - Lo script preserva storico owners, quota/titolarità per-intestatario, note, assegnazioni e aggiunge una nota di sistema sull'immobile mantenuto.
