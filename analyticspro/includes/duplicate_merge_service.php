@@ -255,6 +255,14 @@ function analyticspro_duplicate_merge_resolve_cluster_by_property_ids(array $pro
         throw new RuntimeException('Il cluster selezionato non è più allineato con i dati correnti. Rieseguire il dry-run.');
     }
 
+    $resolvedIds = array_values(array_map(static fn (array $property): int => (int) ($property['id'] ?? 0), $clusters[0]));
+    sort($resolvedIds);
+    $requestedIds = $propertyIds;
+    sort($requestedIds);
+    if ($resolvedIds !== $requestedIds) {
+        throw new RuntimeException('Il cluster selezionato non corrisponde più agli immobili analizzati nel dry-run. Rieseguire la scansione.');
+    }
+
     return $clusters[0];
 }
 

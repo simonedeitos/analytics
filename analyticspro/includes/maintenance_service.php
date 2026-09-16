@@ -85,6 +85,18 @@ function analyticspro_maintenance_migration_identifier(array $migration): string
     };
 }
 
+
+function analyticspro_maintenance_find_migration_by_identifier(string $identifier): array
+{
+    foreach (analyticspro_maintenance_list_migrations() as $migration) {
+        if (analyticspro_maintenance_migration_identifier($migration) === $identifier) {
+            return $migration;
+        }
+    }
+
+    throw new RuntimeException('Migrazione di sistema non trovata: ' . $identifier);
+}
+
 function analyticspro_maintenance_fetch_columns(string $table, array $columns): array
 {
     $columns = array_values(array_unique(array_values(array_filter(array_map(static fn ($column): string => trim((string) $column), $columns), static fn (string $column): bool => $column !== ''))));
@@ -392,6 +404,11 @@ function analyticspro_maintenance_parse_sql_statements(string $sql): array
             continue;
         }
         if (preg_match('/^\s*DELIMITER\s+(\S+)\s*$/i', $line, $matches) === 1) {
+            while (($statement = analyticspro_maintenance_extract_statement_from_buffer($buffer, $delimiter)) !== null) {
+                if ($statement !== '') {
+                    $statements[] = $statement;
+                }
+            }
             if (trim($buffer) !== '') {
                 throw new RuntimeException('Direttiva DELIMITER non valida: è presente SQL pendente prima del cambio delimitatore.');
             }
@@ -441,25 +458,19 @@ function analyticspro_maintenance_assert_migration_prerequisites(array $migratio
 {
     $identifier = analyticspro_maintenance_migration_identifier($migration);
     if ($identifier === 'owner_ownership_columns') {
-        $migration014 = analyticspro_maintenance_get_migration_status([
-            'number' => 14,
-            'filename' => '014_add_property_owners_valid_to.sql',
-            'path' => '',
-            'description' => '',
-        ]);
+        $migration014 = analyticspro_maintenance_get_migration_status(
+            analyticspro_maintenance_find_migration_by_identifier('owner_valid_to')
+        );
         if (($migration014['status'] ?? 'unknown') !== 'applied') {
             throw new AnalyticsproMaintenanceException('Prima di eseguire la migrazione 015 devi applicare la migrazione 014.', 'migration_prerequisite_missing');
         }
     }
 
     if ($identifier === 'normalize_cadastral_unique') {
-        foreach ([14, 15] as $requiredNumber) {
-            $requiredMigration = analyticspro_maintenance_get_migration_status([
-                'number' => $requiredNumber,
-                'filename' => '',
-                'path' => '',
-                'description' => '',
-            ]);
+        foreach (['owner_valid_to', 'owner_ownership_columns'] as $requiredIdentifier) {
+            $requiredMigration = analyticspro_maintenance_get_migration_status(
+                analyticspro_maintenance_find_migration_by_identifier($requiredIdentifier)
+            );
             if (($requiredMigration['status'] ?? 'unknown') !== 'applied') {
                 throw new AnalyticsproMaintenanceException('Prima di eseguire la migrazione 016 devi completare le migrazioni 014 e 015 e poi il merge duplicati.', 'migration_prerequisite_missing');
             }
