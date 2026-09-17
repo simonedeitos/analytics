@@ -63,6 +63,21 @@ $cases = [
         'result' => simulate_enrich_chunk_auth(false, false, true, 12, 10, 77),
         'expected' => 'batch_not_found',
     ],
+    [
+        'name' => 'subuser senza can_import',
+        'result' => simulate_enrich_chunk_auth(false, true, false, 12, 10, 10),
+        'expected' => 'forbidden',
+    ],
+    [
+        'name' => 'subuser con can_import batch proprio',
+        'result' => simulate_enrich_chunk_auth(false, true, true, 12, 10, 10),
+        'expected' => 'ok',
+    ],
+    [
+        'name' => 'batch_id negativo',
+        'result' => simulate_enrich_chunk_auth(true, false, true, -1, 10, 10),
+        'expected' => 'invalid_param',
+    ],
 ];
 
 foreach ($cases as $case) {
