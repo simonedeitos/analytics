@@ -72,7 +72,7 @@ try {
     $chunkTenantId = $scope['chunk_tenant_id'] ?? null;
 
     if (($scope['requires_batch_lookup'] ?? false) === true) {
-        // Verifica che il batch appartenga all'utente corrente (sicurezza multi-tenant)
+        // Verifica ownership tenant del batch. In import_batches.user_id è salvato il tenant_id.
         $sql = 'SELECT id, enrichment_status, enrichment_sync FROM import_batches WHERE id = :id';
         $params = ['id' => $batchId];
         if (!$isAdmin) {

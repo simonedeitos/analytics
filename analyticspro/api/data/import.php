@@ -113,9 +113,16 @@ try {
 
         if (!(bool) ($enrichment['done'] ?? false)) {
             $enrichWorker = ANALYTICSPRO_ROOT . '/cron/enrich_property_coordinates.php';
-            if (analyticspro_launch_background($enrichWorker, [$batchId])) {
+            $workerLaunched = analyticspro_launch_background($enrichWorker, [$batchId]);
+            if ($workerLaunched) {
                 $pdo->prepare("UPDATE import_batches SET enrichment_status = 'processing' WHERE id = :id AND enrichment_status = 'pending'")
                     ->execute(['id' => $batchId]);
+            } else {
+                $pdo->prepare(
+                    "UPDATE import_batches
+                     SET enrichment_status = 'pending'
+                     WHERE id = :id AND enrichment_status NOT IN ('completed', 'failed')"
+                )->execute(['id' => $batchId]);
             }
         }
 

@@ -16,7 +16,8 @@ function simulate_enrich_chunk_auth(
     bool $canImport,
     int $batchId,
     ?int $currentTenantId,
-    ?int $batchTenantId
+    ?int $batchTenantId,
+    bool $hasUser = true
 ): string {
     if ($batchId < 0) {
         return 'invalid_param';
@@ -26,7 +27,7 @@ function simulate_enrich_chunk_auth(
         return 'forbidden';
     }
 
-    $scope = analyticspro_enrich_chunk_authorize_scope($batchId, $isAdmin, $currentTenantId, true);
+    $scope = analyticspro_enrich_chunk_authorize_scope($batchId, $isAdmin, $currentTenantId, $hasUser);
     if (!($scope['ok'] ?? false)) {
         return (string) ($scope['error_code'] ?? 'forbidden');
     }
@@ -103,6 +104,11 @@ $cases = [
     [
         'name' => 'non admin senza tenant corrente',
         'result' => simulate_enrich_chunk_auth(false, false, true, 12, null, 10),
+        'expected' => 'forbidden',
+    ],
+    [
+        'name' => 'non admin senza utente autenticato',
+        'result' => simulate_enrich_chunk_auth(false, false, true, 12, 10, 10, false),
         'expected' => 'forbidden',
     ],
 ];
