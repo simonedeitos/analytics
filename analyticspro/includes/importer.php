@@ -3238,6 +3238,57 @@ function analyticspro_enrich_batch_coordinates(int $batchId): void
 // ---------------------------------------------------------------------------
 
 /**
+ * Determina l'ambito autorizzativo per enrich_chunk senza accedere al DB.
+ *
+ * @return array{ok:bool,error_code?:string,error?:string,status?:int,global_mode?:bool,requires_batch_lookup?:bool,chunk_tenant_id?:?int}
+ */
+function analyticspro_enrich_chunk_authorize_scope(int $batchId, bool $isAdmin, ?int $tenantId, bool $hasUser): array
+{
+    if ($batchId < 0) {
+        return [
+            'ok' => false,
+            'error_code' => 'invalid_param',
+            'error' => 'Parametro batch_id non valido o mancante.',
+            'status' => 422,
+        ];
+    }
+
+    if ($batchId === 0) {
+        if (!$isAdmin) {
+            return [
+                'ok' => false,
+                'error_code' => 'forbidden',
+                'error' => 'Operazione consentita solo agli amministratori.',
+                'status' => 403,
+            ];
+        }
+
+        return [
+            'ok' => true,
+            'global_mode' => true,
+            'requires_batch_lookup' => false,
+            'chunk_tenant_id' => null,
+        ];
+    }
+
+    if (!$isAdmin && ($tenantId === null || !$hasUser)) {
+        return [
+            'ok' => false,
+            'error_code' => 'forbidden',
+            'error' => 'Operazione non consentita.',
+            'status' => 403,
+        ];
+    }
+
+    return [
+        'ok' => true,
+        'global_mode' => false,
+        'requires_batch_lookup' => true,
+        'chunk_tenant_id' => $isAdmin ? null : $tenantId,
+    ];
+}
+
+/**
  * Elabora al più $limit particelle non ancora geolocalizzate per il batch.
  *
  * Ogni chiamata:

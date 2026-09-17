@@ -49,11 +49,10 @@ function _enrich_error(string $errorCode, string $message, ?Throwable $ex = null
 
 try {
     $batchId = filter_var(analyticspro_get('batch_id'), FILTER_VALIDATE_INT);
-    if ($batchId === false || $batchId === null || $batchId < 0) {
+    if ($batchId === false || $batchId === null) {
         _enrich_error('invalid_param', 'Parametro batch_id non valido o mancante.');
     }
     $batchId = (int) $batchId;
-    // batch_id = 0 → modalità globale: tutte le particelle con lat IS NULL del tenant
 
     $limit = min(100, max(1, (int) analyticspro_get('limit', '25')));
 
@@ -61,19 +60,24 @@ try {
     $tenantId = analyticspro_current_tenant_id();
     $user = analyticspro_current_user();
     $pdo = analyticspro_db();
-    $chunkTenantId = null;
+    $scope = analyticspro_enrich_chunk_authorize_scope($batchId, $isAdmin, $tenantId, (bool) $user);
+    if (!($scope['ok'] ?? false)) {
+        _enrich_error(
+            (string) ($scope['error_code'] ?? 'forbidden'),
+            (string) ($scope['error'] ?? 'Operazione non consentita.'),
+            null,
+            (int) ($scope['status'] ?? 403)
+        );
+    }
+    $chunkTenantId = $scope['chunk_tenant_id'] ?? null;
 
-    if ($batchId > 0) {
+    if (($scope['requires_batch_lookup'] ?? false) === true) {
         // Verifica che il batch appartenga all'utente corrente (sicurezza multi-tenant)
         $sql = 'SELECT id, enrichment_status, enrichment_sync FROM import_batches WHERE id = :id';
         $params = ['id' => $batchId];
         if (!$isAdmin) {
-            if ($tenantId === null || !$user) {
-                _enrich_error('forbidden', 'Operazione non consentita.', null, 403);
-            }
             $sql .= ' AND user_id = :tenant_id';
             $params['tenant_id'] = $tenantId;
-            $chunkTenantId = $tenantId;
         }
         analyticspro_debug_assert_sql_params_match($sql, $params);
         $stmt = $pdo->prepare($sql);
@@ -112,10 +116,6 @@ try {
                 'geolocated_rows' => $reconciliation['geolocated_rows'],
                 'missing_rows' => $reconciliation['missing_rows'],
             ]);
-        }
-    } elseif ($batchId === 0) {
-        if (!$isAdmin) {
-            _enrich_error('forbidden', 'Operazione consentita solo agli amministratori.', null, 403);
         }
     }
 

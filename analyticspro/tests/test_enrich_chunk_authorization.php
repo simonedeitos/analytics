@@ -8,6 +8,8 @@ declare(strict_types=1);
  * Exit code: 0 = pass, 1 = fail.
  */
 
+require dirname(__DIR__) . '/includes/importer.php';
+
 function simulate_enrich_chunk_auth(
     bool $isAdmin,
     bool $isSubuser,
@@ -24,20 +26,21 @@ function simulate_enrich_chunk_auth(
         return 'forbidden';
     }
 
+    $scope = analyticspro_enrich_chunk_authorize_scope($batchId, $isAdmin, $currentTenantId, true);
+    if (!($scope['ok'] ?? false)) {
+        return (string) ($scope['error_code'] ?? 'forbidden');
+    }
+
     if ($batchId === 0) {
-        return $isAdmin ? 'ok' : 'forbidden';
-    }
-
-    if ($isAdmin) {
-        return $batchTenantId !== null ? 'ok' : 'batch_not_found';
-    }
-
-    if ($currentTenantId === null) {
-        return 'forbidden';
+        return 'ok';
     }
 
     if ($batchTenantId === null) {
         return 'batch_not_found';
+    }
+
+    if ($isAdmin) {
+        return 'ok';
     }
 
     return $currentTenantId === $batchTenantId ? 'ok' : 'batch_not_found';
