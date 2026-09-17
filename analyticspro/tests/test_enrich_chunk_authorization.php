@@ -73,6 +73,11 @@ $cases = [
         'expected' => 'forbidden',
     ],
     [
+        'name' => 'subuser senza can_import in modalità globale',
+        'result' => simulate_enrich_chunk_auth(false, true, false, 0, 10, null),
+        'expected' => 'forbidden',
+    ],
+    [
         'name' => 'subuser con can_import batch proprio',
         'result' => simulate_enrich_chunk_auth(false, true, true, 12, 10, 10),
         'expected' => 'ok',
