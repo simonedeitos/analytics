@@ -105,13 +105,13 @@ try {
             : (int) (analyticspro_env('IMPORT_SYNC_MAX_UNIQUE', '2000') ?? '2000');
         $maxUnique = max(1, $maxUnique);
 
-        try {
-            $enrichment = analyticspro_enrich_batch_coordinates_sync($batchId, $maxUnique);
-        } catch (Throwable $enrichmentException) {
-            error_log('[import_enrich_sync] Batch #' . $batchId . ' errore: ' . $enrichmentException->getMessage());
-        }
+        $syncOutcome = analyticspro_import_try_sync_enrichment($batchId, $maxUnique, $enrichment);
+        $enrichment = $syncOutcome['enrichment'];
 
-        if (!(bool) ($enrichment['done'] ?? false)) {
+        if (
+            !(bool) ($enrichment['done'] ?? false)
+            && !(bool) ($enrichment['enrichment_sync'] ?? false)
+        ) {
             $enrichWorker = ANALYTICSPRO_ROOT . '/cron/enrich_property_coordinates.php';
             $workerLaunched = analyticspro_launch_background($enrichWorker, [$batchId]);
             if ($workerLaunched) {

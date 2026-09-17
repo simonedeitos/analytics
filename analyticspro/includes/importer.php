@@ -3177,6 +3177,35 @@ function analyticspro_enrich_batch_coordinates_sync(int $batchId, int $maxUnique
 }
 
 /**
+ * Esegue la fase di enrichment sincrono senza bloccare l'import in caso di errore.
+ *
+ * @param array{geolocated:int,processed_unique:int,total_unique:int,remaining_unique:int,done:bool,enrichment_sync:bool,coord_source:array<string,int>,attempt_failures:array<string,int>,failure_codes:array<string,int>,unresolved_rows:array<int,string>,truncated:bool,missing_comuni:array<int,array{name:string,provincia:string,belfiore:string}>,missing_comuni_truncated:bool,resolved:int,unresolved:int,geolocated_rows:int,missing_rows:int} $fallback
+ * @return array{enrichment:array{geolocated:int,processed_unique:int,total_unique:int,remaining_unique:int,done:bool,enrichment_sync:bool,coord_source:array<string,int>,attempt_failures:array<string,int>,failure_codes:array<string,int>,unresolved_rows:array<int,string>,truncated:bool,missing_comuni:array<int,array{name:string,provincia:string,belfiore:string}>,missing_comuni_truncated:bool,resolved:int,unresolved:int,geolocated_rows:int,missing_rows:int,total_rows?:int},failed:bool}
+ */
+function analyticspro_import_try_sync_enrichment(
+    int $batchId,
+    int $maxUnique,
+    array $fallback,
+    ?callable $syncCallable = null
+): array {
+    $syncCallable = $syncCallable ?? static fn (int $id, int $limit): array => analyticspro_enrich_batch_coordinates_sync($id, $limit);
+    try {
+        /** @var array $enrichment */
+        $enrichment = $syncCallable($batchId, $maxUnique);
+        return [
+            'enrichment' => $enrichment,
+            'failed' => false,
+        ];
+    } catch (Throwable $enrichmentException) {
+        error_log('[import_enrich_sync] Batch #' . $batchId . ' errore: ' . $enrichmentException->getMessage());
+        return [
+            'enrichment' => $fallback,
+            'failed' => true,
+        ];
+    }
+}
+
+/**
  * Enriches coordinates for all properties with lat IS NULL in a batch (or globally
  * when $batchId === 0).  Deduplicates WFS lookups by unique cadastral parcel so the
  * public AdE service is called at most once per parcel, regardless of how many owners

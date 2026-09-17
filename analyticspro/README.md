@@ -813,6 +813,7 @@ php analyticspro/tests/test_grouped_marker_editor.php     # metadata gruppo per 
 php analyticspro/tests/test_phone_visibility.php          # telefono assente con permesso OFF
 php analyticspro/tests/test_enrich_chunk_error.php        # error_code strutturato
 php analyticspro/tests/test_enrich_chunk_authorization.php # matrice autorizzazioni enrich_chunk
+php analyticspro/tests/test_import_sync_enrichment_non_blocking.php # import ok anche con errore enrichment sync
 php analyticspro/tests/test_gml_catalog_auto_invalidate.php # auto-invalidazione catalogo GML
 php analyticspro/tests/test_marker_same_coords_grouping.php # marker unici per coordinate condivise
 ```
