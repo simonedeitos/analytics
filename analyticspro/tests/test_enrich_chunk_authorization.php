@@ -68,6 +68,16 @@ $cases = [
         'expected' => 'batch_not_found',
     ],
     [
+        'name' => 'non admin + batch inesistente',
+        'result' => simulate_enrich_chunk_auth(false, false, true, 12, 10, null),
+        'expected' => 'batch_not_found',
+    ],
+    [
+        'name' => 'admin + batch inesistente',
+        'result' => simulate_enrich_chunk_auth(true, false, true, 12, 10, null),
+        'expected' => 'batch_not_found',
+    ],
+    [
         'name' => 'subuser senza can_import',
         'result' => simulate_enrich_chunk_auth(false, true, false, 12, 10, 10),
         'expected' => 'forbidden',
