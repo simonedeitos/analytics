@@ -34,7 +34,10 @@ $outcome = analyticspro_import_try_sync_enrichment(
     123,
     2000,
     $fallback,
-    static function (): array {
+    static function (int $batchId, int $maxUnique): array {
+        if ($batchId <= 0 || $maxUnique <= 0) {
+            throw new RuntimeException('parametri inattesi');
+        }
         throw new RuntimeException('provider down');
     }
 );
