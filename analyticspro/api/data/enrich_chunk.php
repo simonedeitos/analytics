@@ -25,10 +25,6 @@ require_once ANALYTICSPRO_ROOT . '/includes/importer.php';
 analyticspro_api_guard();
 analyticspro_api_require_auth();
 
-if (!analyticspro_is_admin()) {
-    analyticspro_json(['ok' => false, 'error_code' => 'forbidden', 'error' => 'Operazione consentita solo agli amministratori.'], 403);
-}
-
 /**
  * Emette una risposta di errore strutturata e termina.
  *
@@ -50,24 +46,50 @@ function _enrich_error(string $errorCode, string $message, ?Throwable $ex = null
 
 try {
     $batchId = filter_var(analyticspro_get('batch_id'), FILTER_VALIDATE_INT);
-    if ($batchId === false || $batchId === null || $batchId < 0) {
+    if ($batchId === false || $batchId === null) {
         _enrich_error('invalid_param', 'Parametro batch_id non valido o mancante.');
     }
     $batchId = (int) $batchId;
-    // batch_id = 0 → modalità globale: tutte le particelle con lat IS NULL del tenant
 
     $limit = min(100, max(1, (int) analyticspro_get('limit', '25')));
 
+    $isAdmin = analyticspro_is_admin();
+    $isSubuser = analyticspro_is_subuser();
     $tenantId = analyticspro_current_tenant_id();
     $user = analyticspro_current_user();
     $pdo = analyticspro_db();
+    $canImport = true;
+    if ($isSubuser) {
+        $permissions = analyticspro_get_subuser_permissions((int) ($user['id'] ?? 0));
+        $canImport = !empty($permissions['can_import']);
+    }
+    $permissionScope = analyticspro_enrich_chunk_authorize_permission($isSubuser, $canImport);
+    if (!($permissionScope['ok'] ?? false)) {
+        _enrich_error(
+            (string) ($permissionScope['error_code'] ?? 'forbidden'),
+            (string) ($permissionScope['error'] ?? 'Operazione non consentita.'),
+            null,
+            (int) ($permissionScope['status'] ?? 403)
+        );
+    }
+    $scope = analyticspro_enrich_chunk_authorize_scope($batchId, $isAdmin, $tenantId, (bool) $user);
+    if (!($scope['ok'] ?? false)) {
+        _enrich_error(
+            (string) ($scope['error_code'] ?? 'forbidden'),
+            (string) ($scope['error'] ?? 'Operazione non consentita.'),
+            null,
+            (int) ($scope['status'] ?? 403)
+        );
+    }
+    $chunkTenantId = $scope['chunk_tenant_id'] ?? null;
 
-    if ($batchId > 0) {
-        // Verifica che il batch appartenga all'utente corrente (sicurezza multi-tenant)
+    if (($scope['requires_batch_lookup'] ?? false) === true) {
+        // Verifica ownership tenant del batch. In import_batches.user_id è salvato il tenant_id.
         $sql = 'SELECT id, enrichment_status, enrichment_sync FROM import_batches WHERE id = :id';
         $params = ['id' => $batchId];
-        if (($user['role'] ?? '') !== 'admin') {
-            _enrich_error('forbidden', 'Operazione consentita solo agli amministratori.', null, 403);
+        if (!$isAdmin) {
+            $sql .= ' AND user_id = :tenant_id';
+            $params['tenant_id'] = $tenantId;
         }
         analyticspro_debug_assert_sql_params_match($sql, $params);
         $stmt = $pdo->prepare($sql);
@@ -109,7 +131,7 @@ try {
         }
     }
 
-    $result = analyticspro_enrich_batch_coordinates_chunk($batchId, $limit, $tenantId);
+    $result = analyticspro_enrich_batch_coordinates_chunk($batchId, $limit, $chunkTenantId);
 
     analyticspro_json([
         'ok' => true,

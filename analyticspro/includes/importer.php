@@ -3177,6 +3177,35 @@ function analyticspro_enrich_batch_coordinates_sync(int $batchId, int $maxUnique
 }
 
 /**
+ * Esegue la fase di enrichment sincrono senza bloccare l'import in caso di errore.
+ *
+ * @param array{geolocated:int,processed_unique:int,total_unique:int,remaining_unique:int,done:bool,enrichment_sync:bool,coord_source:array<string,int>,attempt_failures:array<string,int>,failure_codes:array<string,int>,unresolved_rows:array<int,string>,truncated:bool,missing_comuni:array<int,array{name:string,provincia:string,belfiore:string}>,missing_comuni_truncated:bool,resolved:int,unresolved:int,geolocated_rows:int,missing_rows:int} $fallback
+ * @return array{enrichment:array{geolocated:int,processed_unique:int,total_unique:int,remaining_unique:int,done:bool,enrichment_sync:bool,coord_source:array<string,int>,attempt_failures:array<string,int>,failure_codes:array<string,int>,unresolved_rows:array<int,string>,truncated:bool,missing_comuni:array<int,array{name:string,provincia:string,belfiore:string}>,missing_comuni_truncated:bool,resolved:int,unresolved:int,geolocated_rows:int,missing_rows:int,total_rows?:int},failed:bool}
+ */
+function analyticspro_import_try_sync_enrichment(
+    int $batchId,
+    int $maxUnique,
+    array $fallback,
+    ?callable $syncCallable = null
+): array {
+    $syncCallable = $syncCallable ?? static fn (int $id, int $limit): array => analyticspro_enrich_batch_coordinates_sync($id, $limit);
+    try {
+        /** @var array $enrichment */
+        $enrichment = $syncCallable($batchId, $maxUnique);
+        return [
+            'enrichment' => $enrichment,
+            'failed' => false,
+        ];
+    } catch (Throwable $enrichmentException) {
+        error_log('[import_enrich_sync] Batch #' . $batchId . ' errore: ' . $enrichmentException->getMessage());
+        return [
+            'enrichment' => $fallback,
+            'failed' => true,
+        ];
+    }
+}
+
+/**
  * Enriches coordinates for all properties with lat IS NULL in a batch (or globally
  * when $batchId === 0).  Deduplicates WFS lookups by unique cadastral parcel so the
  * public AdE service is called at most once per parcel, regardless of how many owners
@@ -3236,6 +3265,76 @@ function analyticspro_enrich_batch_coordinates(int $batchId): void
 // Chunked enrichment (fallback sincrono quando il worker in background
 // non è disponibile, es. hosting con proc_open/shell_exec disabilitati)
 // ---------------------------------------------------------------------------
+
+/**
+ * Verifica il permesso can_import per i subutenti su enrich_chunk.
+ *
+ * @return array{ok:bool,error_code?:string,error?:string,status?:int}
+ */
+function analyticspro_enrich_chunk_authorize_permission(bool $isSubuser, bool $canImport): array
+{
+    if ($isSubuser && !$canImport) {
+        return [
+            'ok' => false,
+            'error_code' => 'forbidden',
+            'error' => 'Permesso can_import richiesto.',
+            'status' => 403,
+        ];
+    }
+
+    return ['ok' => true];
+}
+
+/**
+ * Determina l'ambito autorizzativo per enrich_chunk senza accedere al DB.
+ *
+ * @return array{ok:bool,error_code?:string,error?:string,status?:int,global_mode?:bool,requires_batch_lookup?:bool,chunk_tenant_id?:?int}
+ */
+function analyticspro_enrich_chunk_authorize_scope(int $batchId, bool $isAdmin, ?int $tenantId, bool $hasUser): array
+{
+    if ($batchId < 0) {
+        return [
+            'ok' => false,
+            'error_code' => 'invalid_param',
+            'error' => 'Parametro batch_id non valido o mancante.',
+            'status' => 422,
+        ];
+    }
+
+    if ($batchId === 0) {
+        if (!$isAdmin) {
+            return [
+                'ok' => false,
+                'error_code' => 'forbidden',
+                'error' => 'Operazione consentita solo agli amministratori.',
+                'status' => 403,
+            ];
+        }
+
+        return [
+            'ok' => true,
+            'global_mode' => true,
+            'requires_batch_lookup' => false,
+            'chunk_tenant_id' => null,
+        ];
+    }
+
+    if (!$isAdmin && ($tenantId === null || !$hasUser)) {
+        return [
+            'ok' => false,
+            'error_code' => 'forbidden',
+            'error' => 'Operazione non consentita.',
+            'status' => 403,
+        ];
+    }
+
+    return [
+        'ok' => true,
+        'global_mode' => false,
+        'requires_batch_lookup' => true,
+        'chunk_tenant_id' => $isAdmin ? null : $tenantId,
+    ];
+}
 
 /**
  * Elabora al più $limit particelle non ancora geolocalizzate per il batch.
