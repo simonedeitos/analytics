@@ -3247,17 +3247,21 @@
                 if (processPayload.notes_imported) {
                     importLog('info', 'Note importate: ' + processPayload.notes_imported);
                 }
-                importLog('info', 'Geolocalizzazione batch "' + (sourceFile.name || ('file #' + (sf + 1))) + '" avviata in background.');
+                if (processPayload.enrichment_done) {
+                    importLog('info', 'Geolocalizzazione batch "' + (sourceFile.name || ('file #' + (sf + 1))) + '" completata durante l\'import.');
+                } else {
+                    importLog('info', 'Geolocalizzazione batch "' + (sourceFile.name || ('file #' + (sf + 1))) + '" non completata nel round-trip: prosegue via chunk/worker.');
+                }
                 if (processPayload.remaining_unique_parcels) {
                     importLog('info', 'Particelle residue eleggibili: ' + (processPayload.remaining_unique_parcels || 0));
                 }
                 await loadProperties();
             }
-            setWeightedImportPhase('save', 1, 'Import completato. Geolocalizzazione in background.');
+            setWeightedImportPhase('save', 1, 'Import completato. Geolocalizzazione aggiornata.');
             if (totalSkippedRows > 0 && totalSavedRows === 0) {
                 finalizeImportUi('warning', 'Nessuna modifica salvata: i dati erano già presenti o non validi.');
             } else {
-                finalizeImportUi('success', 'Import completato. La geolocalizzazione prosegue in background.');
+                finalizeImportUi('success', 'Import completato.');
             }
         } catch (error) {
             importLog('error', 'Import fallito: ' + (error && error.message ? error.message : 'Errore sconosciuto'));

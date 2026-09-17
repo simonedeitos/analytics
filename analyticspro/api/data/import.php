@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 require dirname(__DIR__, 2) . '/includes/bootstrap.php';
 require_once ANALYTICSPRO_ROOT . '/includes/api_bootstrap.php';
+require_once ANALYTICSPRO_ROOT . '/includes/importer.php';
 
 analyticspro_api_guard();
 
@@ -78,11 +79,12 @@ try {
             analyticspro_json(['ok' => false, 'error' => $e->getMessage()], 500);
         }
 
+        $enrichmentTotal = analyticspro_enrichment_count_unique_parcels($pdo, $batchId, null, true, true);
         $enrichment = [
             'geolocated' => 0,
             'processed_unique' => 0,
-            'total_unique' => analyticspro_enrichment_count_unique_parcels($pdo, $batchId, null, true, true),
-            'remaining_unique' => analyticspro_enrichment_count_unique_parcels($pdo, $batchId, null, true, true),
+            'total_unique' => $enrichmentTotal,
+            'remaining_unique' => $enrichmentTotal,
             'done' => false,
             'enrichment_sync' => false,
             'coord_source' => [],
@@ -98,10 +100,28 @@ try {
             'missing_rows' => 0,
         ];
 
-        $enrichWorker = ANALYTICSPRO_ROOT . '/cron/enrich_property_coordinates.php';
-        if (analyticspro_launch_background($enrichWorker, [$batchId])) {
-            $pdo->prepare("UPDATE import_batches SET enrichment_status = 'processing' WHERE id = :id AND enrichment_status = 'pending'")
-                ->execute(['id' => $batchId]);
+        $maxUnique = defined('IMPORT_SYNC_MAX_UNIQUE')
+            ? (int) IMPORT_SYNC_MAX_UNIQUE
+            : (int) (analyticspro_env('IMPORT_SYNC_MAX_UNIQUE', '2000') ?? '2000');
+        $maxUnique = max(1, $maxUnique);
+
+        try {
+            $enrichment = analyticspro_enrich_batch_coordinates_sync($batchId, $maxUnique);
+        } catch (Throwable $enrichmentException) {
+            error_log('[import_enrich_sync] Batch #' . $batchId . ' errore: ' . $enrichmentException->getMessage());
+            $pdo->prepare(
+                "UPDATE import_batches
+                 SET enrichment_status = 'pending', enrichment_sync = 0
+                 WHERE id = :id AND enrichment_status != 'completed'"
+            )->execute(['id' => $batchId]);
+        }
+
+        if (!(bool) ($enrichment['done'] ?? false)) {
+            $enrichWorker = ANALYTICSPRO_ROOT . '/cron/enrich_property_coordinates.php';
+            if (analyticspro_launch_background($enrichWorker, [$batchId])) {
+                $pdo->prepare("UPDATE import_batches SET enrichment_status = 'processing' WHERE id = :id AND enrichment_status = 'pending'")
+                    ->execute(['id' => $batchId]);
+            }
         }
 
         analyticspro_json([

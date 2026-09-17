@@ -24,9 +24,8 @@ require_once ANALYTICSPRO_ROOT . '/includes/importer.php';
 
 analyticspro_api_guard();
 analyticspro_api_require_auth();
-
-if (!analyticspro_is_admin()) {
-    analyticspro_json(['ok' => false, 'error_code' => 'forbidden', 'error' => 'Operazione consentita solo agli amministratori.'], 403);
+if (analyticspro_is_subuser()) {
+    analyticspro_require_permission('can_import');
 }
 
 /**
@@ -58,16 +57,23 @@ try {
 
     $limit = min(100, max(1, (int) analyticspro_get('limit', '25')));
 
+    $isAdmin = analyticspro_is_admin();
     $tenantId = analyticspro_current_tenant_id();
     $user = analyticspro_current_user();
     $pdo = analyticspro_db();
+    $chunkTenantId = null;
 
     if ($batchId > 0) {
         // Verifica che il batch appartenga all'utente corrente (sicurezza multi-tenant)
         $sql = 'SELECT id, enrichment_status, enrichment_sync FROM import_batches WHERE id = :id';
         $params = ['id' => $batchId];
-        if (($user['role'] ?? '') !== 'admin') {
-            _enrich_error('forbidden', 'Operazione consentita solo agli amministratori.', null, 403);
+        if (!$isAdmin) {
+            if ($tenantId === null || !$user) {
+                _enrich_error('auth_error', 'Tenant non disponibile.');
+            }
+            $sql .= ' AND user_id = :tenant_id';
+            $params['tenant_id'] = $tenantId;
+            $chunkTenantId = $tenantId;
         }
         analyticspro_debug_assert_sql_params_match($sql, $params);
         $stmt = $pdo->prepare($sql);
@@ -107,9 +113,13 @@ try {
                 'missing_rows' => $reconciliation['missing_rows'],
             ]);
         }
+    } else {
+        if (!$isAdmin) {
+            _enrich_error('forbidden', 'Operazione consentita solo agli amministratori.', null, 403);
+        }
     }
 
-    $result = analyticspro_enrich_batch_coordinates_chunk($batchId, $limit, $tenantId);
+    $result = analyticspro_enrich_batch_coordinates_chunk($batchId, $limit, $chunkTenantId);
 
     analyticspro_json([
         'ok' => true,

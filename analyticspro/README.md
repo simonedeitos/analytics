@@ -66,7 +66,7 @@ La migration 016 si blocca in modo esplicito se rileva duplicati incompatibili c
 - Se provincia non è riconosciuta ma è disponibile il codice catastale (o il solo comune è
   disambiguabile), la sigla viene derivata automaticamente dal catalogo comuni catastali.
 
-### Flusso a due fasi: persistenza immediata + arricchimento coordinate asincrono
+### Flusso a due fasi: persistenza immediata + arricchimento coordinate automatico
 
 L'import CSV/Excel è suddiviso in due fasi indipendenti:
 
@@ -79,9 +79,13 @@ l'esito (righe salvate o messaggio d'errore) è quindi immediato e certo.
 Il file `storage/import_payloads/import_<id>.json` viene comunque scritto su disco per consentire
 la ri-esecuzione manuale/diagnostica tramite `cron/process_import_batch.php` se necessario.
 
-**Fase 2 — Arricchimento coordinate (in background)**  
-Subito dopo il completamento della Fase 1 il worker `cron/enrich_property_coordinates.php`
-viene lanciato in background tramite `analyticspro_launch_background()`. Questo worker:
+**Fase 2 — Arricchimento coordinate (sincrono + complemento background/chunk)**  
+Subito dopo il completamento della Fase 1, `api/data/import.php` chiama
+`analyticspro_enrich_batch_coordinates_sync()` per **tutti** gli utenti autorizzati
+(admin, utenti normali, subutenti con `can_import`).
+Se restano particelle residue (o se il provider remoto fallisce), la richiesta resta `ok: true`
+e il residuo viene completato via chunk sincroni (`api/data/enrich_chunk.php?batch_id=<id>`)
+e/o worker `cron/enrich_property_coordinates.php` come complemento. Il flusso:
 
 1. Seleziona da `properties` le righe con `lat IS NULL` per il batch appena importato.
 2. **Deduplica per particella unica** (chiave `provincia|comune|sezione|foglio|particella`):
@@ -91,12 +95,12 @@ viene lanciato in background tramite `analyticspro_launch_background()`. Questo 
 4. Applica le coordinate a **tutte** le righe che condividono quella particella.
 5. Registra il progresso in `import_batches.enrichment_status`,
    `enrichment_processed`, `enrichment_total`.
-6. Isola gli errori per singola particella senza abortire l'arricchimento.
+6. Isola gli errori per singola particella senza abortire l'arricchimento/import.
 
-Se `proc_open`/`shell_exec` non sono disponibili (hosting limitati), il batch rimane con
-`enrichment_status = 'pending'` e viene recuperato dal **cron di recupero batch orfani**
-(vedi sezione *Cron di recupero batch orfani*). La Fase 1 è sempre atomicamente completata
-prima di qualsiasi chiamata di rete, e la risposta HTTP torna sempre immediatamente al browser.
+Se `proc_open`/`shell_exec` non sono disponibili (hosting limitati), il fallback chunk resta
+comunque disponibile per il batch del tenant corrente e il cron di recupero può completare i batch
+orfani (vedi sezione *Cron di recupero batch orfani*). La Fase 1 resta sempre completata anche in
+presenza di errori di geolocalizzazione.
 
 ## Cifratura dati sensibili
 
@@ -469,7 +473,7 @@ riconciliati dal database (`N/M immobili geolocalizzati, K senza coordinate`).
 ### Recupero delle coordinate mancanti
 
 La pagina **Importa** espone un pulsante **"Rigenera coordinate mancanti"** che richiama
-`api/data/enrich_chunk.php?batch_id=0` (modalità globale, limitata al tenant corrente per utenti/subutenti)
+`api/data/enrich_chunk.php?batch_id=0` (modalità globale, **solo admin**)
 a chunk ripetuti, elaborando tutte le righe con `lat IS NULL`. Utile dopo:
 - aver caricato nuovi file GML e costruito l'indice
 - aver configurato Zornade o WFS
@@ -665,6 +669,8 @@ dipendere da un worker in background.
 - `api/data/import.php` in modalità `process` esegue:
   1. Fase 1: persistenza dati catastali
   2. Fase 2: geolocalizzazione sincrona delle particelle uniche
+- In caso di errore provider/eccezione durante la Fase 2, l'import resta comunque `ok: true`
+  e il frontend può proseguire con i chunk per `batch_id > 0`.
 - La risoluzione coordinate usa la funzione condivisa
   `analyticspro_resolve_parcel_coordinates(array $property, array &$memo)`, con memoizzazione:
   - cache `comune|provincia → belfiore`
@@ -674,6 +680,9 @@ dipendere da un worker in background.
 - Soglia di sicurezza configurabile (`IMPORT_SYNC_MAX_UNIQUE`, default `2000`): oltre soglia
   la richiesta processa una parte e lascia il resto al fallback chunk (`enrichment_sync = 1`)
   via `api/data/enrich_chunk.php` usando la **stessa** funzione condivisa.
+- Autorizzazioni `enrich_chunk`:
+  - `batch_id > 0`: admin oppure tenant proprietario del batch (subutenti con `can_import`).
+  - `batch_id = 0`: solo admin (pulsante manuale globale).
 
 ### Risposta di errore strutturata di enrich_chunk
 
@@ -789,7 +798,7 @@ DROP PROCEDURE IF EXISTS _analyticspro_migration_006;
 > ⚠️ Rimuovere la pagina dopo il debug.
 
 È disponibile anche `analyticspro/admin/diagnostica_enrichment.php` per testare
-rapidamente `enrich_chunk` (batch specifico o globale `batch_id=0`) e verificare
+rapidamente `enrich_chunk` (batch specifico; globale `batch_id=0` solo admin) e verificare
 in un'unica vista schema, batch recenti ed errori runtime.
 
 ---
@@ -803,6 +812,7 @@ php analyticspro/tests/test_cluster_fractions.php         # fette cluster SVG
 php analyticspro/tests/test_grouped_marker_editor.php     # metadata gruppo per editor mappa
 php analyticspro/tests/test_phone_visibility.php          # telefono assente con permesso OFF
 php analyticspro/tests/test_enrich_chunk_error.php        # error_code strutturato
+php analyticspro/tests/test_enrich_chunk_authorization.php # matrice autorizzazioni enrich_chunk
 php analyticspro/tests/test_gml_catalog_auto_invalidate.php # auto-invalidazione catalogo GML
 php analyticspro/tests/test_marker_same_coords_grouping.php # marker unici per coordinate condivise
 ```
@@ -811,7 +821,9 @@ php analyticspro/tests/test_marker_same_coords_grouping.php # marker unici per c
 
 ### Enrichment sincrono in fase di import
 
-Quando il worker background non può essere avviato (hosting con `proc_open` / `shell_exec` disabilitati), l'importatore passa automaticamente alla modalità sincrona a chunk tramite `api/data/enrich_chunk.php`. Il frontend mostra lo stato della geolocalizzazione nello stesso pannello di avanzamento e interrompe i retry su errori non transitori.
+L'importatore esegue sempre prima la Fase 2 sincrona; se resta residuo, il frontend continua con
+`api/data/enrich_chunk.php` sul `batch_id` appena importato. La modalità globale `batch_id=0`
+rimane riservata agli admin.
 
 ### Nuova UI dell'importatore
 
