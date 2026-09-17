@@ -109,11 +109,6 @@ try {
             $enrichment = analyticspro_enrich_batch_coordinates_sync($batchId, $maxUnique);
         } catch (Throwable $enrichmentException) {
             error_log('[import_enrich_sync] Batch #' . $batchId . ' errore: ' . $enrichmentException->getMessage());
-            $pdo->prepare(
-                "UPDATE import_batches
-                 SET enrichment_status = 'pending', enrichment_sync = 0
-                 WHERE id = :id AND enrichment_status != 'completed'"
-            )->execute(['id' => $batchId]);
         }
 
         if (!(bool) ($enrichment['done'] ?? false)) {

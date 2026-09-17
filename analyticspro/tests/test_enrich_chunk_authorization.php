@@ -16,6 +16,10 @@ function simulate_enrich_chunk_auth(
     ?int $currentTenantId,
     ?int $batchTenantId
 ): string {
+    if ($batchId < 0) {
+        return 'invalid_param';
+    }
+
     if ($isSubuser && !$canImport) {
         return 'forbidden';
     }
@@ -24,15 +28,15 @@ function simulate_enrich_chunk_auth(
         return $isAdmin ? 'ok' : 'forbidden';
     }
 
-    if ($batchId < 0) {
-        return 'invalid_param';
-    }
-
     if ($isAdmin) {
         return $batchTenantId !== null ? 'ok' : 'batch_not_found';
     }
 
-    if ($currentTenantId === null || $batchTenantId === null) {
+    if ($currentTenantId === null) {
+        return 'forbidden';
+    }
+
+    if ($batchTenantId === null) {
         return 'batch_not_found';
     }
 
@@ -77,6 +81,11 @@ $cases = [
         'name' => 'batch_id negativo',
         'result' => simulate_enrich_chunk_auth(true, false, true, -1, 10, 10),
         'expected' => 'invalid_param',
+    ],
+    [
+        'name' => 'non admin senza tenant corrente',
+        'result' => simulate_enrich_chunk_auth(false, false, true, 12, null, 10),
+        'expected' => 'forbidden',
     ],
 ];
 

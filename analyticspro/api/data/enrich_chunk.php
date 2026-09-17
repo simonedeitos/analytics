@@ -113,7 +113,7 @@ try {
                 'missing_rows' => $reconciliation['missing_rows'],
             ]);
         }
-    } else {
+    } elseif ($batchId === 0) {
         if (!$isAdmin) {
             _enrich_error('forbidden', 'Operazione consentita solo agli amministratori.', null, 403);
         }

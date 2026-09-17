@@ -3188,6 +3188,7 @@
 
             var totalSavedRows = 0;
             var totalSkippedRows = 0;
+            var allEnrichmentDone = true;
             for (var sf = 0; sf < sourceFiles.length; sf++) {
                 var sourceFile = sourceFiles[sf];
                 if (!sourceFile.rows || !sourceFile.rows.length) continue;
@@ -3250,6 +3251,7 @@
                 if (processPayload.enrichment_done) {
                     importLog('info', 'Geolocalizzazione batch "' + (sourceFile.name || ('file #' + (sf + 1))) + '" completata durante l\'import.');
                 } else {
+                    allEnrichmentDone = false;
                     importLog('info', 'Geolocalizzazione batch "' + (sourceFile.name || ('file #' + (sf + 1))) + '" non completata nel round-trip: prosegue via chunk/worker.');
                 }
                 if (processPayload.remaining_unique_parcels) {
@@ -3257,11 +3259,15 @@
                 }
                 await loadProperties();
             }
-            setWeightedImportPhase('save', 1, 'Import completato. Geolocalizzazione aggiornata.');
+            setWeightedImportPhase('save', 1, allEnrichmentDone
+                ? 'Import completato. Geolocalizzazione completata.'
+                : 'Import completato. Geolocalizzazione in corso.');
             if (totalSkippedRows > 0 && totalSavedRows === 0) {
                 finalizeImportUi('warning', 'Nessuna modifica salvata: i dati erano già presenti o non validi.');
             } else {
-                finalizeImportUi('success', 'Import completato.');
+                finalizeImportUi('success', allEnrichmentDone
+                    ? 'Import completato. Geolocalizzazione completata.'
+                    : 'Import completato. Geolocalizzazione in corso.');
             }
         } catch (error) {
             importLog('error', 'Import fallito: ' + (error && error.message ? error.message : 'Errore sconosciuto'));
