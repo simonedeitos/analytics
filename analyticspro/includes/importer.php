@@ -3267,6 +3267,25 @@ function analyticspro_enrich_batch_coordinates(int $batchId): void
 // ---------------------------------------------------------------------------
 
 /**
+ * Verifica il permesso can_import per i subutenti su enrich_chunk.
+ *
+ * @return array{ok:bool,error_code?:string,error?:string,status?:int}
+ */
+function analyticspro_enrich_chunk_authorize_permission(bool $isSubuser, bool $canImport): array
+{
+    if ($isSubuser && !$canImport) {
+        return [
+            'ok' => false,
+            'error_code' => 'forbidden',
+            'error' => 'Permesso can_import richiesto.',
+            'status' => 403,
+        ];
+    }
+
+    return ['ok' => true];
+}
+
+/**
  * Determina l'ambito autorizzativo per enrich_chunk senza accedere al DB.
  *
  * @return array{ok:bool,error_code?:string,error?:string,status?:int,global_mode?:bool,requires_batch_lookup?:bool,chunk_tenant_id?:?int}

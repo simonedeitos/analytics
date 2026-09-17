@@ -19,12 +19,9 @@ function simulate_enrich_chunk_auth(
     ?int $batchTenantId,
     bool $hasUser = true
 ): string {
-    if ($batchId < 0) {
-        return 'invalid_param';
-    }
-
-    if ($isSubuser && !$canImport) {
-        return 'forbidden';
+    $permissionScope = analyticspro_enrich_chunk_authorize_permission($isSubuser, $canImport);
+    if (!($permissionScope['ok'] ?? false)) {
+        return (string) ($permissionScope['error_code'] ?? 'forbidden');
     }
 
     $scope = analyticspro_enrich_chunk_authorize_scope($batchId, $isAdmin, $currentTenantId, $hasUser);

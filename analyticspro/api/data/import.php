@@ -108,10 +108,7 @@ try {
         $syncOutcome = analyticspro_import_try_sync_enrichment($batchId, $maxUnique, $enrichment);
         $enrichment = $syncOutcome['enrichment'];
 
-        if (
-            !(bool) ($enrichment['done'] ?? false)
-            && !(bool) ($enrichment['enrichment_sync'] ?? false)
-        ) {
+        if (!(bool) ($enrichment['done'] ?? false)) {
             $enrichWorker = ANALYTICSPRO_ROOT . '/cron/enrich_property_coordinates.php';
             $workerLaunched = analyticspro_launch_background($enrichWorker, [$batchId]);
             if ($workerLaunched) {

@@ -24,9 +24,6 @@ require_once ANALYTICSPRO_ROOT . '/includes/importer.php';
 
 analyticspro_api_guard();
 analyticspro_api_require_auth();
-if (analyticspro_is_subuser()) {
-    analyticspro_require_permission('can_import');
-}
 
 /**
  * Emette una risposta di errore strutturata e termina.
@@ -57,9 +54,24 @@ try {
     $limit = min(100, max(1, (int) analyticspro_get('limit', '25')));
 
     $isAdmin = analyticspro_is_admin();
+    $isSubuser = analyticspro_is_subuser();
     $tenantId = analyticspro_current_tenant_id();
     $user = analyticspro_current_user();
     $pdo = analyticspro_db();
+    $canImport = true;
+    if ($isSubuser) {
+        $permissions = analyticspro_get_subuser_permissions((int) ($user['id'] ?? 0));
+        $canImport = !empty($permissions['can_import']);
+    }
+    $permissionScope = analyticspro_enrich_chunk_authorize_permission($isSubuser, $canImport);
+    if (!($permissionScope['ok'] ?? false)) {
+        _enrich_error(
+            (string) ($permissionScope['error_code'] ?? 'forbidden'),
+            (string) ($permissionScope['error'] ?? 'Operazione non consentita.'),
+            null,
+            (int) ($permissionScope['status'] ?? 403)
+        );
+    }
     $scope = analyticspro_enrich_chunk_authorize_scope($batchId, $isAdmin, $tenantId, (bool) $user);
     if (!($scope['ok'] ?? false)) {
         _enrich_error(
