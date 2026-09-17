@@ -69,7 +69,7 @@ try {
         $params = ['id' => $batchId];
         if (!$isAdmin) {
             if ($tenantId === null || !$user) {
-                _enrich_error('auth_error', 'Tenant non disponibile.');
+                _enrich_error('forbidden', 'Operazione non consentita.', null, 403);
             }
             $sql .= ' AND user_id = :tenant_id';
             $params['tenant_id'] = $tenantId;

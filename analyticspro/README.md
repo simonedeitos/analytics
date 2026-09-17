@@ -694,7 +694,7 @@ dipendere da un worker in background.
 
 I codici macchina (`error_code`) sono:
 - `invalid_param` — parametro mancante o non valido
-- `auth_error` — tenant non disponibile
+- `forbidden` — utente non autorizzato (es. `batch_id=0` senza ruolo admin)
 - `batch_not_found` — batch inesistente o non autorizzato
 - `transient` — errore temporaneo, il frontend può riprovare
 - `internal_error` — errore interno, il frontend deve fermarsi
