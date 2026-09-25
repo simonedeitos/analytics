@@ -2312,10 +2312,9 @@ function analyticspro_import_owner_note_chunk(array $owner): string
 /**
  * @return array<string,mixed>
  */
-function analyticspro_build_owner_statement_params(array $owner, int $propertyId, bool $includeOwnership = false): array
+function analyticspro_build_owner_common_statement_params(array $owner, bool $includeOwnership = false): array
 {
     $params = [
-        'property_id' => $propertyId,
         'tipo' => (string) ($owner['tipo'] ?? 'persona'),
         'nome_enc' => analyticspro_encrypt((string) ($owner['nome'] ?? '')),
         'cognome_enc' => analyticspro_encrypt((string) ($owner['cognome'] ?? '')),
@@ -2337,6 +2336,22 @@ function analyticspro_build_owner_statement_params(array $owner, int $propertyId
     }
 
     return $params;
+}
+
+/**
+ * @return array<string,mixed>
+ */
+function analyticspro_build_owner_statement_params(array $owner, int $propertyId, bool $includeOwnership = false): array
+{
+    return ['property_id' => $propertyId] + analyticspro_build_owner_common_statement_params($owner, $includeOwnership);
+}
+
+/**
+ * @return array<string,mixed>
+ */
+function analyticspro_build_owner_update_statement_params(array $owner, bool $includeOwnership = false): array
+{
+    return analyticspro_build_owner_common_statement_params($owner, $includeOwnership);
 }
 
 function analyticspro_property_has_coordinates(array $property): bool
@@ -2667,8 +2682,11 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
     $resetPropertyState = $pdo->prepare('UPDATE properties SET stato = NULL, stato_personalizzato = NULL, colore_marker = :colore_marker WHERE id = :id');
     $clearAssignments = $pdo->prepare('DELETE FROM property_assignments WHERE property_id = :property_id');
     $updateBatch = $pdo->prepare('UPDATE import_batches SET processed_rows = :processed_rows WHERE id = :id');
+    $markBatchFailed = null;
 
     try {
+        $markBatchFailed = $pdo->prepare("UPDATE import_batches SET status = 'failed', error_message = :message, completed_at = NOW() WHERE id = :id");
+        $pdo->beginTransaction();
         $processed = 0;
         $savedRows = 0;
         $skippedRows = 0;
@@ -2855,7 +2873,7 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
                             if (in_array($cfHash, $replacementPlan['keep_hashes'] ?? [], true)) {
                                 $existingOwner = $currentByCfHash[$cfHash];
                                 $mergedOwner = analyticspro_merge_import_owner_values(analyticspro_import_owner_values_from_db_row($existingOwner), $incomingOwner);
-                                $updateCurrentOwner->execute(['id' => (int) $existingOwner['id']] + analyticspro_build_owner_statement_params($mergedOwner, $propertyId, $hasOwnerOwnershipColumns));
+                                $updateCurrentOwner->execute(['id' => (int) $existingOwner['id']] + analyticspro_build_owner_update_statement_params($mergedOwner, $hasOwnerOwnershipColumns));
                                 continue;
                             }
                             if (!in_array($cfHash, $replacementPlan['insert_hashes'] ?? [], true)) {
@@ -2867,7 +2885,7 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
                             if (isset($currentNoCfOwnersByKey[$fallbackKey])) {
                                 $existingOwner = $currentNoCfOwnersByKey[$fallbackKey];
                                 $mergedOwner = analyticspro_merge_import_owner_values(analyticspro_import_owner_values_from_db_row($existingOwner), $incomingOwner);
-                                $updateCurrentOwner->execute(['id' => (int) $existingOwner['id']] + analyticspro_build_owner_statement_params($mergedOwner, $propertyId, $hasOwnerOwnershipColumns));
+                                $updateCurrentOwner->execute(['id' => (int) $existingOwner['id']] + analyticspro_build_owner_update_statement_params($mergedOwner, $hasOwnerOwnershipColumns));
                                 continue;
                             }
                             $insertOwner->execute(analyticspro_build_owner_statement_params($incomingOwner, $propertyId, $hasOwnerOwnershipColumns));
@@ -2902,7 +2920,7 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
                             }
                             $existingOwner = $currentByCfHash[$cfHash];
                             $mergedOwner = analyticspro_merge_import_owner_values(analyticspro_import_owner_values_from_db_row($existingOwner), $incomingOwner);
-                            $updateCurrentOwner->execute(['id' => (int) $existingOwner['id']] + analyticspro_build_owner_statement_params($mergedOwner, $propertyId, $hasOwnerOwnershipColumns));
+                            $updateCurrentOwner->execute(['id' => (int) $existingOwner['id']] + analyticspro_build_owner_update_statement_params($mergedOwner, $hasOwnerOwnershipColumns));
                         }
                         foreach ($incomingNoCfOwnersByKey as $fallbackKey => $incomingOwner) {
                             if (!isset($currentNoCfOwnersByKey[$fallbackKey])) {
@@ -2910,7 +2928,7 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
                             }
                             $existingOwner = $currentNoCfOwnersByKey[$fallbackKey];
                             $mergedOwner = analyticspro_merge_import_owner_values(analyticspro_import_owner_values_from_db_row($existingOwner), $incomingOwner);
-                            $updateCurrentOwner->execute(['id' => (int) $existingOwner['id']] + analyticspro_build_owner_statement_params($mergedOwner, $propertyId, $hasOwnerOwnershipColumns));
+                            $updateCurrentOwner->execute(['id' => (int) $existingOwner['id']] + analyticspro_build_owner_update_statement_params($mergedOwner, $hasOwnerOwnershipColumns));
                         }
                     }
                 } elseif ($currentOwners === [] && ($incomingByCfHash !== [] || $incomingNoCfOwnersByKey !== [])) {
@@ -2986,6 +3004,7 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
                 'enrichment_total' => $pendingEnrichment,
                 'id' => $batchId,
             ]);
+        $pdo->commit();
         return [
             'processed_rows' => $processed,
             'saved_rows' => $savedRows,
@@ -2996,8 +3015,17 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
             'warnings' => array_values(array_unique($warnings)),
         ];
     } catch (Throwable $exception) {
-        $pdo->prepare("UPDATE import_batches SET status = 'failed', error_message = :message, completed_at = NOW() WHERE id = :id")
-            ->execute(['message' => $exception->getMessage(), 'id' => $batchId]);
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        try {
+            if (!$markBatchFailed instanceof PDOStatement) {
+                $markBatchFailed = $pdo->prepare("UPDATE import_batches SET status = 'failed', error_message = :message, completed_at = NOW() WHERE id = :id");
+            }
+            $markBatchFailed->execute(['message' => $exception->getMessage(), 'id' => $batchId]);
+        } catch (Throwable $markFailedException) {
+            error_log('[import_batch] Impossibile marcare failed il batch #' . $batchId . ': ' . $markFailedException->getMessage());
+        }
         throw $exception;
     }
 }
