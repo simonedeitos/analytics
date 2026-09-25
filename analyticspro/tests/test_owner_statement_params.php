@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+define('APP_DEBUG', true);
+
 if (!function_exists('analyticspro_encrypt')) {
     function analyticspro_encrypt(?string $value): ?string
     {
@@ -78,19 +80,18 @@ try {
         )'
     );
 
-    $insertOwner = $pdo->prepare(
-        'INSERT INTO property_owners (
+    $insertOwnerSql = 'INSERT INTO property_owners (
             property_id, tipo, nome_enc, cognome_enc, codice_fiscale_enc, telefono_enc, indirizzo_enc, email_enc,
             nome_hash, cognome_hash, codice_fiscale_hash, telefono_hash, data_nascita, luogo_nascita_enc, genere, quota, titolarita, is_current
         ) VALUES (
             :property_id, :tipo, :nome_enc, :cognome_enc, :codice_fiscale_enc, :telefono_enc, :indirizzo_enc, :email_enc,
             :nome_hash, :cognome_hash, :codice_fiscale_hash, :telefono_hash, :data_nascita, :luogo_nascita_enc, :genere, :quota, :titolarita, 1
-        )'
-    );
+        )';
+    analyticspro_debug_assert_sql_params_match($insertOwnerSql, $insertParams);
+    $insertOwner = $pdo->prepare($insertOwnerSql);
     $insertOwner->execute($insertParams);
 
-    $updateOwner = $pdo->prepare(
-        'UPDATE property_owners SET
+    $updateOwnerSql = 'UPDATE property_owners SET
             tipo = :tipo,
             nome_enc = :nome_enc,
             cognome_enc = :cognome_enc,
@@ -107,8 +108,9 @@ try {
             genere = :genere,
             quota = :quota,
             titolarita = :titolarita
-        WHERE id = :id AND is_current = 1'
-    );
+        WHERE id = :id AND is_current = 1';
+    analyticspro_debug_assert_sql_params_match($updateOwnerSql, ['id' => 1] + $updateParams);
+    $updateOwner = $pdo->prepare($updateOwnerSql);
     $updateOwner->execute(['id' => 1] + $updateParams);
 
     $newOwner = $owner;

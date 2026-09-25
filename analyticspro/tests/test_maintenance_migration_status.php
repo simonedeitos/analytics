@@ -66,6 +66,27 @@ if (analyticspro_maintenance_evaluate_migration_016_status($columnsApplied, $ind
     $errors[] = 'La migration 016 deve risultare non applicata con firma indice diversa da quella attesa.';
 }
 
+$collationColumnsApplied = [
+    'provincia' => ['CHARACTER_SET_NAME' => 'utf8mb4', 'COLLATION_NAME' => 'utf8mb4_general_ci'],
+    'provincia_originale' => ['CHARACTER_SET_NAME' => 'utf8mb4', 'COLLATION_NAME' => 'utf8mb4_general_ci'],
+];
+if (analyticspro_maintenance_evaluate_migration_017_status($collationColumnsApplied) !== 'applied') {
+    $pass = false;
+    $errors[] = 'La migration 017 deve risultare applicata quando provincia_originale eredita charset/collation canonici da provincia.';
+}
+
+$collationColumnsMismatch = $collationColumnsApplied;
+$collationColumnsMismatch['provincia_originale']['COLLATION_NAME'] = 'utf8mb4_unicode_ci';
+if (analyticspro_maintenance_evaluate_migration_017_status($collationColumnsMismatch) !== 'not_applied') {
+    $pass = false;
+    $errors[] = 'La migration 017 deve risultare non applicata se provincia_originale ha collation diversa da provincia.';
+}
+
+if (analyticspro_maintenance_evaluate_migration_017_status(['provincia' => $collationColumnsApplied['provincia']]) !== 'not_applied') {
+    $pass = false;
+    $errors[] = 'La migration 017 deve risultare non applicata se provincia_originale manca.';
+}
+
 if ($pass) {
     echo "PASS: stato migrazioni maintenance OK\n";
     exit(0);

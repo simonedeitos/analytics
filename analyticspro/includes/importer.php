@@ -891,9 +891,6 @@ function analyticspro_import_property_needs_update(array $current, array $incomi
     if ($hasPianoColumn) {
         $fields[] = 'piano';
     }
-    if ($hasProvinciaOriginaleColumn) {
-        $fields[] = 'provincia_originale';
-    }
 
     foreach ($fields as $field) {
         $incomingValue = $incoming[$field] ?? null;
@@ -901,6 +898,16 @@ function analyticspro_import_property_needs_update(array $current, array $incomi
             $incomingValue = null;
         }
         if (!analyticspro_import_scalar_equals($current[$field] ?? null, $incomingValue)) {
+            return true;
+        }
+    }
+
+    if ($hasProvinciaOriginaleColumn) {
+        $incomingProvinciaOriginale = analyticspro_import_resolve_provincia_originale_value(
+            $incoming,
+            $current['provincia_originale'] ?? null
+        );
+        if (!analyticspro_import_scalar_equals($current['provincia_originale'] ?? null, $incomingProvinciaOriginale)) {
             return true;
         }
     }
@@ -913,6 +920,17 @@ function analyticspro_import_property_needs_update(array $current, array $incomi
         || !analyticspro_import_scalar_equals($current['lng'] ?? null, $incoming['lng'] ?? null)
         || (int) ($current['posizione_verificata'] ?? 0) !== 1
         || trim((string) ($current['coord_source'] ?? '')) !== 'manual';
+}
+
+function analyticspro_import_resolve_provincia_originale_value(array $property, mixed $currentValue = null): ?string
+{
+    $incomingValue = trim((string) ($property['provincia_originale'] ?? ''));
+    if ($incomingValue !== '') {
+        return $incomingValue;
+    }
+
+    $currentValue = trim((string) $currentValue);
+    return $currentValue !== '' ? $currentValue : null;
 }
 
 function analyticspro_import_owner_values_from_db_row(array $owner): array
@@ -2603,6 +2621,36 @@ function analyticspro_import_reset_state_values(): array
     ];
 }
 
+/**
+ * @return array<int,string>
+ */
+function analyticspro_build_property_import_update_set(bool $hasPianoColumn, bool $hasProvinciaOriginaleColumn): array
+{
+    $updateSet = [
+        'import_batch_id = :import_batch_id',
+        'cod_catastale = :cod_catastale',
+        'indirizzo = :indirizzo',
+        'civico = :civico',
+        'categoria = :categoria',
+        'classe = :classe',
+    ];
+    if ($hasPianoColumn) {
+        $updateSet[] = 'piano = :piano';
+    }
+    $updateSet = array_merge($updateSet, [
+        'consistenza = :consistenza',
+        'superficie = :superficie',
+        'rendita = :rendita',
+        'titolarita = :titolarita',
+        'quota = :quota',
+    ]);
+    if ($hasProvinciaOriginaleColumn) {
+        $updateSet[] = 'provincia_originale = :provincia_originale';
+    }
+
+    return $updateSet;
+}
+
 function analyticspro_process_import_batch_payload(int $batchId, array $payload): array
 {
     $pdo = analyticspro_db();
@@ -2635,27 +2683,7 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
     $insertPlaceholders = array_map(static fn (string $column): string => ':' . $column, $insertColumns);
     $insertProperty = $pdo->prepare('INSERT INTO properties (' . implode(', ', $insertColumns) . ') VALUES (' . implode(', ', $insertPlaceholders) . ')');
 
-    $updateSet = [
-        'import_batch_id = :import_batch_id',
-        'cod_catastale = :cod_catastale',
-        'indirizzo = :indirizzo',
-        'civico = :civico',
-        'categoria = :categoria',
-        'classe = :classe',
-    ];
-    if ($hasPianoColumn) {
-        $updateSet[] = 'piano = :piano';
-    }
-    $updateSet = array_merge($updateSet, [
-        'consistenza = :consistenza',
-        'superficie = :superficie',
-        'rendita = :rendita',
-        'titolarita = :titolarita',
-        'quota = :quota',
-    ]);
-    if ($hasProvinciaOriginaleColumn) {
-        $updateSet[] = 'provincia_originale = COALESCE(NULLIF(:provincia_originale, \'\'), provincia_originale)';
-    }
+    $updateSet = analyticspro_build_property_import_update_set($hasPianoColumn, $hasProvinciaOriginaleColumn);
     $updateProperty = $pdo->prepare('UPDATE properties SET ' . implode(', ', $updateSet) . ' WHERE id = :id');
     $updatePropertyWithCoords = $pdo->prepare('UPDATE properties SET ' . implode(', ', array_merge($updateSet, [
         'lat = :lat',
@@ -2756,7 +2784,10 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
                     'id' => $propertyId,
                 ] + ($hasPianoColumn ? ['piano' => $property['piano'] !== '' ? $property['piano'] : null] : []);
                 if ($hasProvinciaOriginaleColumn) {
-                    $updateParams['provincia_originale'] = (string) ($property['provincia_originale'] ?? '');
+                    $updateParams['provincia_originale'] = analyticspro_import_resolve_provincia_originale_value(
+                        $property,
+                        $existingProperty['provincia_originale'] ?? null
+                    );
                 }
 
                 $selectCurrentOwners->execute(['property_id' => $propertyId]);
