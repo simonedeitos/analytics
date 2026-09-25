@@ -2765,6 +2765,7 @@
     function parseCsvFile(text, fileName) {
         var parsedRows = [];
         var warnings = [];
+        var autoCompletedRows = 0;
         var delimiter = detectCsvDelimiter(text);
         var rows = parseCsvRows(text, delimiter);
         if (!rows.length) return { rows: parsedRows, warnings: warnings };
@@ -2798,7 +2799,10 @@
             var current = rows[ri];
             var hasContent = current.some(function (cell) { return String(cell || '').trim() !== ''; });
             if (!hasContent) continue;
-            if (current.length !== headers.length) {
+            if (current.length < headers.length) {
+                autoCompletedRows++;
+                while (current.length < headers.length) current.push('');
+            } else if (current.length > headers.length) {
                 warnings.push('File "' + fileName + '", riga ' + (ri + 1) + ': colonne disallineate (attese ' + headers.length + ', trovate ' + current.length + '). Riga ignorata.');
                 continue;
             }
@@ -2807,6 +2811,10 @@
             rowPayload.__source_file = fileName;
             rowPayload.__source_row = ri + 1;
             parsedRows.push(rowPayload);
+        }
+
+        if (autoCompletedRows > 0) {
+            warnings.push('File "' + fileName + '": ' + autoCompletedRows + ' righe completate con colonne vuote finali.');
         }
 
         return { rows: parsedRows, warnings: warnings };
