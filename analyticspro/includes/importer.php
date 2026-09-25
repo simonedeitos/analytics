@@ -2312,10 +2312,9 @@ function analyticspro_import_owner_note_chunk(array $owner): string
 /**
  * @return array<string,mixed>
  */
-function analyticspro_build_owner_statement_params(array $owner, int $propertyId, bool $includeOwnership = false): array
+function analyticspro_build_owner_common_statement_params(array $owner, bool $includeOwnership = false): array
 {
     $params = [
-        'property_id' => $propertyId,
         'tipo' => (string) ($owner['tipo'] ?? 'persona'),
         'nome_enc' => analyticspro_encrypt((string) ($owner['nome'] ?? '')),
         'cognome_enc' => analyticspro_encrypt((string) ($owner['cognome'] ?? '')),
@@ -2342,12 +2341,17 @@ function analyticspro_build_owner_statement_params(array $owner, int $propertyId
 /**
  * @return array<string,mixed>
  */
+function analyticspro_build_owner_statement_params(array $owner, int $propertyId, bool $includeOwnership = false): array
+{
+    return ['property_id' => $propertyId] + analyticspro_build_owner_common_statement_params($owner, $includeOwnership);
+}
+
+/**
+ * @return array<string,mixed>
+ */
 function analyticspro_build_owner_update_statement_params(array $owner, bool $includeOwnership = false): array
 {
-    $params = analyticspro_build_owner_statement_params($owner, 0, $includeOwnership);
-    unset($params['property_id']);
-
-    return $params;
+    return analyticspro_build_owner_common_statement_params($owner, $includeOwnership);
 }
 
 function analyticspro_property_has_coordinates(array $property): bool
