@@ -2682,9 +2682,10 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
     $resetPropertyState = $pdo->prepare('UPDATE properties SET stato = NULL, stato_personalizzato = NULL, colore_marker = :colore_marker WHERE id = :id');
     $clearAssignments = $pdo->prepare('DELETE FROM property_assignments WHERE property_id = :property_id');
     $updateBatch = $pdo->prepare('UPDATE import_batches SET processed_rows = :processed_rows WHERE id = :id');
-    $markBatchFailed = $pdo->prepare("UPDATE import_batches SET status = 'failed', error_message = :message, completed_at = NOW() WHERE id = :id");
+    $markBatchFailed = null;
 
     try {
+        $markBatchFailed = $pdo->prepare("UPDATE import_batches SET status = 'failed', error_message = :message, completed_at = NOW() WHERE id = :id");
         $pdo->beginTransaction();
         $processed = 0;
         $savedRows = 0;
@@ -3018,6 +3019,9 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
             $pdo->rollBack();
         }
         try {
+            if (!$markBatchFailed instanceof PDOStatement) {
+                $markBatchFailed = $pdo->prepare("UPDATE import_batches SET status = 'failed', error_message = :message, completed_at = NOW() WHERE id = :id");
+            }
             $markBatchFailed->execute(['message' => $exception->getMessage(), 'id' => $batchId]);
         } catch (Throwable $markFailedException) {
             error_log('[import_batch] Impossibile marcare failed il batch #' . $batchId . ': ' . $markFailedException->getMessage());
