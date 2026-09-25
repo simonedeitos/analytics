@@ -3019,7 +3019,8 @@ function analyticspro_process_import_batch_payload(int $batchId, array $payload)
         }
         try {
             $markBatchFailed->execute(['message' => $exception->getMessage(), 'id' => $batchId]);
-        } catch (Throwable $ignored) {
+        } catch (Throwable $markFailedException) {
+            error_log('[import_batch] Impossibile marcare failed il batch #' . $batchId . ': ' . $markFailedException->getMessage());
         }
         throw $exception;
     }
