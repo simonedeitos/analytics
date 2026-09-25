@@ -90,14 +90,6 @@ function analyticspro_nav_items(?array $user = null, ?array $subuserPermissions 
                     'badge' => 0,
                 ],
                 [
-                    'label' => 'Manutenzione',
-                    'icon' => 'bi-tools',
-                    'url' => analyticspro_base_url('manutenzione.php'),
-                    'page' => ['manutenzione.php'],
-                    'visible' => !analyticspro_is_subuser(),
-                    'badge' => 0,
-                ],
-                [
                     'label' => 'Aiuto',
                     'icon' => 'bi-question-circle',
                     'url' => analyticspro_base_url('aiuto.php'),
