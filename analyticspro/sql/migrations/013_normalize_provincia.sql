@@ -74,8 +74,11 @@ BEGIN
 
     UPDATE properties p
     INNER JOIN _ap13_targets t ON t.property_id = p.id
-    SET p.provincia_originale = COALESCE(NULLIF(p.provincia_originale, ''), t.current_value)
-    WHERE p.provincia_originale IS NULL OR p.provincia_originale = '';
+    SET p.provincia_originale = CASE
+        WHEN p.provincia_originale IS NULL OR CHAR_LENGTH(TRIM(p.provincia_originale)) = 0 THEN t.current_value
+        ELSE p.provincia_originale
+    END
+    WHERE p.provincia_originale IS NULL OR CHAR_LENGTH(TRIM(p.provincia_originale)) = 0;
 
     IF v_has_cadastral_comuni > 0 THEN
         UPDATE _ap13_targets t
@@ -247,7 +250,10 @@ BEGIN
     UPDATE properties p
     INNER JOIN _ap13_updates u ON u.property_id = p.id
     SET p.provincia = u.target_sigla,
-        p.provincia_originale = COALESCE(NULLIF(p.provincia_originale, ''), u.current_value);
+        p.provincia_originale = CASE
+            WHEN p.provincia_originale IS NULL OR CHAR_LENGTH(TRIM(p.provincia_originale)) = 0 THEN u.current_value
+            ELSE p.provincia_originale
+        END;
 
     IF v_has_enrichment_columns = 5 THEN
         UPDATE properties p

@@ -13,8 +13,14 @@ if (!is_string($sql) || $sql === '') {
     fwrite(STDERR, "FAIL: impossibile leggere la migration 016\n");
     exit(1);
 }
+$sql017 = file_get_contents(ANALYTICSPRO_ROOT . '/sql/migrations/017_align_provincia_originale_collation.sql');
+if (!is_string($sql017) || $sql017 === '') {
+    fwrite(STDERR, "FAIL: impossibile leggere la migration 017\n");
+    exit(1);
+}
 
 $statements = analyticspro_maintenance_parse_sql_statements($sql);
+$statements017 = analyticspro_maintenance_parse_sql_statements($sql017);
 $pass = true;
 $errors = [];
 
@@ -140,6 +146,23 @@ if (isset($statements[2]) && trim($statements[2]) !== 'CALL _analyticspro_migrat
 if (isset($statements[3]) && trim($statements[3]) !== 'DROP PROCEDURE IF EXISTS _analyticspro_migration_016') {
     $pass = false;
     $errors[] = 'L’ultimo statement deve ripulire la procedura temporanea.';
+}
+
+if (count($statements017) < 4) {
+    $pass = false;
+    $errors[] = 'La migration 017 deve produrre almeno drop/create/call/drop della procedura.';
+}
+if (isset($statements017[1]) && (!str_contains($statements017[1], 'CREATE PROCEDURE _analyticspro_migration_017()') || !str_contains($statements017[1], 'CHARACTER SET'))) {
+    $pass = false;
+    $errors[] = 'Il parser deve mantenere intatto il corpo della CREATE PROCEDURE della migration 017.';
+}
+if (isset($statements017[2]) && trim($statements017[2]) !== 'CALL _analyticspro_migration_017()') {
+    $pass = false;
+    $errors[] = 'Il terzo statement della migration 017 deve essere la CALL della procedura.';
+}
+if (isset($statements017[3]) && trim($statements017[3]) !== 'DROP PROCEDURE IF EXISTS _analyticspro_migration_017') {
+    $pass = false;
+    $errors[] = 'L’ultimo statement della migration 017 deve ripulire la procedura temporanea.';
 }
 
 if ($pass) {

@@ -51,8 +51,11 @@ In alternativa, l'utente principale può usare la pagina web `analyticspro/manut
 1. Eseguire `analyticspro/sql/migrations/015_add_property_owner_ownership_columns.sql`
 2. Eseguire `php analyticspro/tools/merge_duplicate_properties.php --apply`
 3. Eseguire `analyticspro/sql/migrations/016_normalize_cadastral_nulls_and_unique.sql`
+4. Eseguire `analyticspro/sql/migrations/017_align_provincia_originale_collation.sql`
 
 La migration 016 si blocca in modo esplicito se rileva duplicati incompatibili con il nuovo vincolo UNIQUE.
+La migration 017 allinea `properties.provincia_originale` al charset/collation canonico di `properties.provincia`
+e va applicata prima di rilanciare import già falliti con errore SQL 1267.
 
 ### Normalizzazione provincia (sigla canonica + valore originale)
 
@@ -61,10 +64,16 @@ La migration 016 si blocca in modo esplicito se rileva duplicati incompatibili c
 - Se nel file arriva il nome esteso (`BRESCIA`, `Provincia di Brescia`, `VERBANO-CUSIO-OSSOLA`, ecc.),
   il valore canonico salvato in `properties.provincia` è la sigla (`BS`, `VB`, ...).
 - Il valore grezzo del file viene preservato in `properties.provincia_originale` per tracciabilità.
+- Nel percorso di update import, se il nuovo `provincia_originale` è vuoto viene mantenuto il valore già
+  presente sul record; se è valorizzato, viene salvato il nuovo valore senza usare confronti SQL sensibili
+  alla collation (`NULLIF(..., '')`).
 - Se la provincia non è riconoscibile, non avviene alcun troncamento silenzioso:
   viene emesso un warning esplicito nel log import e la riga resta da correggere.
 - Se provincia non è riconosciuta ma è disponibile il codice catastale (o il solo comune è
   disambiguabile), la sigla viene derivata automaticamente dal catalogo comuni catastali.
+- Se un import precedente è fallito durante il salvataggio proprietari/cointestatari o `provincia_originale`,
+  il batch va considerato non applicato grazie al rollback transazionale; dopo il deploy e la migration 017
+  è sufficiente rilanciare l'import.
 
 ### Flusso a due fasi: persistenza immediata + arricchimento coordinate automatico
 

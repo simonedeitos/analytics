@@ -81,6 +81,7 @@ function analyticspro_maintenance_migration_identifier(array $migration): string
         str_contains($filename, '014_add_property_owners_valid_to') => 'owner_valid_to',
         str_contains($filename, '015_add_property_owner_ownership_columns') => 'owner_ownership_columns',
         str_contains($filename, '016_normalize_cadastral_nulls_and_unique') => 'normalize_cadastral_unique',
+        str_contains($filename, '017_align_provincia_originale_collation') => 'provincia_originale_collation',
         default => '',
     };
 }
@@ -105,7 +106,9 @@ function analyticspro_maintenance_fetch_columns(string $table, array $columns): 
     }
 
     $placeholders = implode(',', array_fill(0, count($columns), '?'));
-    $sql = "SELECT COLUMN_NAME, IS_NULLABLE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME IN ($placeholders)";
+    $sql = "SELECT COLUMN_NAME, IS_NULLABLE, DATA_TYPE, CHARACTER_SET_NAME, COLLATION_NAME
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME IN ($placeholders)";
     $stmt = analyticspro_db()->prepare($sql);
     $stmt->execute(array_merge([$table], $columns));
 
@@ -114,6 +117,9 @@ function analyticspro_maintenance_fetch_columns(string $table, array $columns): 
         $result[(string) $row['COLUMN_NAME']] = [
             'COLUMN_NAME' => (string) $row['COLUMN_NAME'],
             'IS_NULLABLE' => (string) $row['IS_NULLABLE'],
+            'DATA_TYPE' => (string) ($row['DATA_TYPE'] ?? ''),
+            'CHARACTER_SET_NAME' => (string) ($row['CHARACTER_SET_NAME'] ?? ''),
+            'COLLATION_NAME' => (string) ($row['COLLATION_NAME'] ?? ''),
         ];
     }
 
@@ -166,6 +172,26 @@ function analyticspro_maintenance_evaluate_migration_016_status(array $columns, 
         : 'not_applied';
 }
 
+function analyticspro_maintenance_evaluate_migration_017_status(array $columns): string
+{
+    if (!isset($columns['provincia'], $columns['provincia_originale'])) {
+        return 'not_applied';
+    }
+
+    $provinciaCharset = (string) ($columns['provincia']['CHARACTER_SET_NAME'] ?? '');
+    $provinciaCollation = (string) ($columns['provincia']['COLLATION_NAME'] ?? '');
+    $originaleCharset = (string) ($columns['provincia_originale']['CHARACTER_SET_NAME'] ?? '');
+    $originaleCollation = (string) ($columns['provincia_originale']['COLLATION_NAME'] ?? '');
+
+    if ($provinciaCharset === '' || $provinciaCollation === '') {
+        return 'unknown';
+    }
+
+    return $provinciaCharset === $originaleCharset && $provinciaCollation === $originaleCollation
+        ? 'applied'
+        : 'not_applied';
+}
+
 function analyticspro_maintenance_status_label(string $status): string
 {
     return match ($status) {
@@ -192,6 +218,10 @@ function analyticspro_maintenance_get_migration_status(array $migration): array
         $status = analyticspro_maintenance_evaluate_migration_016_status(
             analyticspro_maintenance_fetch_columns('properties', ['cod_catastale', 'sezione', 'subalterno']),
             analyticspro_maintenance_fetch_index_rows('properties', 'uniq_estremi_catastali')
+        );
+    } elseif ($identifier === 'provincia_originale_collation') {
+        $status = analyticspro_maintenance_evaluate_migration_017_status(
+            analyticspro_maintenance_fetch_columns('properties', ['provincia', 'provincia_originale'])
         );
     }
 
