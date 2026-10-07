@@ -19,9 +19,20 @@ $tenants            = analyticspro_is_admin() ? analyticspro_fetch_tenants() : [
 ob_start();
 ?>
 <div class="analyticspro-map-actions">
+    <?php if (analyticspro_is_admin()): ?>
+        <form method="get" class="analyticspro-map-toolbar-secondary">
+            <label class="form-label small text-muted fw-semibold" for="analyticspro-admin-tenant-select">Vista admin</label>
+            <select id="analyticspro-admin-tenant-select" class="form-select form-select-sm" name="tenant_id" onchange="this.form.submit()">
+                <option value="all" <?= $selectedTenant === 'all' ? 'selected' : '' ?>>Tutti gli utenti</option>
+                <?php foreach ($tenants as $tenant): ?>
+                    <option value="<?= analyticspro_h((string) $tenant['id']) ?>" <?= $selectedTenant === (string) $tenant['id'] ? 'selected' : '' ?>><?= analyticspro_h(analyticspro_full_name($tenant)) ?></option>
+                <?php endforeach; ?>
+            </select>
+        </form>
+    <?php endif; ?>
     <div class="dropdown analyticspro-map-toolbar-dropdown">
         <button class="btn btn-outline-primary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" data-bs-boundary="viewport" aria-expanded="false">
-            <i class="bi bi-plus-lg me-1"></i>Trova nuova area
+            <i class="bi bi-plus-lg me-1"></i>Ricerca Particella
         </button>
         <div class="dropdown-menu dropdown-menu-end p-3 shadow analyticspro-map-dropdown analyticspro-find-area-dropdown">
             <div class="small text-uppercase text-muted fw-semibold mb-2">Ricerca Particella</div>
@@ -59,6 +70,7 @@ $mapHeaderActions = (string) ob_get_clean();
 ob_start();
 ?>
 <div class="analyticspro-map-toolbar">
+    
     <div class="analyticspro-map-toolbar-primary">
         <div class="analyticspro-map-search">
             <i class="bi bi-search" aria-hidden="true"></i>
@@ -72,7 +84,7 @@ ob_start();
         </div>
         <div class="dropdown analyticspro-map-toolbar-dropdown">
             <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" data-bs-boundary="viewport" aria-expanded="false">
-                <i class="bi bi-chat-left-text me-2" aria-hidden="true"></i>Stato contatto
+                <i class="bi bi-chat-left-text me-2" aria-hidden="true"></i>Filtri
             </button>
             <div class="dropdown-menu p-3 shadow analyticspro-map-dropdown" id="map-filter-panel">
                 <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mb-2">
@@ -113,17 +125,7 @@ ob_start();
             <label class="form-check-label small fw-semibold" for="cadastral-layer-toggle"><i class="bi bi-layers me-2" aria-hidden="true"></i>Layer catastale</label>
         </div>
     </div>
-    <?php if (analyticspro_is_admin()): ?>
-        <form method="get" class="analyticspro-map-toolbar-secondary">
-            <label class="form-label small text-muted fw-semibold" for="analyticspro-admin-tenant-select">Vista admin</label>
-            <select id="analyticspro-admin-tenant-select" class="form-select form-select-sm" name="tenant_id" onchange="this.form.submit()">
-                <option value="all" <?= $selectedTenant === 'all' ? 'selected' : '' ?>>Tutti gli utenti</option>
-                <?php foreach ($tenants as $tenant): ?>
-                    <option value="<?= analyticspro_h((string) $tenant['id']) ?>" <?= $selectedTenant === (string) $tenant['id'] ? 'selected' : '' ?>><?= analyticspro_h(analyticspro_full_name($tenant)) ?></option>
-                <?php endforeach; ?>
-            </select>
-        </form>
-    <?php endif; ?>
+    
 </div>
 <?php
 $mapTopbarControls = (string) ob_get_clean();
