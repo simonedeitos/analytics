@@ -306,13 +306,23 @@
     flex-direction: column;
     justify-content: space-between;
 }
+
 .ap-auth-brand-image {
-    background-color: var(--ap-orange);
-    background-image: linear-gradient(135deg, rgba(150,61,6,.85) 0%, rgba(184,75,8,.65) 55%, rgba(230,107,18,.4) 100%), url("../../sfondologin.png");
+    background-image:
+        linear-gradient(
+            180deg,
+            rgba(13, 110, 253, 0.99) 0%,
+            rgba(13, 110, 253, 0.85) 45%,
+            rgba(241, 142, 16, 0.30) 100%
+        ),
+        url("../../sfondologin.png");
+
     background-size: cover;
     background-position: center;
     background-repeat: no-repeat;
 }
+
+
 .ap-auth-logo {
     display: block;
     height: 56px;
