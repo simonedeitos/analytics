@@ -61,10 +61,25 @@ function analyticspro_property_can_edit(array $user, array $property, ?array $su
     return false;
 }
 
-function analyticspro_fetch_properties_payload(array $user, string $mode = 'all', ?int $filterSubuserId = null): array
+function analyticspro_fetch_properties_payload(array $user, string $mode = 'all', ?int $filterSubuserId = null, ?array $requestedIds = null, bool $mapSummary = false): array
 {
     [$joins, $where, $params] = analyticspro_visible_property_scope($user, $mode, $filterSubuserId);
-    $sql = 'SELECT DISTINCT p.*, tenant.nome AS tenant_nome, tenant.cognome AS tenant_cognome FROM properties p JOIN users tenant ON tenant.id = p.user_id ' . implode(' ', $joins);
+    if ($requestedIds !== null) {
+        if ($requestedIds === []) {
+            return ['properties' => [], 'subusers' => []];
+        }
+        $idPlaceholders = [];
+        foreach (array_values(array_unique(array_map('intval', $requestedIds))) as $index => $id) {
+            $key = 'property_id_' . $index;
+            $idPlaceholders[] = ':' . $key;
+            $params[$key] = $id;
+        }
+        $where[] = 'p.id IN (' . implode(',', $idPlaceholders) . ')';
+    }
+    $columns = $mapSummary
+        ? 'p.id, p.user_id, p.provincia, p.comune, p.cod_catastale, p.sezione, p.foglio, p.particella, p.subalterno, p.rendita, p.categoria, p.indirizzo, p.civico, p.lat, p.lng, p.posizione_verificata, p.coord_source, p.stato, p.stato_personalizzato, p.colore_marker'
+        : 'p.*';
+    $sql = 'SELECT ' . $columns . ', tenant.nome AS tenant_nome, tenant.cognome AS tenant_cognome FROM properties p JOIN users tenant ON tenant.id = p.user_id ' . implode(' ', $joins);
     if ($where) {
         $sql .= ' WHERE ' . implode(' AND ', $where);
     }
@@ -80,18 +95,20 @@ function analyticspro_fetch_properties_payload(array $user, string $mode = 'all'
     $propertyIds = array_map(static fn ($property) => (int) $property['id'], $properties);
     $placeholders = implode(',', array_fill(0, count($propertyIds), '?'));
 
-    $ownersStmt = analyticspro_db()->prepare("SELECT * FROM property_owners WHERE property_id IN ($placeholders) AND is_current = 1 ORDER BY id ASC");
-    $ownersStmt->execute($propertyIds);
     $ownersByProperty = [];
-    foreach ($ownersStmt->fetchAll() as $owner) {
-        $ownersByProperty[(int) $owner['property_id']][] = $owner;
-    }
-
-    $notesStmt = analyticspro_db()->prepare("SELECT * FROM property_notes WHERE property_id IN ($placeholders) ORDER BY created_at ASC, id ASC");
-    $notesStmt->execute($propertyIds);
     $notesByProperty = [];
-    foreach ($notesStmt->fetchAll() as $note) {
-        $notesByProperty[(int) $note['property_id']][] = $note;
+    if (!$mapSummary) {
+        $ownersStmt = analyticspro_db()->prepare("SELECT * FROM property_owners WHERE property_id IN ($placeholders) AND is_current = 1 ORDER BY id ASC");
+        $ownersStmt->execute($propertyIds);
+        foreach ($ownersStmt->fetchAll() as $owner) {
+            $ownersByProperty[(int) $owner['property_id']][] = $owner;
+        }
+
+        $notesStmt = analyticspro_db()->prepare("SELECT property_id, author_name_snapshot, testo, created_at FROM property_notes WHERE property_id IN ($placeholders) ORDER BY created_at ASC, id ASC");
+        $notesStmt->execute($propertyIds);
+        foreach ($notesStmt->fetchAll() as $note) {
+            $notesByProperty[(int) $note['property_id']][] = $note;
+        }
     }
 
     $assignStmt = analyticspro_db()->prepare("SELECT pa.property_id, pa.subuser_id, CONCAT(u.nome, ' ', u.cognome) AS subuser_name FROM property_assignments pa JOIN users u ON u.id = pa.subuser_id WHERE pa.property_id IN ($placeholders) ORDER BY subuser_name");
@@ -103,14 +120,19 @@ function analyticspro_fetch_properties_payload(array $user, string $mode = 'all'
 
     $subusers = [];
     $tenantIds = array_values(array_unique(array_map(static fn ($property) => (int) $property['user_id'], $properties)));
-    if (count($tenantIds) === 1) {
+    if ($requestedIds === null && count($tenantIds) === 1) {
         $subusers = analyticspro_fetch_subusers($tenantIds[0]);
     }
 
     $payload = [];
+    $subuserPermissions = ($user['role'] ?? '') === 'subuser'
+        ? analyticspro_get_subuser_permissions((int) $user['id'])
+        : [];
+    $phoneVisibility = [];
     foreach ($properties as $property) {
         $propertyId = (int) $property['id'];
-        $showPhone = analyticspro_is_admin() || analyticspro_tenant_phone_visibility((int) $property['user_id']);
+        $tenantId = (int) $property['user_id'];
+        $showPhone = $phoneVisibility[$tenantId] ??= analyticspro_is_admin() || analyticspro_tenant_phone_visibility($tenantId);
         $owners = [];
         foreach ($ownersByProperty[$propertyId] ?? [] as $owner) {
             $ownerPayload = [
@@ -150,9 +172,12 @@ function analyticspro_fetch_properties_payload(array $user, string $mode = 'all'
         $record['assignments'] = $assignments;
         $record['tenant_name'] = trim(($property['tenant_nome'] ?? '') . ' ' . ($property['tenant_cognome'] ?? ''));
         $record['can_view_phone'] = $showPhone;
-        $record['can_edit'] = analyticspro_property_can_edit($user, $record);
+        $record['can_edit'] = analyticspro_property_can_edit($user, $record, $subuserPermissions);
         $record['can_delete'] = ($user['role'] ?? '') === 'user' && (int) ($property['user_id'] ?? 0) === (int) ($user['id'] ?? 0);
         $record['is_assigned'] = !empty($record['assignments']);
+        if ($mapSummary) {
+            unset($record['owners'], $record['notes']);
+        }
         $payload[] = $record;
     }
 
