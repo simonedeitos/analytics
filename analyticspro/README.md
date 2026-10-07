@@ -857,7 +857,24 @@ Il campo DB `property_owners.genere` è stato esteso a `VARCHAR(16)` per mantene
 
 ### Editor popup condiviso
 
-L'editor inline usato in tabella e nel popup mappa continua a condividere la stessa logica di modifica stato, colore, note e assegnazioni. Per i marker raggruppati sullo stesso subalterno, il modal **Modifica marker** mostra anche un select "Intestatario da modificare": puoi vedere tutti gli intestatari del gruppo oppure selezionarne uno specifico per gestire i suoi telefoni con la coppia corretta `property_id`/`owner_id`. Le modifiche immobile (stato, colore, stato personalizzato, note, assegnazioni) vengono replicate su tutti gli id del gruppo che risultano modificabili, con un solo reload finale. Il payload proprietà espone anche `is_assigned` per distinguere rapidamente gli immobili già assegnati nella UI.
+L'editor inline usato in tabella e nel popup mappa continua a condividere la stessa logica di modifica stato, colore, note e assegnazioni. Per i marker raggruppati sullo stesso subalterno, il modal **Modifica marker** mostra anche un select "Intestatario da modificare": puoi vedere tutti gli intestatari del gruppo oppure selezionarne uno specifico per gestire i suoi telefoni con la coppia corretta `property_id`/`owner_id`. Le modifiche immobile (stato, colore, stato personalizzato, note, assegnazioni) vengono replicate su tutti gli id del gruppo che risultano modificabili; sulla mappa vengono poi ricaricati solo i record del gruppo interessato, mentre le tabelle mantengono il reload finale. Il payload proprietà espone anche `is_assigned` per distinguere rapidamente gli immobili già assegnati nella UI.
+
+### Performance della pagina Mappa
+
+- **Caricamento iniziale:** prima venivano richiesti sia tutti gli immobili sia quelli assegnati, con intestatari decifrati e note complete per entrambi i payload. Ora `properties.php?mode=all&view=map` restituisce una sola volta i campi necessari a coordinate, raggruppamento catastale, filtri e permessi, senza leggere intestatari e note. Permessi del subutente e visibilità telefono sono recuperati una volta per utente/tenant nella richiesta, eliminando le query ripetute per immobile.
+- **Popup:** `properties.php?mode=all&property_ids=1,2` carica i dettagli di tutti gli immobili del marker solo all'apertura. Il filtro ID si aggiunge sempre allo scope autorizzato; intestatari, note e visibilità telefono mantengono le regole esistenti. I dettagli restano in memoria fino ad «Aggiorna dati» o al successivo salvataggio del gruppo; richieste contemporanee dello stesso popup sono accorpate.
+- **Rendering:** l'HTML dei popup non viene più generato per tutti i marker. La creazione dei marker cede periodicamente il controllo al browser e l'inserimento nel cluster avviene con `addLayers`, anziché aggiornare i cluster dopo ogni singolo pin. Clustering, colori, spiderfy e posizione della vista restano invariati.
+- **Salvataggio:** il costo ridondante era il reload dei due dataset e la ricostruzione completa della mappa dopo il POST. Ora vengono recuperati solo i record del gruppo coinvolto: si aggiornano colore, popup, visibilità rispetto ai filtri e icone dei cluster. La correzione delle coordinate sostituisce soltanto il marker coinvolto. `update_property.php` mantiene validazioni, transazioni atomiche, storico e note: il flusso non esegue geocoding esterno né ricalcoli globali.
+- **Asset e SQL:** sulla sola pagina Mappa non si caricano DataTables, export Excel/ZIP, Chart.js o il tema grafici. La query proprietà evita `DISTINCT`: il join tenant è uno-a-uno e l'eventuale filtro assegnazioni usa la coppia univoca `(property_id, subuser_id)`. Gli accessi ai record modificati usano la chiave primaria; intestatari, note e assegnazioni dispongono già di indici per `property_id` nello schema. Non è richiesta una nuova migrazione.
+
+Verifiche mirate:
+
+```bash
+php analyticspro/tests/test_map_properties_payload.php
+php analyticspro/tests/test_map_performance.php
+```
+
+I test verificano query/payload e aggiornamenti frontend, non tempi su dati di produzione. Per quantificare il guadagno, confrontare nella scheda Network numero di richieste, byte e durata prima/dopo, usando lo stesso tenant e la stessa quantità di immobili; verificare anche apertura popup, salvataggio, filtri e trascinamento delle posizioni approssimative.
 
 ### Cluster a torta
 

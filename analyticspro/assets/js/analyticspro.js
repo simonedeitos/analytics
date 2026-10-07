@@ -894,6 +894,16 @@
         } else {
             state.pendingMapView = null;
         }
+        if (document.getElementById('map-fullpage')) {
+            if (!state.map) renderMap();
+            var mapPayload = await api(withTenant(state.propertiesEndpoint + '?mode=all&view=map'));
+            state.properties = mapPayload.properties || [];
+            state.subusers = mapPayload.subusers || [];
+            state.assignedProperties = [];
+            refreshMapCategoryFilters();
+            await renderMap();
+            return;
+        }
         var results = await Promise.all([
             api(withTenant(state.propertiesEndpoint + '?mode=all')),
             api(withTenant(state.propertiesEndpoint + '?mode=assigned' + (state.role !== 'subuser' ? '&subuser_id=' : ''))),
@@ -1499,7 +1509,7 @@
         showMapFeedback('Coordinate aggiornate per la proprietà #' + targetProperty.id + '.', 'success', 2400);
     }
 
-    function renderMap() {
+    async function renderMap() {
         var container = document.getElementById('map-fullpage') || document.getElementById('map-container');
         if (!container) return;
 
@@ -1613,13 +1623,20 @@
         var pendingNewMarkerFocus = state.pendingNewMarkerFocus;
         state.pendingMapView = null;
         state.pendingNewMarkerFocus = null;
-        state.markers.clearLayers();
+        var renderVersion = (state.mapRenderVersion || 0) + 1;
+        state.mapRenderVersion = renderVersion;
+        var layersByProperty = new Map();
         var points = [];
+        var layers = [];
 
         // ── Raggruppa per unità catastale (foglio+particella+subalterno) ──────
         var unitGroups = groupPropertiesByUnit(state.properties);
 
         for (var ui = 0; ui < unitGroups.length; ui++) {
+            if (ui > 0 && ui % 200 === 0) {
+                await new Promise(function (resolve) { window.setTimeout(resolve, 0); });
+                if (state.mapRenderVersion !== renderVersion) return;
+            }
             var property = unitGroups[ui];
             if (!property.lat || !property.lng) continue;
             var lat = Number(property.lat);
@@ -1630,47 +1647,16 @@
             if (statiFilter.indexOf(statoVal) === -1) continue;
             if (categorieFilter !== null && categorieFilter.indexOf(String(property.categoria || '').trim()) === -1) continue;
 
-            var color  = property.colore_marker || '#2A519F';
-            var approximate = groupHasApproximateCoordinates(property);
-            var canDragApproximate = draggableApproximateProperties(property).length > 0;
-            var marker = approximate
-                ? L.marker([lat, lng], {
-                    draggable: canDragApproximate,
-                    icon: buildApproximateMarkerIcon(color),
-                    color: '#dc3545',
-                    fillColor: color,
-                })
-                : L.circleMarker([lat, lng], {
-                    radius: 9,
-                    color: color,
-                    fillColor: color,
-                    fillOpacity: 0.92,
-                    weight: 2,
-                });
-            marker._analyticsPropertyId = Number(property.id);
-            marker._analyticsPropertyData = property;
-            marker.bindPopup(buildPopupHtml(property), { maxWidth: 460 });
-            if (approximate) {
-                marker.bindTooltip('Bordo rosso: posizione approssimativa' + (canDragApproximate ? ' — trascina per correggere' : ''), { direction: 'top' });
-                if (canDragApproximate) {
-                    (function (layer, groupProperty, originalLat, originalLng) {
-                        layer.on('dragstart', function () {
-                            if (typeof this.closePopup === 'function') this.closePopup();
-                            this._analyticsOldLatLng = this.getLatLng();
-                        });
-                        layer.on('dragend', function () {
-                            var activeLayer = this;
-                            Promise.resolve(handleApproximateMarkerDrag(activeLayer, groupProperty, activeLayer._analyticsOldLatLng || L.latLng(originalLat, originalLng))).catch(function (error) {
-                                activeLayer.setLatLng(activeLayer._analyticsOldLatLng || L.latLng(originalLat, originalLng));
-                                showMapFeedback(error && error.message ? error.message : 'Salvataggio coordinate non riuscito.', 'danger', 3200);
-                            });
-                        });
-                    })(marker, property, lat, lng);
-                }
-            }
-            state.markers.addLayer(marker);
+            var marker = createMapMarker(property);
+            normalizedPropertyGroupIds(property).forEach(function (id) {
+                layersByProperty.set(id, marker);
+            });
+            layers.push(marker);
             points.push(property);
         }
+        state.markers.clearLayers();
+        state.mapLayersByProperty = layersByProperty;
+        state.markers.addLayers(layers);
 
         if (pendingNewMarkerFocus) {
             if (!focusMapOnTargetMarker(pendingNewMarkerFocus)) {
@@ -1679,7 +1665,7 @@
         } else if (pendingView && pendingView.center && Number.isFinite(pendingView.zoom)) {
             state.map.setView(pendingView.center, pendingView.zoom, { animate: false });
         } else if (points.length) {
-            state.map.fitBounds(state.markers.getBounds().pad(0.2));
+            state.map.fitBounds(L.latLngBounds(points.map(function (point) { return [Number(point.lat), Number(point.lng)]; })).pad(0.2));
         }
         scheduleMapInvalidateSize(120);
         window.setTimeout(function () {
@@ -1820,6 +1806,113 @@
 
     function buildPopupHtml(property) {
         return '<div class="map-popup-wrapper">' + buildPropertyCardHtml(property, { mapMode: true }) + '</div>';
+    }
+
+    function createMapMarker(property) {
+        var lat = Number(property.lat), lng = Number(property.lng);
+        var color = property.colore_marker || '#2A519F';
+        var approximate = groupHasApproximateCoordinates(property);
+        var canDrag = draggableApproximateProperties(property).length > 0;
+        var marker = approximate
+            ? L.marker([lat, lng], { draggable: canDrag, icon: buildApproximateMarkerIcon(color), color: '#dc3545', fillColor: color })
+            : L.circleMarker([lat, lng], { radius: 9, color: color, fillColor: color, fillOpacity: 0.92, weight: 2 });
+        marker._analyticsPropertyId = Number(property.id);
+        marker._analyticsPropertyData = property;
+        bindMapPopup(marker);
+        if (approximate) {
+            marker.bindTooltip('Bordo rosso: posizione approssimativa' + (canDrag ? ' — trascina per correggere' : ''), { direction: 'top' });
+            if (canDrag) {
+                marker.on('dragstart', function () {
+                    this.closePopup();
+                    this._analyticsOldLatLng = this.getLatLng();
+                });
+                marker.on('dragend', function () {
+                    var layer = this;
+                    var oldLatLng = layer._analyticsOldLatLng || L.latLng(lat, lng);
+                    Promise.resolve(handleApproximateMarkerDrag(layer, layer._analyticsPropertyData, oldLatLng)).catch(function (error) {
+                        layer.setLatLng(oldLatLng);
+                        showMapFeedback(error && error.message ? error.message : 'Salvataggio coordinate non riuscito.', 'danger', 3200);
+                    });
+                });
+            }
+        }
+        return marker;
+    }
+
+    async function fetchMapPropertyDetails(ids) {
+        var payload = await api(withTenant(state.propertiesEndpoint + '?mode=all&property_ids=' + ids.join(',')));
+        var byId = new Map((payload.properties || []).map(function (property) { return [Number(property.id), property]; }));
+        state.properties = state.properties.map(function (property) { return byId.get(Number(property.id)) || property; });
+        return byId;
+    }
+
+    function bindMapPopup(marker) {
+        marker.bindPopup(function (layer) {
+            return (layer._analyticsPropertyData._groupProperties || []).every(function (property) { return Array.isArray(property.owners); })
+                ? buildPopupHtml(layer._analyticsPropertyData)
+                : '<div class="p-3">Caricamento dettagli…</div>';
+        }, { maxWidth: 460 });
+        marker.on('popupopen', async function () {
+            var ids = normalizedPropertyGroupIds(marker._analyticsPropertyData);
+            var records = state.properties.filter(function (property) { return ids.indexOf(Number(property.id)) !== -1; });
+            if (records.every(function (property) { return Array.isArray(property.owners); })) return;
+            try {
+                if (!marker._analyticsDetailsPromise) {
+                    marker._analyticsDetailsPromise = fetchMapPropertyDetails(ids);
+                }
+                await marker._analyticsDetailsPromise;
+                records = state.properties.filter(function (property) { return ids.indexOf(Number(property.id)) !== -1; });
+                if (records.length !== ids.length || !records.every(function (property) { return Array.isArray(property.owners); })) {
+                    throw new Error('Dettagli non disponibili. Aggiorna i dati della mappa.');
+                }
+                marker._analyticsPropertyData = groupPropertiesByUnit(records)[0];
+                if (marker.isPopupOpen()) marker.setPopupContent(buildPopupHtml(marker._analyticsPropertyData));
+            } catch (error) {
+                if (marker.isPopupOpen()) {
+                    marker.setPopupContent('<div class="p-3 text-danger">' + escapeHtml(error.message) + '</div>');
+                }
+            } finally {
+                marker._analyticsDetailsPromise = null;
+            }
+        });
+    }
+
+    async function refreshSavedMapProperties(ids, coordinatesChanged) {
+        var layers = new Set();
+        ids.forEach(function (id) {
+            var layer = state.mapLayersByProperty && state.mapLayersByProperty.get(Number(id));
+            if (layer) layers.add(layer);
+        });
+        var groupIds = new Set(ids.map(Number));
+        layers.forEach(function (layer) {
+            normalizedPropertyGroupIds(layer._analyticsPropertyData).forEach(function (id) { groupIds.add(id); });
+        });
+        await fetchMapPropertyDetails(Array.from(groupIds));
+        layers.forEach(function (layer) {
+            var ids = normalizedPropertyGroupIds(layer._analyticsPropertyData);
+            var records = state.properties.filter(function (property) { return ids.indexOf(Number(property.id)) !== -1; });
+            var property = groupPropertiesByUnit(records)[0];
+            if (coordinatesChanged) {
+                state.markers.removeLayer(layer);
+                layer = createMapMarker(property);
+                ids.forEach(function (id) { state.mapLayersByProperty.set(id, layer); });
+            }
+            layer._analyticsPropertyData = property;
+            var color = property.colore_marker || '#2A519F';
+            layer.options.fillColor = color;
+            layer.options.color = groupHasApproximateCoordinates(property) ? '#dc3545' : color;
+            if (typeof layer.setStyle === 'function') layer.setStyle({ color: color, fillColor: color });
+            else layer.setIcon(buildApproximateMarkerIcon(color));
+            var categories = getCategorieFilter();
+            if (getStatiFilter().indexOf(String(property.stato || '')) === -1
+                || (categories !== null && categories.indexOf(String(property.categoria || '').trim()) === -1)) {
+                state.markers.removeLayer(layer);
+            } else if (!state.markers.hasLayer(layer)) {
+                state.markers.addLayer(layer);
+            }
+            if (layer.isPopupOpen()) layer.setPopupContent(buildPopupHtml(property));
+        });
+        state.markers.refreshClusters();
     }
 
     function destroyCharts() {
@@ -2137,13 +2230,17 @@
 
     async function savePropertyPayload(payload, options) {
         options = options || {};
-        await api(state.propertyUpdateEndpoint, {
+        var result = await api(state.propertyUpdateEndpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(Object.assign({ csrf_token: state.csrfToken }, payload)),
         });
         if (options.reload !== false) {
-            await loadProperties({ preserveMapView: options.preserveMapView !== false });
+            if (document.getElementById('map-fullpage')) {
+                await refreshSavedMapProperties(result.updated_ids || payload.property_ids || [payload.property_id], payload.action === 'update_coordinates');
+            } else {
+                await loadProperties({ preserveMapView: options.preserveMapView !== false });
+            }
         }
     }
 
