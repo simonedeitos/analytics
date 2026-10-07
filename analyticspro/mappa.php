@@ -22,10 +22,10 @@ ob_start();
     <div class="analyticspro-map-toolbar-primary">
         <div class="dropdown analyticspro-map-toolbar-dropdown">
             <button class="btn btn-outline-primary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" data-bs-boundary="viewport" aria-expanded="false">
-                <i class="bi bi-search me-1"></i>Trova area
+                <i class="bi bi-search me-1"></i>Ricerca Particella
             </button>
             <div class="dropdown-menu p-3 shadow analyticspro-map-dropdown analyticspro-find-area-dropdown">
-                <div class="small text-uppercase text-muted fw-semibold mb-2">Trova area</div>
+                <div class="small text-uppercase text-muted fw-semibold mb-2">Ricerca Particella</div>
                 <div class="row g-2 align-items-end">
                     <div class="col-12">
                         <label for="find-area-comune" class="form-label small mb-1">Comune</label>
@@ -57,11 +57,8 @@ ob_start();
             </button>
             <div class="dropdown-menu p-3 shadow analyticspro-map-dropdown" id="map-filter-panel">
                 <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mb-2">
-                    <strong class="small text-uppercase text-muted">Filtri stato</strong>
-                    <div class="d-flex gap-2">
-                        <button id="btn-select-all-stati" class="btn btn-xs btn-outline-secondary">Seleziona tutti</button>
-                        <button id="btn-apply-filter" class="btn btn-xs btn-primary">Applica</button>
-                    </div>
+                    <strong class="small text-uppercase text-muted">Stati</strong>
+                    <button id="btn-select-all-stati" type="button" class="btn btn-xs btn-outline-secondary">Deseleziona tutti</button>
                 </div>
                 <div class="d-flex flex-wrap align-items-center gap-1 analyticspro-map-filter-list">
                     <div class="form-check form-check-inline me-0">
@@ -102,6 +99,9 @@ ob_start();
                     </div>
                 </div>
                 <div id="map-category-filter-panel" class="d-flex flex-wrap align-items-center gap-1 mt-2 small"></div>
+                <div class="d-flex justify-content-end mt-3 pt-2 border-top">
+                    <button id="btn-apply-filter" type="button" class="btn btn-xs btn-primary">Applica</button>
+                </div>
             </div>
         </div>
         <div class="form-check form-switch analyticspro-map-toolbar-switch mb-0">

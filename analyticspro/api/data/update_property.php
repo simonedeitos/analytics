@@ -35,10 +35,40 @@ try {
     }
 
     $user = analyticspro_current_user();
-    $payload = analyticspro_fetch_properties_payload($user, 'all');
+    $requestedPropertyIds = $action === '' ? $propertyIds : [$propertyId];
+    [$scopeJoins, $scopeWhere, $scopeParams] = analyticspro_visible_property_scope($user, 'all');
+    $idPlaceholders = [];
+    $idParams = [];
+    foreach ($requestedPropertyIds as $index => $requestedPropertyId) {
+        $placeholder = 'requested_property_' . $index;
+        $idPlaceholders[] = ':' . $placeholder;
+        $idParams[$placeholder] = $requestedPropertyId;
+    }
+    $scopeWhere[] = 'p.id IN (' . implode(',', $idPlaceholders) . ')';
+    $propertyStmt = analyticspro_db()->prepare(
+        'SELECT p.* FROM properties p ' . implode(' ', $scopeJoins)
+        . ' WHERE ' . implode(' AND ', $scopeWhere)
+    );
+    $propertyStmt->execute(array_merge($scopeParams, $idParams));
+    $properties = $propertyStmt->fetchAll();
     $propertiesById = [];
-    foreach ($payload['properties'] as $candidate) {
+    foreach ($properties as $candidate) {
+        $candidate['assignments'] = [];
         $propertiesById[(int) $candidate['id']] = $candidate;
+    }
+    $subuserPermissions = ($user['role'] ?? '') === 'subuser'
+        ? analyticspro_get_subuser_permissions((int) $user['id'])
+        : [];
+    if (($user['role'] ?? '') === 'subuser' && empty($subuserPermissions['can_edit_all_markers']) && $propertiesById !== []) {
+        $accessiblePropertyIds = array_keys($propertiesById);
+        $assignmentPlaceholders = implode(',', array_fill(0, count($accessiblePropertyIds), '?'));
+        $assignmentStmt = analyticspro_db()->prepare(
+            'SELECT property_id, subuser_id FROM property_assignments WHERE property_id IN (' . $assignmentPlaceholders . ')'
+        );
+        $assignmentStmt->execute($accessiblePropertyIds);
+        foreach ($assignmentStmt->fetchAll() as $assignment) {
+            $propertiesById[(int) $assignment['property_id']]['assignments'][] = $assignment;
+        }
     }
 
     $property = null;
@@ -52,7 +82,7 @@ try {
                 throw new RuntimeException('Immobile non accessibile.');
             }
             $targetProperty = $propertiesById[$targetPropertyId];
-            if (!analyticspro_property_can_edit($user, $targetProperty)) {
+            if (!analyticspro_property_can_edit($user, $targetProperty, $subuserPermissions)) {
                 throw new RuntimeException('Non puoi modificare questo marker.');
             }
             $validatedProperties[] = $targetProperty;
@@ -65,7 +95,7 @@ try {
     if ($action !== '' && !$property) {
         throw new RuntimeException('Immobile non accessibile.');
     }
-    if ($action !== '' && !analyticspro_property_can_edit($user, $property)) {
+    if ($action !== '' && !analyticspro_property_can_edit($user, $property, $subuserPermissions)) {
         throw new RuntimeException('Non puoi modificare questo marker.');
     }
     if ($action === 'update_coordinates') {

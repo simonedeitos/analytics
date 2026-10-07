@@ -41,13 +41,13 @@ function analyticspro_visible_property_scope(array $user, string $mode, ?int $fi
     return [$joins, $where, $params];
 }
 
-function analyticspro_property_can_edit(array $user, array $property): bool
+function analyticspro_property_can_edit(array $user, array $property, ?array $subuserPermissions = null): bool
 {
     if (($user['role'] ?? '') === 'admin' || ($user['role'] ?? '') === 'user') {
         return true;
     }
 
-    $permissions = analyticspro_get_subuser_permissions((int) $user['id']);
+    $permissions = $subuserPermissions ?? analyticspro_get_subuser_permissions((int) $user['id']);
     if (!empty($permissions['can_edit_all_markers'])) {
         return true;
     }
