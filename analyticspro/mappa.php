@@ -18,20 +18,61 @@ $tenants            = analyticspro_is_admin() ? analyticspro_fetch_tenants() : [
 
 ob_start();
 ?>
+<div class="analyticspro-map-actions">
+    <div class="dropdown analyticspro-map-toolbar-dropdown">
+        <button class="btn btn-outline-primary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" data-bs-boundary="viewport" aria-expanded="false">
+            <i class="bi bi-plus-lg me-1"></i>Trova nuova area
+        </button>
+        <div class="dropdown-menu dropdown-menu-end p-3 shadow analyticspro-map-dropdown analyticspro-find-area-dropdown">
+            <div class="small text-uppercase text-muted fw-semibold mb-2">Ricerca Particella</div>
+            <div class="row g-2 align-items-end">
+                <div class="col-12">
+                    <label for="find-area-comune" class="form-label small mb-1">Comune</label>
+                    <div class="position-relative">
+                        <input id="find-area-comune" class="form-control form-control-sm" autocomplete="off" placeholder="Digita il Comune">
+                        <div id="find-area-comune-results" class="list-group analyticspro-autocomplete d-none" role="listbox" aria-label="Suggerimenti comuni"></div>
+                    </div>
+                </div>
+                <div class="col-6">
+                    <label for="find-area-foglio" class="form-label small mb-1">Foglio</label>
+                    <input id="find-area-foglio" class="form-control form-control-sm" placeholder="Es. 34">
+                </div>
+                <div class="col-6">
+                    <label for="find-area-particella" class="form-label small mb-1">Particella</label>
+                    <input id="find-area-particella" class="form-control form-control-sm" placeholder="Es. 351">
+                </div>
+                <div class="col-12">
+                    <button id="find-area-submit" type="button" class="btn btn-primary btn-sm w-100">Cerca</button>
+                </div>
+                <div class="col-12">
+                    <div id="find-area-feedback" class="small text-muted mt-1">Cerca comune + foglio (+ particella opzionale).</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <button class="btn btn-outline-secondary btn-sm" id="refresh-map">
+        <i class="bi bi-arrow-clockwise me-1"></i>Aggiorna dati
+    </button>
+</div>
+<?php
+$mapHeaderActions = (string) ob_get_clean();
+ob_start();
+?>
 <div class="analyticspro-map-toolbar">
     <div class="analyticspro-map-toolbar-primary">
         <div class="analyticspro-map-search">
             <i class="bi bi-search" aria-hidden="true"></i>
-            <label for="map-search" class="visually-hidden">Cerca indirizzo o dati catastali</label>
-            <input id="map-search" type="search" class="form-control form-control-sm" placeholder="Cerca indirizzo, foglio, particella…">
+            <label for="map-search" class="visually-hidden">Cerca indirizzo, comune o proprietario</label>
+            <input id="map-search" type="search" class="form-control form-control-sm" placeholder="Cerca indirizzo, comune o proprietario...">
         </div>
         <div class="analyticspro-map-field">
-            <label for="map-comune-filter" class="form-label small mb-1">Comune</label>
+            <i class="bi bi-geo-alt" aria-hidden="true"></i>
+            <label for="map-comune-filter" class="visually-hidden">Comune</label>
             <select id="map-comune-filter" class="form-select form-select-sm"><option value="">Tutti i comuni</option></select>
         </div>
         <div class="dropdown analyticspro-map-toolbar-dropdown">
             <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" data-bs-boundary="viewport" aria-expanded="false">
-                Stato contatto
+                <i class="bi bi-chat-left-text me-2" aria-hidden="true"></i>Stato contatto
             </button>
             <div class="dropdown-menu p-3 shadow analyticspro-map-dropdown" id="map-filter-panel">
                 <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mb-2">
@@ -63,48 +104,13 @@ ob_start();
             </div>
         </div>
         <div class="analyticspro-map-field">
-            <label for="map-assigned-filter" class="form-label small mb-1">Assegnato a</label>
+            <i class="bi bi-person" aria-hidden="true"></i>
+            <label for="map-assigned-filter" class="visually-hidden">Assegnato a</label>
             <select id="map-assigned-filter" class="form-select form-select-sm"><option value="">Tutti</option></select>
         </div>
         <div class="form-check form-switch analyticspro-map-toolbar-switch mb-0">
             <input class="form-check-input" type="checkbox" role="switch" id="cadastral-layer-toggle">
-            <label class="form-check-label small fw-semibold" for="cadastral-layer-toggle">Layer catastale</label>
-        </div>
-        <div class="analyticspro-map-actions">
-        <div class="dropdown analyticspro-map-toolbar-dropdown">
-            <button class="btn btn-outline-primary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" data-bs-boundary="viewport" aria-expanded="false">
-                <i class="bi bi-plus-lg me-1"></i>Trova nuova area
-            </button>
-            <div class="dropdown-menu p-3 shadow analyticspro-map-dropdown analyticspro-find-area-dropdown">
-                <div class="small text-uppercase text-muted fw-semibold mb-2">Ricerca Particella</div>
-                <div class="row g-2 align-items-end">
-                    <div class="col-12">
-                        <label for="find-area-comune" class="form-label small mb-1">Comune</label>
-                        <div class="position-relative">
-                            <input id="find-area-comune" class="form-control form-control-sm" autocomplete="off" placeholder="Digita il Comune">
-                            <div id="find-area-comune-results" class="list-group analyticspro-autocomplete d-none" role="listbox" aria-label="Suggerimenti comuni"></div>
-                        </div>
-                    </div>
-                    <div class="col-6">
-                        <label for="find-area-foglio" class="form-label small mb-1">Foglio</label>
-                        <input id="find-area-foglio" class="form-control form-control-sm" placeholder="Es. 34">
-                    </div>
-                    <div class="col-6">
-                        <label for="find-area-particella" class="form-label small mb-1">Particella</label>
-                        <input id="find-area-particella" class="form-control form-control-sm" placeholder="Es. 351">
-                    </div>
-                    <div class="col-12">
-                        <button id="find-area-submit" type="button" class="btn btn-primary btn-sm w-100">Cerca</button>
-                    </div>
-                    <div class="col-12">
-                        <div id="find-area-feedback" class="small text-muted mt-1">Cerca comune + foglio (+ particella opzionale).</div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <button class="btn btn-outline-primary btn-sm" id="refresh-map">
-            <i class="bi bi-arrow-clockwise me-1"></i>Aggiorna dati
-        </button>
+            <label class="form-check-label small fw-semibold" for="cadastral-layer-toggle"><i class="bi bi-layers me-2" aria-hidden="true"></i>Layer catastale</label>
         </div>
     </div>
     <?php if (analyticspro_is_admin()): ?>
@@ -122,10 +128,12 @@ ob_start();
 <?php
 $mapTopbarControls = (string) ob_get_clean();
 
-analyticspro_render_header('Mappa', [
+analyticspro_render_header('Mappa del territorio', [
     'app_assets' => true,
     'body_class' => 'map-page',
-    'topbar_content' => $mapTopbarControls,
+    'topbar_content' => $mapHeaderActions,
+    'topbar_after' => $mapTopbarControls,
+    'topbar_class' => 'analyticspro-map-header',
     'extra_head' => '<link rel="stylesheet" href="' . analyticspro_h(analyticspro_asset_url('assets/css/map.css')) . '">',
 ]);
 ?>

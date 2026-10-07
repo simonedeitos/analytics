@@ -17,11 +17,13 @@
 .owners-page .owners-header-actions { flex-wrap: wrap; justify-content: flex-end; }
 .owners-page .btn-primary { background: var(--owners-accent); border-color: var(--owners-accent); }
 .owners-page .btn-primary:hover { background: var(--ap-orange-dark, #b84b08); border-color: var(--ap-orange-dark, #b84b08); }
-.owners-page #report-export-actions .dt-buttons { display: flex; gap: .5rem; }
+.owners-page #report-export-actions .dt-buttons { display: flex; flex-direction: column; gap: .25rem; margin: 0; padding: .25rem; float: none; width: 100%; }
 .owners-page #report-export-actions .btn { background: #fff; color: #455160; border: 1px solid var(--owners-border); border-radius: .5rem; }
 .owners-page .owners-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
-.owners-page .owners-summary-card { display: flex; gap: 1rem; padding: 1.35rem; border: 1px solid var(--owners-border); border-radius: .85rem; background: #fff; }
+.owners-page .owners-summary-card { display: flex; align-items: center; gap: 1rem; padding: 1.35rem; border: 1px solid var(--owners-border); border-radius: .85rem; background: #fff; }
 .owners-page .owners-summary-icon { display: grid; place-items: center; width: 2.75rem; height: 2.75rem; flex-shrink: 0; background: #fff1e6; color: var(--owners-accent); border-radius: .75rem; font-size: 1.3rem; }
+.owners-page .owners-summary-card:nth-child(2) .owners-summary-icon { background: var(--ap-blue-light); color: var(--ap-blue); }
+.owners-page .owners-summary-card:nth-child(3) .owners-summary-icon { background: #e8f8ef; color: var(--ap-success); }
 .owners-page .owners-summary-card span:not(.owners-summary-icon) { color: #647080; font-size: .85rem; }
 .owners-page .owners-summary-card strong { display: block; font-size: 1.8rem; line-height: 1.35; }
 .owners-page .owners-summary-card small { color: #77818d; font-size: .75rem; }
@@ -29,37 +31,75 @@
 .owners-page .owners-grid .card-body { padding: 1.4rem; min-width: 0; }
 .owners-page .owners-grid-heading { margin-bottom: 1.25rem; }
 .owners-page h2 { font-size: 1rem; font-weight: 700; margin: 0; }
-.owners-page .owners-search { position: relative; width: min(100%, 24rem); }
+.owners-page .owners-search { position: relative; width: 100%; }
 .owners-page .owners-search .bi { position: absolute; left: .8rem; top: .65rem; color: #8b939e; }
 .owners-page .owners-search input { padding-left: 2.3rem; }
 .owners-page .form-control,
 .owners-page .form-select { border-color: var(--owners-border); border-radius: .5rem; min-height: 2.4rem; }
 .owners-page .form-control:focus,
 .owners-page .form-select:focus { border-color: var(--owners-accent); box-shadow: 0 0 0 .15rem #ed741c20; }
-.owners-page .report-filter-bar { padding-bottom: 1.25rem; border-bottom: 1px solid var(--owners-border); }
+.owners-page .report-filter-bar { position: static; background: transparent; padding: 0 0 1.25rem; border: 0; border-bottom: 1px solid var(--owners-border); border-radius: 0; }
+.owners-page .owners-filter-row { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 1rem; align-items: end; }
+.owners-page .owners-cadastral-filter { min-width: 0; margin: 0; }
+.owners-page .owners-cadastral-filter legend { float: none; width: auto; color: var(--ap-muted); }
+.owners-page .owners-extra-filters { margin-top: .75rem; color: var(--ap-muted); font-size: .8rem; }
+.owners-page summary { cursor: pointer; }
 .owners-page .owners-table-scroll { overflow-x: auto; }
 .owners-page #report-table { font-size: .85rem; }
 .owners-page #report-table thead th { background: #fafaf9; color: #6c7682; font-size: .75rem; padding: .9rem; border-bottom: 1px solid var(--owners-border); white-space: nowrap; }
-.owners-page #report-table td { padding: 1rem .9rem; border-color: #f0efec; vertical-align: top; }
+.owners-page #report-table td { padding: 1.15rem .9rem; border-color: #f0efec; vertical-align: middle; }
 .owners-page #report-table tfoot { display: none; }
 .owners-page .owners-property-title { display: flex; align-items: center; gap: .5rem; font-weight: 600; margin-bottom: .3rem; }
 .owners-page .owners-property-meta { color: #77818d; font-size: .75rem; margin-top: .25rem; }
-.owners-page .owners-status { display: inline-block; padding: .35rem .65rem; background: #f0f1f3; color: #647080; border-radius: 1rem; white-space: nowrap; }
+.owners-page .owners-property-location { color: var(--ap-muted); font-size: .8rem; margin-left: 1rem; }
+.owners-page .owners-property-title ~ .owners-property-meta { margin-left: 1rem; }
+.owners-page .owners-status { display: inline-flex; align-items: center; gap: .4rem; padding: .35rem .65rem; background: #f0f1f3; color: #647080; border-radius: 1rem; white-space: nowrap; font-size: .75rem; font-weight: 500; }
+.owners-page .owners-status::before { content: ""; width: 6px; height: 6px; flex-shrink: 0; border-radius: 50%; background: #98a2b3; }
 .owners-page .owners-status--contacted { background: #e9f2ff; color: #2864b0; }
+.owners-page .owners-status--contacted::before { background: #3485ff; }
 .owners-page .owners-status--followup { background: var(--ap-orange-light, #fff2e8); color: #9b4b16; }
+.owners-page .owners-status--followup::before { background: #f59e0b; }
 .owners-page .owners-status--unreachable { background: #ffebeb; color: #b83434; }
-.owners-page .owners-row-actions { display: flex; gap: .4rem; flex-wrap: wrap; min-width: 7rem; }
+.owners-page .owners-status--unreachable::before { background: #ef5c64; }
+.owners-page .owners-property-dot { flex: 0 0 8px; width: 8px; height: 8px; overflow: hidden; padding: 0; font-size: 0; background: transparent; gap: 0; }
+.owners-page .owners-property-dot::before { width: 8px; height: 8px; }
+.owners-page .owners-row-actions { display: flex; align-items: flex-start; gap: .5rem; min-width: 8rem; }
+.owners-page .open-detail-modal { color: var(--ap-blue); border-color: #c5d5ef; border-radius: .5rem; padding: .4rem .75rem !important; white-space: nowrap; }
+.owners-page .open-detail-modal:hover { background: var(--ap-blue-light); }
+.owners-page .owners-action-menu > summary { list-style: none; padding: .35rem; border-radius: .4rem; color: var(--ap-muted); }
+.owners-page .owners-action-menu > summary::-webkit-details-marker { display: none; }
+.owners-page .owners-action-options { display: grid; gap: .4rem; margin-top: .5rem; }
+.owners-page .owners-owner-details > summary { list-style: none; }
+.owners-page .owners-owner-details > summary::-webkit-details-marker { display: none; }
+.owners-page .owners-owner-details > summary strong { font-weight: 600; }
+.owners-page .owners-owner-details > summary .owners-property-meta { display: block; text-decoration: underline dotted; text-underline-offset: 3px; }
+.owners-page .owners-owner-expanded { padding-top: .65rem; }
+.owners-page .owners-assignment { display: inline-flex; align-items: center; gap: .4rem; }
 .owners-page .owners-contact { margin-bottom: .6rem; }
+.owners-page .owners-contact:last-child { margin-bottom: 0; }
+.owners-page .owners-contact > .text-muted:first-child { font-size: .7rem; margin-bottom: .25rem; }
+.owners-page .owners-phone-list { display: grid; gap: .25rem; }
+.owners-page .owners-phone-list .copy-phone-btn { text-align: left; padding: 0; color: var(--ap-text); font-size: .8rem; border: 0; background: transparent; }
+.owners-page .owners-contact .bi { color: var(--ap-muted); }
 .owners-page .owners-contact .phone-chip { margin-top: .2rem; }
 .owners-page .page-item.active .page-link { background: var(--owners-accent); border-color: var(--owners-accent); }
 .owners-page .page-link { color: #647080; }
 .owners-page .dataTables_info,
 .owners-page .dataTables_length { font-size: .8rem; color: #77818d; }
+.owners-page .dataTables_wrapper { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; }
+.owners-page .dataTables_wrapper > table { flex: 0 0 100%; }
+.owners-page .dataTables_wrapper .dataTables_info { padding: 0; margin-left: auto; }
+.owners-page .dataTables_wrapper .dataTables_paginate { padding: 0; }
+.owners-page .page-link { border-color: var(--owners-border); border-radius: .4rem; margin-inline: .15rem; }
+@media (max-width: 1199.98px) {
+    .owners-page .owners-filter-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
 @media (max-width: 767px) {
     .owners-page .owners-header,
     .owners-page .owners-grid-heading { align-items: stretch; flex-direction: column; }
     .owners-page .owners-header-actions { justify-content: flex-start; }
     .owners-page .owners-summary { grid-template-columns: 1fr; }
+    .owners-page .owners-filter-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .owners-page .owners-grid .card-body { padding: 1rem; }
     .owners-page #report-table { min-width: 850px; }
 }

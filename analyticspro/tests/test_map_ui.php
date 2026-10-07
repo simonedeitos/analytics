@@ -13,9 +13,17 @@ foreach ([
         throw new RuntimeException('Cluster creation/options/events and marker rendering must remain unchanged.');
     }
 }
-foreach (['find-area-submit', 'refresh-map', 'cadastral-layer-toggle', 'btn-apply-filter', 'map-category-filter-panel', 'map-visible-count', 'map-visible-owners', 'map-visible-owners-help'] as $id) {
+foreach (['map-search', 'map-comune-filter', 'map-assigned-filter', 'find-area-comune', 'find-area-foglio', 'find-area-particella', 'find-area-submit', 'refresh-map', 'cadastral-layer-toggle', 'btn-apply-filter', 'map-category-filter-panel', 'map-visible-count', 'map-visible-owners', 'map-visible-owners-help'] as $id) {
     if (substr_count($page, 'id="' . $id . '"') !== 1) {
         throw new RuntimeException('Missing or duplicated map hook: ' . $id);
+    }
+    foreach (["analyticspro_render_header('Mappa del territorio'", "'topbar_content' => \$mapHeaderActions", "'topbar_after' => \$mapTopbarControls", 'Cerca indirizzo, comune o proprietario...'] as $contract) {
+        if (!str_contains($page, $contract)) {
+            throw new RuntimeException('Missing two-row map header: ' . $contract);
+        }
+    }
+    if (hash('sha256', substr($page, strpos($page, '<div id="analyticspro-app"'))) !== '9a124ad1d2ec145acb0f37c5b026e6af5da0f43a229b8d07452191bdc7411d68') {
+        throw new RuntimeException('Map overlays and controls below the header must remain unchanged.');
     }
 }
 foreach (['Non contattato', 'Contattato', 'Da ricontattare', 'Non raggiungibile', 'Colori di riferimento; i marker mantengono i colori personalizzati.', 'Layer catastale', 'title="Proprietari"', 'analyticspro-map-actions', 'Disponibile dopo aver aperto i dettagli', 'aria-describedby="map-visible-owners-help"', 'report.php', "analyticspro_asset_url('assets/css/map.css')"] as $text) {
