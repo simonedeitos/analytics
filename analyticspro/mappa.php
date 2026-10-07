@@ -172,12 +172,10 @@ analyticspro_render_header('Mappa del territorio', [
             <?php endif; ?>
         </section>
         <aside class="analyticspro-map-legend" aria-label="Legenda stati contatto">
-            <strong>Stato contatto</strong>
             <span><i class="analyticspro-map-legend-dot is-uncontacted" aria-hidden="true"></i>Non contattato</span>
             <span><i class="analyticspro-map-legend-dot is-contacted" aria-hidden="true"></i>Contattato</span>
             <span><i class="analyticspro-map-legend-dot is-recontact" aria-hidden="true"></i>Da ricontattare</span>
             <span><i class="analyticspro-map-legend-dot is-unreachable" aria-hidden="true"></i>Non raggiungibile</span>
-            <small class="analyticspro-map-legend-note">Colori di riferimento; i marker mantengono i colori personalizzati.</small>
         </aside>
         <div id="cadastral-opacity-control" class="d-none analyticspro-cadastral-opacity-control">
             <i class="bi bi-layers-half text-muted" aria-hidden="true"></i>
