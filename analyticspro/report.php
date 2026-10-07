@@ -50,10 +50,7 @@ analyticspro_render_header('Proprietari', [
         </div>
         <div class="owners-header-actions">
             <?php if (!analyticspro_is_subuser()): ?>
-            <div class="dropdown">
-                <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false"><i class="bi bi-download me-2" aria-hidden="true"></i>Esporta</button>
-                <div id="report-export-actions" class="dropdown-menu dropdown-menu-end" aria-label="Esporta proprietari"></div>
-            </div>
+
             <?php endif; ?>
             <a class="btn btn-primary" href="<?= analyticspro_h(analyticspro_base_url('mappa.php')) ?>"><i class="bi bi-map me-2" aria-hidden="true"></i>Apri mappa</a>
         </div>
@@ -74,15 +71,68 @@ analyticspro_render_header('Proprietari', [
         </article>
     </section>
 
-    <div class="card owners-grid">
-        <div class="card-body">
-            <div class="owners-grid-heading">
-                <div class="owners-search">
-                    <label for="report-search" class="visually-hidden">Cerca immobili, proprietari e contatti</label>
-                    <i class="bi bi-search" aria-hidden="true"></i>
-                    <input id="report-search" type="search" class="form-control" placeholder="Cerca proprietario, indirizzo o telefono...">
+<div class="card owners-grid">
+    <div class="card-body">
+        <div class="owners-grid-heading">
+            <div class="row align-items-end gx-2">
+
+                <!-- Cerca indirizzo -->
+                <div class="col-12 col-md-5">
+                    <label
+                        for="report-filter-categoria"
+                        class="form-label form-label-sm small mb-1"
+                    >
+                        Cerca indirizzo
+                    </label>
+                    <div class="owners-search">
+                        <i class="bi bi-search" aria-hidden="true"></i>
+                        <input
+                            id="report-address-search"
+                            type="search"
+                            class="form-control"
+                            placeholder="Cerca indirizzo..."
+                        >
+                    </div>
                 </div>
+
+                <!-- Cerca proprietario, indirizzo ecc. -->
+                <div class="col-12 col-md-5">
+                    <label
+                        for="report-filter-categoria"
+                        class="form-label form-label-sm small mb-1"
+                    >
+                        Cerca proprietario, indirizzo o telefono
+                    </label>
+                    <div class="owners-search">
+                        <i class="bi bi-search" aria-hidden="true"></i>
+                        <input
+                            id="report-search"
+                            type="search"
+                            class="form-control"
+                            placeholder="Cerca proprietario, indirizzo o telefono..."
+                        >
+                    </div>
+                </div>
+
+                <!-- Categoria catastale -->
+                <div class="col-12 col-md-2">
+                    <label
+                        for="report-filter-categoria"
+                        class="form-label form-label-sm small mb-1"
+                    >
+                        Categoria
+                    </label>
+                    <input
+                        id="report-filter-categoria"
+                        class="form-control form-control-sm"
+                        placeholder="Es. A2, C1"
+                    >
+                </div>
+
             </div>
+        </div>
+
+
             <div id="report-filters" class="report-filter-bar mb-3">
                 <div class="owners-filter-row">
                     <div>
@@ -118,20 +168,6 @@ analyticspro_render_header('Proprietari', [
                             </select>
                         </div>
                     </div>
-                </div>
-                <details class="owners-extra-filters">
-                    <summary>Altri filtri</summary>
-                    <div class="row g-3 mt-1">
-                        <div class="col-12 col-sm-6">
-                            <label for="report-filter-categoria" class="form-label form-label-sm small mb-1">Categoria catastale</label>
-                            <input id="report-filter-categoria" class="form-control form-control-sm" placeholder="Es. A2, C1">
-                        </div>
-                        <div class="col-12 col-sm-6">
-                            <label for="report-filter-owner" class="form-label form-label-sm small mb-1">Proprietario</label>
-                            <input id="report-filter-owner" class="form-control form-control-sm" placeholder="Nome o cognome proprietario">
-                        </div>
-                    </div>
-                </details>
             </div>
             <div class="owners-table-scroll">
             <table id="report-table" class="table table-hover w-100 align-middle">
