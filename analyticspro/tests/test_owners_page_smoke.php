@@ -24,14 +24,14 @@ foreach ([
     'report-filter-stato',
     'report-filter-assigned',
     'report-filter-color',
-    'report-filter-owner',
+    'report-address-search',
     'report-filter-categoria',
     'Censimento e proprietari',
     'Tutti gli immobili e i contatti delle tue mappature',
-    'Cerca proprietario, indirizzo o telefono...',
+    'Cerca per nome e cognome...',
     'owners-filter-row',
     'owners-cadastral-filter',
-    'owners-extra-filters',
+    'report-filters-toggle',
     'dropdown-menu dropdown-menu-end',
     'api/data/properties.php',
     'api/data/update_property.php',
@@ -78,11 +78,15 @@ const context = {
     detailColumn() { return '<button class="open-detail-modal">Dettaglio</button>'; },
     editableColumns(property) { return '<button class="open-editor-modal"' + (property.can_edit ? '' : ' disabled') + '>Modifica</button>'; },
     deleteColumns(property) { return property.can_delete ? '<button class="delete-property-btn">Elimina</button>' : '—'; },
+    initReportFiltersToggle() {},
+    closeReportContacts() {},
 };
+context.$.fn = { dataTable: { util: { escapeRegex: value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') } } };
 vm.createContext(context);
 for (const name of ['propertyCanViewPhone', 'splitPhoneNumbers', 'buildPhoneChips', 'buildOwnerSearchText',
     'buildOwnersTableHtml', 'unitLabel', 'buildTableData', 'initDataTable', 'reportStatusBadge', 'buildReportTableData',
-    'updateReportSummary', 'applyReportFilters', 'renderReportTable']) {
+    'ownerGroupKey', 'editorOwnerSelectionKey', 'buildReportContactsHtml',
+    'updateReportSummary', 'applyReportFilters', 'renderReportTable', 'hydrateReportFilters']) {
     const start = source.indexOf('    function ' + name + '(');
     assert.notEqual(start, -1, 'Missing function ' + name);
     const end = source.indexOf('\n    }', start) + '\n    }'.length;
@@ -101,12 +105,13 @@ assert.match(row.propertyHtml, /F\.10 P\.42\/1/);
 assert.match(row.propertyHtml, /owners-property-title.*Via Roma 2/);
 assert.match(row.propertyHtml, /owners-property-dot.*owners-status--followup/);
 assert.match(row.ownersHtml, /<strong>Rossi Mario<\/strong>/);
-assert.match(row.ownersHtml, /1\/2/);
 assert.match(row.owners, /1\/2/);
 assert.match(row.owners, /Nato a: Roma/);
 assert.doesNotMatch(row.owners, /copy-phone-btn/);
-assert.match(row.contactsHtml, /copy-phone-btn/);
-assert.match(row.contactsHtml, /&lt;mail@example.test&gt;/);
+assert.match(row.contactsHtml, /report-contact-toggle/);
+assert.doesNotMatch(row.contactsHtml, /123|456|mail@example/);
+assert.match(context.buildReportContactsHtml(property), /copy-phone-btn/);
+assert.match(context.buildReportContactsHtml(property), /&lt;mail@example.test&gt;/);
 assert.match(row.contactsText, /123 456/);
 assert.equal(row.stato, 'Da contattare');
 assert.match(context.reportStatusBadge(row.stato, property), /owners-status--followup.*Da ricontattare/);
@@ -127,18 +132,33 @@ const multiOwner = { ...property, provincia: '<BS>', owners: [
 ] };
 const multiRow = context.buildReportTableData([multiOwner])[0];
 assert.match(multiRow.propertyHtml, /\(&lt;BS&gt;\)/);
-assert.match(multiRow.ownersHtml, /\+1 intestatario/);
+assert.doesNotMatch(multiRow.ownersHtml, /<details|\+1 intestatario/);
+assert.equal((multiRow.ownersHtml.match(/open-report-editor/g) || []).length, 2);
 assert.match(multiRow.ownersHtml, /&lt;Mario&gt;/);
-assert.match(multiRow.ownersHtml, /Verdi Anna/, 'All owners remain available in expanded markup');
-assert.match(multiRow.contactsHtml, /333 ••• 567/);
-assert.match(multiRow.contactsHtml, /data-phone="3331234567"/, 'Copy hook retains the complete phone');
+assert.match(multiRow.ownersHtml, /Verdi Anna/, 'All owners are visible without expanding');
+assert.match(multiRow.ownersHtml, /data-owner-key="__idx_1"/);
+assert.doesNotMatch(multiRow.contactsHtml, /333|•••/);
+assert.match(context.buildReportContactsHtml(multiOwner), /data-phone="3331234567"/, 'Copy hook retains the complete phone');
+assert.doesNotMatch(context.buildReportContactsHtml(multiOwner), /•••/);
 assert.match(multiRow.contactsText, /3331234567/, 'Search and export retain complete contacts');
-assert.match(context.buildReportTableData([{ ...property, owners: [], assignments: [] }])[0].contactsHtml, /Non disponibile/);
+assert.match(context.buildReportTableData([{ ...property, owners: [], assignments: [] }])[0].contactsHtml, /bi-telephone-x.*|disabled/);
 const restricted = { ...property, can_view_phone: false };
 row = context.buildReportTableData([restricted])[0];
 assert.doesNotMatch(row.contactsHtml, /123|456|copy-phone-btn/);
 assert.doesNotMatch(row.contactsText, /123|456/);
-assert.match(row.contactsHtml, /mail@example.test/);
+assert.doesNotMatch(row.contactsHtml, /mail@example.test/);
+assert.doesNotMatch(context.buildReportContactsHtml(restricted), /123|456|copy-phone-btn/);
+assert.match(context.buildReportContactsHtml(restricted), /mail@example.test/);
+elements['report-filter-categoria'] = { value: 'A2' };
+state.properties = [property, { categoria: 'A20' }, { categoria: 'A2' }, { categoria: '<C1>' }];
+context.hydrateReportFilters();
+assert.equal(elements['report-filter-categoria'].value, 'A2');
+assert.equal((elements['report-filter-categoria'].innerHTML.match(/value="A2"/g) || []).length, 1);
+assert.match(elements['report-filter-categoria'].innerHTML, /value="&lt;C1&gt;"/);
+state.properties = [{ categoria: 'C1' }];
+context.hydrateReportFilters();
+assert.equal(elements['report-filter-categoria'].value, '', 'Clear categories no longer in the dataset');
+delete elements['report-filter-categoria'];
 for (const key of ['properties', 'owners', 'phones']) elements['report-summary-' + key] = {};
 context.updateReportSummary([property, restricted]);
 assert.equal(elements['report-summary-properties'].textContent, '2');
@@ -181,14 +201,15 @@ assert.equal(colorColumn.render(row.colore, 'export', row), '#ff9900');
 assert.equal(elements['report-export-actions'].exportsMoved, true);
 for (const [id, value] of Object.entries({
     color: '#ff9900', comune: 'Milano', foglio: '10', particella: '42',
-    categoria: 'A2', owner: 'Mario', assigned: 'Agente', stato: 'Da contattare',
+    categoria: 'A2', assigned: 'Agente', stato: 'Da contattare',
 })) elements['report-filter-' + id] = { value };
-elements['report-search'] = { value: '456' };
+elements['report-search'] = { value: 'Mario' };
+elements['report-address-search'] = { value: 'Via Roma' };
 context.applyReportFilters();
-assert.equal(searches.global, '456');
+assert.equal(searches.global, '', 'No global multi-field search');
 for (const [name, value] of Object.entries({
     color: '#ff9900', comune: 'Milano', foglioFilter: '10', particellaFilter: '42',
-    categoriaFilter: 'A2', owners: 'Mario', assigned: 'Agente', stato: 'Da contattare',
+    categoriaFilter: '^A2$', owners: 'Mario', indirizzo: 'Via Roma', assigned: 'Agente', stato: 'Da contattare',
 })) assert.equal(searches[name + ':name'], value);
 assert.equal(draws, 1);
 state.tables = {};
@@ -206,6 +227,8 @@ elements['report-table'] = {};
 let bindings = 0;
 elements['report-search'].addEventListener = () => { bindings++; };
 elements['report-search'].dataset = {};
+elements['report-address-search'].addEventListener = () => { bindings++; };
+elements['report-address-search'].dataset = {};
 state.properties = [property];
 state.reportQuery = 'Mario';
 state.tables['#report-table'] = table;
@@ -222,7 +245,7 @@ assert.equal(page, 0, 'Reload must retain the original first-page default');
 assert.equal(length, 75, 'Reload must retain the original page-length default');
 assert.deepEqual(order, [], 'Reload must retain the original unsorted default');
 context.renderReportTable();
-assert.equal(bindings, 1, 'Reload must not duplicate search handlers');
+assert.equal(bindings, 2, 'Reload must not duplicate either search handler');
 console.log('PASS: owners rendering, filters, exports, pagination and phone permissions OK');
 JS;
 
