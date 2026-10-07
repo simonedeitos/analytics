@@ -16,7 +16,7 @@ $subuserPermissions = analyticspro_is_subuser() ? analyticspro_get_subuser_permi
 $tenantId           = analyticspro_current_tenant_id();
 $selectedTenant     = analyticspro_is_admin() ? (string) analyticspro_get('tenant_id', 'all') : (string) $tenantId;
 
-analyticspro_render_header('Marker assegnati', ['app_assets' => true]);
+analyticspro_render_header('Assegnati a me', ['app_assets' => true]);
 ?>
 <div id="analyticspro-app"
      data-role="<?= analyticspro_h((string) $user['role']) ?>"
@@ -33,7 +33,7 @@ analyticspro_render_header('Marker assegnati', ['app_assets' => true]);
      data-property-delete-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/delete_property.php')) ?>">
 
     <?= analyticspro_ui_page_header(
-        'Marker assegnati',
+        'Assegnati a me',
         'Controlla la coda operativa dei marker assegnati, con filtri rapidi e tabella coerente con il nuovo layout.',
         '',
         ['eyebrow' => 'Operatività']

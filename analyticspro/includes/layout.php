@@ -54,7 +54,7 @@ function analyticspro_layout_user_initials(array $user): string
 {
     $fullName = trim((string) ($user['nome'] ?? '') . ' ' . (string) ($user['cognome'] ?? ''));
     if ($fullName === '') {
-        return 'AP';
+        return 'ER';
     }
 
     $parts = preg_split('/\s+/', $fullName) ?: [];
@@ -62,7 +62,7 @@ function analyticspro_layout_user_initials(array $user): string
     foreach (array_slice($parts, 0, 2) as $part) {
         $initials .= mb_strtoupper(mb_substr($part, 0, 1, 'UTF-8'), 'UTF-8');
     }
-    return $initials !== '' ? $initials : 'AP';
+    return $initials !== '' ? $initials : 'ER';
 }
 
 function analyticspro_render_header(string $title, array $options = []): void
@@ -88,7 +88,7 @@ function analyticspro_render_header(string $title, array $options = []): void
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <meta name="csrf-token" content="<?= analyticspro_h(analyticspro_csrf_token()) ?>">
-        <title><?= analyticspro_h($title) ?> - AnalyticsPRO</title>
+        <title><?= analyticspro_h($title) ?> - easyradar</title>
         <link rel="icon" href="<?= analyticspro_h(analyticspro_base_url('favicon.php?v=2')) ?>" sizes="any">
         <link rel="shortcut icon" href="<?= analyticspro_h(analyticspro_base_url('favicon.php?v=2')) ?>">
         <link rel="apple-touch-icon" href="<?= analyticspro_h(analyticspro_base_url('favicon.php?v=2')) ?>">
@@ -125,11 +125,15 @@ function analyticspro_render_header(string $title, array $options = []): void
         <aside class="ap-sidebar" id="apSidebar" aria-label="Menu principale">
             <div class="ap-sidebar-inner">
                 <a class="ap-sidebar-brand" href="<?= analyticspro_h(analyticspro_base_url('dashboard.php')) ?>">
-                    <span class="ap-sidebar-brand-mark"><i class="bi bi-graph-up-arrow"></i></span>
+                    <?php if (is_file(ANALYTICSPRO_ROOT . '/logo.png')): ?>
+                        <img class="ap-sidebar-brand-logo" src="<?= analyticspro_h(analyticspro_asset_url('logo.png')) ?>" alt="easyradar">
+                    <?php else: ?>
+                    <span class="ap-sidebar-brand-mark"><i class="bi bi-broadcast" aria-hidden="true"></i></span>
                     <span class="ap-sidebar-brand-text">
-                        <strong>AnalyticsPRO</strong>
+                        <strong>easyradar</strong>
                         <small>Immobili &amp; territorio</small>
                     </span>
+                    <?php endif; ?>
                 </a>
 
                 <nav class="ap-sidebar-nav">
@@ -151,7 +155,9 @@ function analyticspro_render_header(string $title, array $options = []): void
                         }
                         ?>
                         <div class="ap-nav-section" data-nav-section>
-                            <div class="ap-nav-section-label"><?= analyticspro_h((string) $section['label']) ?></div>
+                            <?php if ($section['label'] !== ''): ?>
+                                <div class="ap-nav-section-label"><?= analyticspro_h((string) $section['label']) ?></div>
+                            <?php endif; ?>
                             <ul class="list-unstyled mb-0">
                                 <?php foreach ($items as $item): ?>
                                     <?php $active = analyticspro_page_matches($currentPage, (array) ($item['page'] ?? [])); ?>
@@ -210,7 +216,7 @@ function analyticspro_render_header(string $title, array $options = []): void
                     <i class="bi bi-layout-sidebar-inset"></i>
                 </button>
                 <div class="ap-topbar-heading">
-                    <span class="ap-topbar-breadcrumb">AnalyticsPRO</span>
+                    <span class="ap-topbar-breadcrumb">easyradar</span>
                     <span class="ap-topbar-title"><?= analyticspro_h($title) ?></span>
                 </div>
             </div>

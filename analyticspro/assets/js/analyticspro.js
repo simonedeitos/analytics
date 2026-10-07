@@ -1124,19 +1124,21 @@
         }
 
         var reportColumns = [
-            { title: 'Colore', data: 'colore', render: function (data, type, row) { return type === 'filter' || type === 'sort' ? (row.raw.colore_marker || '') : data; } },
-            { title: 'Comune', data: 'comune' },
-            { title: 'Foglio/Particella/Sub', data: 'unita' },
-            { title: 'Indirizzo', data: 'indirizzo' },
-            { title: 'Intestatari', data: 'owners', render: function (data, type, row) { return type === 'filter' || type === 'sort' ? row.ownerSearch : data; } },
-            { title: 'Assegnati a', data: 'assignmentsText' },
-            { title: 'Stato', data: 'stato' },
-            { title: 'Dettaglio', data: 'detail' },
-            { title: 'Modifica', data: 'editor' },
-            { title: 'Elimina', data: 'deleteAction' },
+            { title: 'Immobile', data: 'propertyHtml', render: function (data, type, row) { return type === 'display' ? data : [row.comune, row.indirizzo, row.unita, row.categoriaFilter].join(' '); } },
+            { title: 'Proprietari', data: 'owners', name: 'owners', reportExport: true, render: function (data, type, row) { return type === 'filter' || type === 'sort' ? row.ownerSearch : data; } },
+            { title: 'Contatti', data: 'contactsHtml', reportExport: true, render: function (data, type, row) { return type === 'display' ? data : row.contactsText; } },
+            { title: 'Stato', data: 'stato', name: 'stato', reportExport: true, render: function (data, type, row) { return type === 'display' ? reportStatusBadge(data, row.raw) : data; } },
+            { title: 'Assegnato a', data: 'assignmentsText', name: 'assigned', reportExport: true },
+            { title: 'Dettaglio', data: 'actionsHtml' },
+            { title: 'Colore', data: 'colore', name: 'color', visible: false, reportExport: true, render: function (data, type, row) { return type === 'filter' || type === 'sort' || type === 'export' ? (row.raw.colore_marker || '') : data; } },
+            { title: 'Comune', data: 'comune', name: 'comune', visible: false, reportExport: true },
+            { title: 'Foglio/Particella/Sub', data: 'unita', visible: false, reportExport: true },
+            { title: 'Indirizzo', data: 'indirizzo', visible: false, reportExport: true },
+            { title: 'Modifica', data: 'editor', visible: false },
+            { title: 'Elimina', data: 'deleteAction', visible: false },
             { title: 'Foglio filtro', data: 'foglioFilter', name: 'foglioFilter', visible: false },
             { title: 'Particella filtro', data: 'particellaFilter', name: 'particellaFilter', visible: false },
-            { title: 'Categoria filtro', data: 'categoriaFilter', name: 'categoriaFilter', visible: false },
+            { title: 'Categoria catastale', data: 'categoriaFilter', name: 'categoriaFilter', visible: false, reportExport: true },
         ];
         var assignedColumns = [
             { title: 'Colore', data: 'colore' },
@@ -1175,6 +1177,14 @@
         $(selector + ' tfoot').html(tfootHtml);
 
         var buttons = canExport ? [{ extend: 'csvHtml5', text: 'CSV' }, { extend: 'excelHtml5', text: 'Excel' }] : [];
+        if (context === 'report') {
+            buttons.forEach(function (button) {
+                button.exportOptions = {
+                    columns: function (index) { return !!reportColumns[index].reportExport; },
+                    orthogonal: 'export',
+                };
+            });
+        }
         state.tables[selector] = $(selector).DataTable({
             data: rows,
             columns: columns,
@@ -1182,7 +1192,7 @@
             lengthMenu: context === 'assigned' || context === 'report' ? [25, 50, 75, 100, 150] : [25, 50, 100],
             order: [],
             language: { url: 'https://cdn.datatables.net/plug-ins/1.13.8/i18n/it-IT.json' },
-            dom: context === 'report' ? (buttons.length ? 'Btip' : 'tip') : (buttons.length ? 'Bfrtip' : 'frtip'),
+            dom: context === 'report' ? (buttons.length ? 'Btlip' : 'tlip') : (buttons.length ? 'Bfrtip' : 'frtip'),
             buttons: buttons,
             columnDefs: [{
                 targets: columns.reduce(function (targets, column, index) {
@@ -1194,6 +1204,14 @@
                 orderable: false
             }],
         });
+
+        if (context === 'report') {
+            var exportActions = document.getElementById('report-export-actions');
+            if (exportActions) {
+                exportActions.innerHTML = '';
+                state.tables[selector].buttons().container().appendTo(exportActions);
+            }
+        }
 
         if (!useFooterFilters) return;
 
@@ -1222,11 +1240,75 @@
         initDataTable('#assigned-table', buildTableData(grouped, 'assigned'), state.canExport || state.role !== 'subuser', 'assigned');
     }
 
+    function reportStatusBadge(label, property) {
+        var status = property.stato || '';
+        var tone = {
+            contattato: 'contacted',
+            da_contattare: 'followup',
+            non_raggiungibile: 'unreachable',
+        }[status] || 'neutral';
+        var displayLabel = status === 'da_contattare' ? 'Da ricontattare' : (label || STATE_OPTIONS['']);
+        return '<span class="owners-status owners-status--' + tone + '">' + escapeHtml(displayLabel) + '</span>';
+    }
+
+    function buildReportTableData(properties) {
+        return buildTableData(properties, 'report').map(function (row) {
+            var property = row.raw;
+            row.propertyHtml = '<div class="owners-property-title">' + row.colore + escapeHtml(row.comune || 'Comune non disponibile') + '</div>'
+                + '<div>' + escapeHtml(row.indirizzo || 'Indirizzo non disponibile') + '</div>'
+                + '<div class="owners-property-meta">' + escapeHtml(row.unita)
+                + (row.categoriaFilter ? ' · ' + escapeHtml(row.categoriaFilter) : '') + '</div>';
+            row.owners = buildOwnersTableHtml(Object.assign({}, property, { can_view_phone: false }));
+            var contactText = [];
+            var contactHtml = [];
+            (property.owners || []).forEach(function (owner) {
+                var phones = propertyCanViewPhone(property) ? splitPhoneNumbers(owner.telefono) : [];
+                var email = String(owner.email || '').trim();
+                if (!phones.length && !email) return;
+                var name = ((owner.cognome || '') + ' ' + (owner.nome || '')).trim() || 'Intestatario';
+                contactText.push([name].concat(phones, email ? [email] : []).join(' '));
+                contactHtml.push('<div class="owners-contact"><div class="small text-muted">' + escapeHtml(name) + '</div>'
+                    + (phones.length ? buildPhoneChips(owner.telefono) : '')
+                    + (email ? '<div class="small">' + escapeHtml(email) + '</div>' : '') + '</div>');
+            });
+            row.contactsText = contactText.join(' · ');
+            row.contactsHtml = contactHtml.join('') || '<span class="text-muted small">Nessun contatto disponibile</span>';
+            row.actionsHtml = '<div class="owners-row-actions">' + row.detail + row.editor + row.deleteAction + '</div>';
+            return row;
+        });
+    }
+
+    function updateReportSummary(properties) {
+        var owners = 0;
+        var phones = 0;
+        var phoneVisible = properties.length ? properties.some(propertyCanViewPhone) : state.canViewPhone;
+        properties.forEach(function (property) {
+            owners += (property.owners || []).length;
+            if (propertyCanViewPhone(property)) {
+                phones += (property.owners || []).filter(function (owner) { return splitPhoneNumbers(owner.telefono).length > 0; }).length;
+            }
+        });
+        [
+            ['properties', properties.length],
+            ['owners', owners],
+            ['phones', phoneVisible ? phones : 'Riservato'],
+        ].forEach(function (item) {
+            var element = document.getElementById('report-summary-' + item[0]);
+            if (element) element.textContent = typeof item[1] === 'number' ? item[1].toLocaleString('it-IT') : item[1];
+        });
+    }
+
     function renderReportTable() {
         if (!document.getElementById('report-table')) return;
         var grouped = groupPropertiesByUnit(state.properties);
-        initDataTable('#report-table', buildTableData(grouped, 'report'), state.role !== 'subuser', 'report');
+        initDataTable('#report-table', buildReportTableData(grouped), state.role !== 'subuser', 'report');
+        updateReportSummary(grouped);
         hydrateReportFilters();
+        var searchInput = document.getElementById('report-search');
+        if (searchInput && !searchInput.dataset.reportBound) {
+            searchInput.addEventListener('input', applyReportFilters);
+            searchInput.dataset.reportBound = '1';
+        }
         if (state.reportQuery) {
             var ownerInput = document.getElementById('report-filter-owner');
             if (ownerInput && !ownerInput.value) {
@@ -1268,14 +1350,15 @@
         var ownerValue = (document.getElementById('report-filter-owner') || {}).value || '';
         var statoValue    = (document.getElementById('report-filter-stato')    || {}).value || '';
         var assignedValue = (document.getElementById('report-filter-assigned') || {}).value || '';
-        table.column(0).search(colorValue);
-        table.column(1).search(comuneValue);
+        table.search((document.getElementById('report-search') || {}).value || '');
+        table.column('color:name').search(colorValue);
+        table.column('comune:name').search(comuneValue);
         table.column('foglioFilter:name').search(foglioValue);
         table.column('particellaFilter:name').search(particellaValue);
         table.column('categoriaFilter:name').search(categoriaValue);
-        table.column(4).search(ownerValue);
-        table.column(5).search(assignedValue);
-        table.column(6).search(statoValue);
+        table.column('owners:name').search(ownerValue);
+        table.column('assigned:name').search(assignedValue);
+        table.column('stato:name').search(statoValue);
         table.draw();
     }
 
@@ -1382,6 +1465,7 @@
     }
 
     function refreshMapCategoryFilters() {
+        if (document.getElementById('map-search')) refreshMapToolbarFilters();
         var container = document.getElementById('map-category-filter-panel');
         if (!container) return;
         var categories = state.properties.map(function (property) { return (property.categoria || '').trim(); }).filter(Boolean);
@@ -1514,6 +1598,134 @@
         return state.mapRenderPromise;
     }
 
+    function refreshMapToolbarFilters() {
+        var comuneSelect = document.getElementById('map-comune-filter');
+        var assignedSelect = document.getElementById('map-assigned-filter');
+        if (!comuneSelect || !assignedSelect) return;
+        var selectedComune = comuneSelect.value;
+        var selectedAssigned = assignedSelect.value;
+        var comuni = new Set();
+        var assignments = new Map();
+        state.properties.forEach(function (property) {
+            if (property.comune) comuni.add(property.comune);
+            (property.assignments || []).forEach(function (assignment) {
+                assignments.set(String(assignment.subuser_id), assignment.subuser_name);
+            });
+        });
+        comuneSelect.innerHTML = '<option value="">Tutti i comuni</option>' + Array.from(comuni).sort().map(function (comune) {
+            return '<option value="' + escapeHtml(comune) + '">' + escapeHtml(comune) + '</option>';
+        }).join('');
+        assignedSelect.innerHTML = '<option value="">Tutti</option>' + Array.from(assignments).sort(function (a, b) {
+            return String(a[1]).localeCompare(String(b[1]), 'it');
+        }).map(function (assignment) {
+            return '<option value="' + escapeHtml(assignment[0]) + '">' + escapeHtml(assignment[1]) + '</option>';
+        }).join('');
+        comuneSelect.value = comuni.has(selectedComune) ? selectedComune : '';
+        assignedSelect.value = assignments.has(selectedAssigned) ? selectedAssigned : '';
+    }
+
+    function matchesMapToolbarFilters(property) {
+        var search = document.getElementById('map-search');
+        if (!search) return true;
+        var comune = document.getElementById('map-comune-filter').value;
+        var assigned = document.getElementById('map-assigned-filter').value;
+        var members = property._groupProperties || [property];
+        var query = search.value.trim().toLocaleLowerCase('it');
+        if (comune && !members.some(function (member) { return member.comune === comune; })) return false;
+        if (assigned && !(property.assignments || []).some(function (assignment) { return String(assignment.subuser_id) === assigned; })) return false;
+        return !query || members.some(function (member) {
+            return ['indirizzo', 'civico', 'comune', 'foglio', 'particella', 'subalterno', 'cod_catastale'].map(function (key) {
+                return member[key] || '';
+            }).join(' ').toLocaleLowerCase('it').indexOf(query) !== -1;
+        });
+    }
+
+    function updateMapVisibleArea() {
+        var count = document.getElementById('map-visible-count');
+        var owners = document.getElementById('map-visible-owners');
+        if (!count || !owners || !state.map || !state.markers) return;
+        var bounds = state.map.getBounds();
+        var visibleIds = new Set();
+        var properties = new Map(state.properties.map(function (property) { return [Number(property.id), property]; }));
+        state.markers.eachLayer(function (marker) {
+            if (!marker._analyticsPropertyData || !bounds.contains(marker.getLatLng())) return;
+            normalizedPropertyGroupIds(marker._analyticsPropertyData).forEach(function (id) { visibleIds.add(id); });
+        });
+        var ownerTotal = 0;
+        var ownersKnown = true;
+        visibleIds.forEach(function (id) {
+            var property = properties.get(id);
+            if (property && Array.isArray(property.owners)) {
+                ownerTotal += property.owners.length;
+            } else {
+                ownersKnown = false;
+            }
+        });
+        count.textContent = String(visibleIds.size);
+        owners.textContent = ownersKnown ? String(ownerTotal) : '—';
+        var ownersHelp = document.getElementById('map-visible-owners-help');
+        if (ownersHelp) ownersHelp.hidden = ownersKnown;
+    }
+
+    function bindMapEditorDrawer(marker) {
+        marker.on('popupopen', function () {
+            if (!marker._analyticsPropertyData.can_edit) {
+                var popup = marker.getPopup();
+                var popupElement = popup && popup.getElement();
+                var shell = document.getElementById('analyticspro-map-shell');
+                if (popupElement && shell) {
+                    popupElement.classList.add('analyticspro-map-readonly-drawer');
+                    popupElement.setAttribute('role', 'region');
+                    popupElement.setAttribute('aria-label', 'Dettaglio immobile · sola lettura');
+                    shell.appendChild(popupElement);
+                }
+            }
+            Promise.resolve(marker._analyticsDetailsPromise).then(scheduleMapVisibleArea, scheduleMapVisibleArea);
+        });
+        marker.on('click', async function () {
+            var property = marker._analyticsPropertyData;
+            if (!property.can_edit || marker._analyticsDrawerOpening) return;
+            marker.closePopup();
+            marker._analyticsDrawerOpening = true;
+            try {
+                var ids = normalizedPropertyGroupIds(property);
+                var records = state.properties.filter(function (item) { return ids.indexOf(Number(item.id)) !== -1; });
+                if (records.length !== ids.length || !records.every(function (item) { return Array.isArray(item.owners); })) {
+                    await (marker._analyticsDetailsPromise || fetchMapPropertyDetails(ids));
+                }
+                scheduleMapVisibleArea();
+                openEditorModal(property.id);
+            } catch (error) {
+                showMapFeedback(error.message || 'Dettagli non disponibili.', 'danger', 3200);
+            } finally {
+                marker._analyticsDrawerOpening = false;
+            }
+        });
+    }
+
+    function scheduleMapVisibleArea() {
+        window.clearTimeout(state.mapVisibleTimer);
+        state.mapVisibleTimer = window.setTimeout(updateMapVisibleArea, 80);
+    }
+
+    function initializeMapPresentation() {
+        if (!document.getElementById('map-visible-area')) return;
+        state.map.on('moveend', scheduleMapVisibleArea);
+        state.markers.on('layeradd layerremove', scheduleMapVisibleArea);
+        ['map-search', 'map-comune-filter', 'map-assigned-filter'].forEach(function (id) {
+            var control = document.getElementById(id);
+            if (!control) return;
+            var timer;
+            control.addEventListener(id === 'map-search' ? 'input' : 'change', function () {
+                window.clearTimeout(timer);
+                timer = window.setTimeout(function () {
+                    state.pendingMapView = captureMapView();
+                    renderMap();
+                }, id === 'map-search' ? 180 : 0);
+            });
+        });
+    }
+
     async function renderMapLayers() {
         var container = document.getElementById('map-fullpage') || document.getElementById('map-container');
         if (!container) return;
@@ -1614,6 +1826,7 @@
             });
             state.markers.on('spiderfied', function () { state.map.closePopup(); });
             state.map.addLayer(state.markers);
+            if (document.getElementById('map-visible-area')) initializeMapPresentation();
             setCadastralLayerEnabled(state.cadastralLayerEnabled);
             window.setTimeout(function () {
                 if (state.map) {
@@ -1651,8 +1864,10 @@
             var statoVal = (property.stato !== null && property.stato !== undefined) ? String(property.stato) : '';
             if (statiFilter.indexOf(statoVal) === -1) continue;
             if (categorieFilter !== null && categorieFilter.indexOf(String(property.categoria || '').trim()) === -1) continue;
+            if (document.getElementById('map-search') && !matchesMapToolbarFilters(property)) continue;
 
             var marker = createMapMarker(property);
+            if (document.getElementById('map-visible-area')) bindMapEditorDrawer(marker);
             normalizedPropertyGroupIds(property).forEach(function (id) {
                 layersByProperty.set(id, marker);
             });
@@ -1662,6 +1877,7 @@
         state.markers.clearLayers();
         state.mapLayersByProperty = layersByProperty;
         state.markers.addLayers(layers);
+        if (document.getElementById('map-visible-area')) scheduleMapVisibleArea();
 
         if (pendingNewMarkerFocus) {
             if (!focusMapOnTargetMarker(pendingNewMarkerFocus)) {
@@ -1918,6 +2134,7 @@
             if (coordinatesChanged || !layer) {
                 if (layer) state.markers.removeLayer(layer);
                 layer = createMapMarker(property);
+                if (document.getElementById('map-visible-area')) bindMapEditorDrawer(layer);
                 ids.forEach(function (id) { state.mapLayersByProperty.set(id, layer); });
             }
             layer._analyticsPropertyData = property;
@@ -1929,7 +2146,8 @@
             else layer.setIcon(buildApproximateMarkerIcon(color));
             var categories = getCategorieFilter();
             if (getStatiFilter().indexOf(String(property.stato || '')) === -1
-                || (categories !== null && categories.indexOf(String(property.categoria || '').trim()) === -1)) {
+                || (categories !== null && categories.indexOf(String(property.categoria || '').trim()) === -1)
+                || (document.getElementById('map-search') && !matchesMapToolbarFilters(property))) {
                 state.markers.removeLayer(layer);
             } else if (!state.markers.hasLayer(layer)) {
                 state.markers.addLayer(layer);
@@ -1937,6 +2155,8 @@
             if (layer.isPopupOpen()) layer.setPopupContent(buildPopupHtml(property));
         });
         state.markers.refreshClusters();
+        if (document.getElementById('map-search')) refreshMapToolbarFilters();
+        if (document.getElementById('map-visible-area')) scheduleMapVisibleArea();
     }
 
     function destroyCharts() {
@@ -3626,6 +3846,7 @@
             editorModal.innerHTML = '<div class="modal fade" id="property-editor-modal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><div class="d-flex align-items-start justify-content-between gap-2 flex-wrap w-100"><h5 class="modal-title mb-0">Modifica marker</h5><div class="d-flex align-items-start gap-2 ms-auto flex-wrap"><div id="editor-owner-select-wrap" class="d-none" style="min-width:260px;"><label for="editor-owner-select" class="form-label small mb-1 text-muted">Intestatario da modificare</label><select id="editor-owner-select" class="form-select form-select-sm"></select></div><button type="button" class="btn-close mt-1" data-bs-dismiss="modal" aria-label="Chiudi"></button></div></div></div><div class="modal-body"><div id="property-editor-meta" class="small text-muted mb-3"></div><div id="property-editor-error" class="alert alert-danger py-2 px-3 small d-none mb-3"></div><div id="editor-owners-block" class="mb-3"><label id="editor-owners-label" class="form-label small mb-1">Intestatari e telefoni</label><div id="editor-owners-content"></div></div><div class="row g-2"><div class="col-md-6"><label class="form-label small mb-1">Stato</label><select id="editor-state" class="form-select form-select-sm"></select></div><div class="col-md-6"><label class="form-label small mb-1">Colore marker</label><div class="d-flex align-items-center gap-2"><span id="editor-color-preview" class="color-dot" style="width:18px;height:18px;"></span><select id="editor-color" class="form-select form-select-sm"></select></div></div><div class="col-12"><label class="form-label small mb-1">Stato personalizzato</label><input id="editor-custom-state" class="form-control form-control-sm" placeholder="Stato personalizzato"></div><div class="col-12"><label class="form-label small mb-1">Assegnazioni</label><div id="editor-assignments-summary" class="small"></div></div><div class="col-12"><button type="button" class="btn btn-outline-secondary btn-sm d-none" id="editor-assignments-open"><i class="bi bi-person-plus me-1"></i>Gestisci assegnazioni</button></div><div class="col-12"><label class="form-label small mb-1">Note (log)</label><div id="editor-note-log" class="border rounded p-2 bg-light-subtle small mb-2" style="max-height:170px;overflow:auto;"></div><input id="editor-note" class="form-control form-control-sm" placeholder="Scrivi una nota (una riga)"></div></div></div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Annulla</button><button type="button" class="btn btn-primary btn-sm" id="editor-save-btn">Salva</button></div></div></div></div>';
             document.body.appendChild(editorModal.firstElementChild);
         }
+        if (document.getElementById('map-fullpage')) prepareMapEditorDrawer();
         if (!document.getElementById('assignment-picker-modal')) {
             var assignmentModal = document.createElement('div');
             assignmentModal.innerHTML = '<div class="modal fade" id="assignment-picker-modal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Assegna subutenti</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button></div><div class="modal-body"><div id="assignment-picker-meta" class="small text-muted mb-2"></div><div id="assignment-picker-error" class="alert alert-danger py-2 px-3 small d-none mb-2"></div><div id="assignment-picker-list" class="vstack gap-2"></div></div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Annulla</button><button type="button" class="btn btn-primary btn-sm" id="assignment-picker-save">Salva assegnazioni</button></div></div></div></div>';
@@ -3654,6 +3875,95 @@
         if (!message) { errorEl.classList.add('d-none'); errorEl.textContent = ''; return; }
         errorEl.textContent = message;
         errorEl.classList.remove('d-none');
+    }
+
+    function prepareMapEditorDrawer() {
+        var modal = document.getElementById('property-editor-modal');
+        if (!modal || modal.classList.contains('analyticspro-map-drawer')) return;
+        modal.classList.add('analyticspro-map-drawer');
+        modal.setAttribute('aria-labelledby', 'map-editor-address');
+        var header = modal.querySelector('.modal-header');
+        var body = modal.querySelector('.modal-body');
+        var title = modal.querySelector('.modal-title');
+        title.id = 'map-editor-address';
+        var comune = document.createElement('div');
+        comune.id = 'map-editor-comune';
+        comune.className = 'small text-muted mt-1';
+        var identity = document.createElement('div');
+        identity.className = 'flex-grow-1';
+        title.parentNode.insertBefore(identity, title);
+        identity.appendChild(title);
+        identity.appendChild(comune);
+        header.appendChild(document.getElementById('property-editor-meta'));
+        var summary = document.createElement('div');
+        summary.id = 'map-editor-cadastral-summary';
+        summary.className = 'analyticspro-map-editor-summary';
+        header.appendChild(summary);
+        var tabs = document.createElement('div');
+        tabs.className = 'nav analyticspro-map-editor-tabs';
+        tabs.setAttribute('role', 'tablist');
+        var content = document.createElement('div');
+        content.className = 'tab-content';
+        [
+            { id: 'owners', label: 'Proprietari' },
+            { id: 'activity', label: 'Attività' },
+            { id: 'cadastral', label: 'Dati catastali' }
+        ].forEach(function (tab, index) {
+            var button = document.createElement('button');
+            button.type = 'button';
+            button.id = 'map-editor-tab-' + tab.id;
+            button.className = 'nav-link' + (index === 0 ? ' active' : '');
+            button.setAttribute('role', 'tab');
+            button.setAttribute('data-bs-toggle', 'tab');
+            button.setAttribute('data-bs-target', '#map-editor-pane-' + tab.id);
+            button.setAttribute('aria-controls', 'map-editor-pane-' + tab.id);
+            button.setAttribute('aria-selected', index === 0 ? 'true' : 'false');
+            button.textContent = tab.label;
+            tabs.appendChild(button);
+            var pane = document.createElement('div');
+            pane.id = 'map-editor-pane-' + tab.id;
+            pane.className = 'tab-pane fade' + (index === 0 ? ' show active' : '');
+            pane.setAttribute('role', 'tabpanel');
+            pane.setAttribute('aria-labelledby', button.id);
+            pane.tabIndex = 0;
+            content.appendChild(pane);
+        });
+        var ownersPane = content.querySelector('#map-editor-pane-owners');
+        ownersPane.appendChild(document.getElementById('editor-owner-select-wrap'));
+        ownersPane.appendChild(document.getElementById('editor-owners-block'));
+        var contactFields = body.querySelector('.row');
+        var contactHeading = document.createElement('h6');
+        contactHeading.className = 'analyticspro-map-contact-heading';
+        contactHeading.textContent = 'Gestione contatto';
+        body.appendChild(tabs);
+        body.appendChild(content);
+        body.appendChild(contactHeading);
+        body.appendChild(contactFields);
+        var noteLabel = document.getElementById('editor-note-log').parentNode.querySelector('label');
+        if (noteLabel) noteLabel.textContent = 'Note e attività';
+    }
+
+    function updateMapEditorPresentation(property) {
+        var title = document.getElementById('map-editor-address');
+        if (!title) return;
+        title.textContent = ((property.indirizzo || '') + ' ' + (property.civico || '')).trim() || 'Immobile';
+        document.getElementById('map-editor-comune').textContent = [property.comune, property.provincia].filter(Boolean).join(' · ');
+        document.getElementById('property-editor-meta').textContent = unitLabel(property);
+        document.getElementById('map-editor-cadastral-summary').innerHTML = [
+            ['Foglio', property.foglio], ['Particella', property.particella], ['Categoria', property.categoria]
+        ].map(function (field) {
+            return '<div><span>' + escapeHtml(field[0]) + '</span><strong>' + escapeHtml(field[1] === null || field[1] === undefined || field[1] === '' ? '—' : String(field[1])) + '</strong></div>';
+        }).join('');
+        document.getElementById('map-editor-pane-activity').innerHTML = propertyNotesHtml(property);
+        document.getElementById('map-editor-pane-cadastral').innerHTML = '<dl class="analyticspro-map-cadastral-data">'
+            + [
+                ['Comune', property.comune], ['Provincia', property.provincia], ['Codice catastale', property.cod_catastale],
+                ['Sezione', property.sezione], ['Foglio', property.foglio], ['Particella', property.particella],
+                ['Subalterno', property.subalterno], ['Categoria', property.categoria], ['Rendita', property.rendita]
+            ].map(function (field) {
+                return '<div><dt>' + escapeHtml(field[0]) + '</dt><dd>' + escapeHtml(field[1] === null || field[1] === undefined || field[1] === '' ? '—' : String(field[1])) + '</dd></div>';
+            }).join('') + '</dl>';
+        bootstrap.Tab.getOrCreateInstance(document.getElementById('map-editor-tab-owners')).show();
     }
 
     function refreshEditorAssignmentSummary(property) {
@@ -3755,6 +4065,12 @@
         var label = document.getElementById('editor-owners-label');
         if (!container) return;
         container.innerHTML = buildEditorOwnersHtml(property, selectedOwnerId);
+        if (document.getElementById('map-fullpage')) {
+            container.querySelectorAll('.add-owner-phone-toggle-btn').forEach(function (button) {
+                button.textContent = '+ Aggiungi recapito';
+                button.title = 'Aggiungi recapito telefonico';
+            });
+        }
         if (label) {
             label.textContent = propertyCanViewPhone(property) ? 'Intestatari e telefoni' : 'Intestatari';
         }
@@ -4543,6 +4859,7 @@
         if (!modalEl || !stateEl || !colorEl || !customStateEl || !noteEl || !saveBtn) return;
         setModalError('property-editor-error', '');
         meta.textContent = (property.comune || '') + ' \u00B7 ' + unitLabel(property) + ' \u00B7 ' + ((property.indirizzo || '') + ' ' + (property.civico || '')).trim();
+        if (document.getElementById('map-fullpage')) updateMapEditorPresentation(property);
         stateEl.innerHTML = buildSelectOptions(property.stato !== null && property.stato !== undefined ? property.stato : '');
         var allowedColors = MARKER_COLOR_PALETTE.map(function (item) { return item.value; });
         var defaultColor = defaultColorForState(property.stato || '');

@@ -6,6 +6,18 @@ require __DIR__ . '/../includes/bootstrap.php';
 require_once __DIR__ . '/../includes/layout.php';
 require_once __DIR__ . '/../includes/ui/helpers.php';
 require __DIR__ . '/_admin_check.php';
+require_once __DIR__ . '/../includes/logo_upload.php';
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    try {
+        analyticspro_verify_csrf(analyticspro_post('csrf_token'));
+        analyticspro_save_uploaded_logo($_FILES['logo'] ?? []);
+        analyticspro_set_flash('success', 'Logo easyradar aggiornato.');
+    } catch (Throwable $exception) {
+        analyticspro_set_flash('danger', $exception->getMessage());
+    }
+    analyticspro_redirect('admin/index.php');
+}
 
 $pdo = analyticspro_db();
 
@@ -67,6 +79,23 @@ require __DIR__ . '/_admin_subnav.php';
                 <?php endif; ?>
             </div>
         </div>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-body">
+        <h2 class="h5">Logo easyradar</h2>
+        <p class="text-muted">Carica un PNG di massimo 2 MB. Il file sostituirà il logo attuale.</p>
+        <form method="post" enctype="multipart/form-data" class="row g-3 align-items-end">
+            <input type="hidden" name="csrf_token" value="<?= analyticspro_h(analyticspro_csrf_token()) ?>">
+            <div class="col-md-8">
+                <label class="form-label" for="platform-logo">Logo PNG</label>
+                <input type="file" class="form-control" id="platform-logo" name="logo" accept=".png,image/png" required>
+            </div>
+            <div class="col-md-4">
+                <button class="btn btn-primary" type="submit">Carica logo</button>
+            </div>
+        </form>
     </div>
 </div>
 

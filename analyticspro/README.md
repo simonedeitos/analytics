@@ -1,4 +1,4 @@
-# AnalyticsPRO
+# easyradar
 
 Webapp PHP/PDO multi-tenant per importare dati catastali, salvarli su MySQL/MariaDB e visualizzarli su dashboard, mappa e report.
 
@@ -20,6 +20,18 @@ Webapp PHP/PDO multi-tenant per importare dati catastali, salvarli su MySQL/Mari
    - configurazione SMTP (`smtp_*` salvati in `system_config`)
    - `admin_notification_email`
    - eventuale `system_config.encryption_key` se vuoi sostituire la chiave bootstrap da `.env`
+
+## Logo della piattaforma
+
+Dalla panoramica amministrativa (`analyticspro/admin/index.php`), un amministratore
+può caricare un logo **PNG di massimo 2 MB**. Il caricamento salva o sostituisce il
+file pubblico `analyticspro/logo.png`: la cartella `analyticspro/` deve essere
+scrivibile dal processo PHP.
+
+Il form mantiene i controlli di accesso amministratore e CSRF; il server verifica
+che il file provenga da un caricamento HTTP e controlla firma PNG, immagine e MIME.
+La barra laterale usa il logo quando presente, altrimenti mostra il testo **easyradar**.
+I percorsi e i prefissi tecnici `analyticspro` restano invariati.
 
 ## Import dati utente
 
@@ -193,7 +205,7 @@ Il click sulla mappa usa `api/data/feature_info.php` con un flusso a **due fasi*
 1. **Fase A (rapida, default)**: il browser chiama direttamente
    `https://wms.cartografia.agenziaentrate.gov.it/inspire/ajax/ajax.php?op=getDatiOggetto`
    senza alcun proxy PHP; il popup della particella compare subito dopo il click e il server
-   AnalyticsPRO non interroga AdE durante l’interazione standard sulla mappa.
+   easyradar non interroga AdE durante l’interazione standard sulla mappa.
 2. **Fase B (deferred)**: quando nel popup si clicca “Crea nuovo marker”, il client richiama
    `api/data/feature_info.php?resolve_location=1`; se il popup contiene già foglio/particella o
    altri campi catastali, li inoltra all’endpoint locale così il server completa
@@ -339,7 +351,7 @@ ciascun job nella tabella "Job recenti".
 
 ## Geolocalizzazione particelle: Zornade API v2 + fallback WFS
 
-AnalyticsPRO geolocalizza ogni immobile (da foglio/particella catastale a lat/lng) usando
+easyradar geolocalizza ogni immobile (da foglio/particella catastale a lat/lng) usando
 **Zornade API v2** come provider primario, con fallback automatico al **WFS pubblico dell'Agenzia
 delle Entrate** (INSPIRE) se Zornade non è configurato o non trova la particella.
 
@@ -367,7 +379,7 @@ esplicitamente (la risposta sarebbe `UNAUTHORIZED_NO_AUTH_HEADER` o `UNAUTHORIZE
 
 ### Mapping campi Zornade → dati catastali
 
-| Campo Zornade    | Dato catastale AnalyticsPRO | Note |
+| Campo Zornade    | Dato catastale easyradar | Note |
 |------------------|-----------------------------|------|
 | `comune_code`    | Codice catastale Belfiore   | es. "H501" per Roma — risolto da comune+provincia tramite `comuni_catastali.json` |
 | `foglio`         | Foglio                      | numero foglio |
@@ -425,7 +437,7 @@ Il frontend continua con chunk sincroni progressivi e si interrompe al primo err
 
 ### Catena di risoluzione del codice Belfiore
 
-Quando una riga importata non contiene un `cod_catastale` valido, AnalyticsPRO prova in quest'ordine:
+Quando una riga importata non contiene un `cod_catastale` valido, easyradar prova in quest'ordine:
 
 1. `cod_catastale` esplicito nella riga (`^[A-Z]\d{3}$`)
 2. **Catalogo GML locale** (`analyticspro_gml_belfiore_da_comune`) usando il nome comune estratto dai filename caricati
@@ -727,7 +739,7 @@ riprovare all'infinito.
 
 ---
 
-## Pagina Marker assegnati
+## Pagina Assegnati a me
 
 La pagina `assegnati.php` mostra ora **tutti gli immobili** del tenant (assegnati e non),
 non solo quelli con un'assegnazione attiva.
@@ -851,7 +863,7 @@ L'esito della persistenza non viene più mostrato con `alert()`: il numero di ri
 Il campo DB `property_owners.genere` è stato esteso a `VARCHAR(16)` per mantenere i valori storici
 `M`/`F` e supportare `Società`.
 
-### Pagina Marker assegnati
+### Pagina Assegnati a me
 
 `assegnati.php` ora supporta la gestione completa delle assegnazioni: per tenant senza filtro subutente la vista include sia immobili assegnati sia non assegnati, così l'assegnazione può essere fatta direttamente dalla pagina. È disponibile anche un filtro rapido client-side **Tutti / Assegnati / Non assegnati**.
 
@@ -860,6 +872,8 @@ Il campo DB `property_owners.genere` è stato esteso a `VARCHAR(16)` per mantene
 L'editor inline usato in tabella e nel popup mappa continua a condividere la stessa logica di modifica stato, colore, note e assegnazioni. Per i marker raggruppati sullo stesso subalterno, il modal **Modifica marker** mostra anche un select "Intestatario da modificare": puoi vedere tutti gli intestatari del gruppo oppure selezionarne uno specifico. I controlli **Aggiungi numero** (`[+]`) ed **Elimina numero** (`✕`) sono disponibili per ciascun intestatario modificabile anche nella vista "Tutti gli intestatari", con la coppia corretta `property_id`/`owner_id` e nel rispetto della visibilità telefono. Aggiunte e rimozioni vengono salvate immediatamente, indipendentemente dal pulsante "Salva" del marker. Le modifiche immobile (stato, colore, stato personalizzato, note, assegnazioni) vengono replicate su tutti gli id del gruppo che risultano modificabili; sulla mappa vengono poi ricaricati solo i record del gruppo interessato, mentre le tabelle mantengono il reload finale. Il payload proprietà espone anche `is_assigned` per distinguere rapidamente gli immobili già assegnati nella UI.
 
 ### Performance della pagina Mappa
+
+La barra mappa mantiene ricerca, filtri, **Layer catastale**, **Trova nuova area** e **Aggiorna dati**. Il riepilogo **Area visibile** conta gli ID immobili effettivi dei marker raggruppati nel viewport. **Proprietari** usa esclusivamente gli intestatari già caricati aprendo i dettagli: finché almeno un immobile visibile non dispone di quei dati mostra **—**, con la spiegazione «Disponibile dopo aver aperto i dettagli», non uno zero presunto. Non vengono introdotti conteggi API, caricamenti anticipati o richieste estese di intestatari. I marker modificabili aprono l'editor esistente nel pannello destro; i dettagli in sola lettura usano lo stesso lato senza abilitare modifiche. Gestione contatto e note rimangono visibili sotto le schede. **Vedi elenco** apre la pagina **Proprietari** esistente. La legenda indica colori di riferimento: i marker mantengono i colori personalizzati e le regole originali di stato, salvataggio, raggruppamento e spiderfy.
 
 - **Caricamento iniziale:** prima venivano richiesti sia tutti gli immobili sia quelli assegnati, con intestatari decifrati e note complete per entrambi i payload. Ora `properties.php?mode=all&view=map` restituisce una sola volta i campi necessari a coordinate, raggruppamento catastale, filtri e permessi, senza leggere intestatari e note. Permessi del subutente e visibilità telefono sono recuperati una volta per utente/tenant nella richiesta, eliminando le query ripetute per immobile.
 - **Popup:** `properties.php?mode=all&property_ids=1,2` carica i dettagli di tutti gli immobili del marker solo all'apertura. Il filtro ID si aggiunge sempre allo scope autorizzato; intestatari, note e visibilità telefono mantengono le regole esistenti. I dettagli restano in memoria fino ad «Aggiorna dati» o al successivo salvataggio del gruppo; richieste contemporanee dello stesso popup sono accorpate.

@@ -66,8 +66,8 @@ try {
             $pdo->commit();
 
             $inviteUrl = analyticspro_base_url('login.php?email=' . rawurlencode($email) . '&invitation=' . rawurlencode($token));
-            analyticspro_send_email($email, 'Invito AnalyticsPRO', sprintf(
-                '<p>Sei stato invitato su AnalyticsPRO.</p><p><strong>Password temporanea:</strong> %s</p><p><a href="%s">Apri la pagina di login</a></p>',
+            analyticspro_send_email($email, 'Invito easyradar', sprintf(
+                '<p>Sei stato invitato su easyradar.</p><p><strong>Password temporanea:</strong> %s</p><p><a href="%s">Apri la pagina di login</a></p>',
                 analyticspro_h($temporaryPassword),
                 analyticspro_h($inviteUrl)
             ));
@@ -102,30 +102,31 @@ try {
 
 $subusers = analyticspro_fetch_subusers((int) $user['id']);
 
-analyticspro_render_header('Subutenti');
+analyticspro_render_header('Team', ['body_class' => 'team-page']);
 ?>
-<?= analyticspro_ui_page_header('Gestione subutenti', 'Invita nuovi collaboratori e aggiorna i loro permessi senza uscire dal tenant.', '', ['eyebrow' => 'Team']) ?>
+<?= analyticspro_ui_page_header('Il tuo team', 'Invita i tuoi collaboratori e gestisci i permessi di accesso al tuo spazio di lavoro.', '', ['eyebrow' => 'Gestione']) ?>
 <div class="row g-4">
     <div class="col-lg-5">
         <div class="card border-0 shadow-sm h-100">
             <div class="card-body">
-                <h2 class="h5">Invita subutente</h2>
+                <h2 class="h5 mb-2"><i class="bi bi-person-plus text-primary me-2" aria-hidden="true"></i>Invita un collaboratore</h2>
+                <p class="text-muted small mb-4">Riceverà un invito via email per accedere al tuo team.</p>
                 <form method="post">
                     <input type="hidden" name="csrf_token" value="<?= analyticspro_h(analyticspro_csrf_token()) ?>">
                     <input type="hidden" name="action" value="invite_subuser">
                     <div class="row g-3">
-                        <div class="col-md-6"><label class="form-label">Nome</label><input class="form-control" name="nome" required></div>
-                        <div class="col-md-6"><label class="form-label">Cognome</label><input class="form-control" name="cognome" required></div>
-                        <div class="col-12"><label class="form-label">Email</label><input type="email" class="form-control" name="email" required></div>
+                        <div class="col-md-6"><label class="form-label" for="invite-nome">Nome</label><input class="form-control" id="invite-nome" name="nome" autocomplete="given-name" required></div>
+                        <div class="col-md-6"><label class="form-label" for="invite-cognome">Cognome</label><input class="form-control" id="invite-cognome" name="cognome" autocomplete="family-name" required></div>
+                        <div class="col-12"><label class="form-label" for="invite-email">Email</label><input type="email" class="form-control" id="invite-email" name="email" autocomplete="email" required></div>
                     </div>
                     <div class="row g-2 mt-2 small">
                         <div class="col-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="can_edit_all_markers" value="1" id="perm-edit"><label class="form-check-label" for="perm-edit">Può modificare tutti i marker</label></div></div>
                         <div class="col-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="can_import" value="1" id="perm-import"><label class="form-check-label" for="perm-import">Può importare</label></div></div>
                         <div class="col-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="can_view_analytics" value="1" id="perm-analytics"><label class="form-check-label" for="perm-analytics">Può vedere analitiche</label></div></div>
-                        <div class="col-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="can_view_reports" value="1" id="perm-reports"><label class="form-check-label" for="perm-reports">Può vedere report</label></div></div>
+                        <div class="col-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="can_view_reports" value="1" id="perm-reports"><label class="form-check-label" for="perm-reports">Può vedere proprietari</label></div></div>
                         <div class="col-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="can_export" value="1" checked id="perm-export"><label class="form-check-label" for="perm-export">Può esportare</label></div></div>
                     </div>
-                    <button class="btn btn-primary mt-3" type="submit">Invita</button>
+                    <button class="btn btn-primary mt-4" type="submit"><i class="bi bi-send me-2" aria-hidden="true"></i>Invia invito</button>
                 </form>
             </div>
         </div>
@@ -133,9 +134,9 @@ analyticspro_render_header('Subutenti');
     <div class="col-lg-7">
         <div class="card border-0 shadow-sm">
             <div class="card-body">
-                <h2 class="h5">Permessi subutenti</h2>
+                <h2 class="h5 mb-4">Collaboratori e permessi <span class="badge text-bg-light ms-2"><?= count($subusers) ?></span></h2>
                 <?php if (!$subusers): ?>
-                    <?= analyticspro_ui_empty_state(['icon' => 'bi-people', 'title' => 'Nessun subutente creato', 'message' => 'Invita il primo collaboratore per assegnare marker, report e analitiche.']) ?>
+                    <?= analyticspro_ui_empty_state(['icon' => 'bi-people', 'title' => 'Il tuo team parte da qui', 'message' => 'Invita il primo collaboratore per assegnare marker, report e analitiche.']) ?>
                 <?php endif; ?>
                 <?php foreach ($subusers as $subuser): ?>
                     <form method="post" class="border rounded-4 p-3 mb-3 ap-subtle-block">
@@ -147,11 +148,11 @@ analyticspro_render_header('Subutenti');
                             <span class="text-muted small"><?= analyticspro_h((string) $subuser['email']) ?></span>
                         </div>
                         <div class="row g-2 small">
-                            <?php foreach (['can_edit_all_markers' => 'Modifica tutti i marker', 'can_import' => 'Importa dati', 'can_view_analytics' => 'Analitiche', 'can_view_reports' => 'Report', 'can_export' => 'Export'] as $key => $label): ?>
+                            <?php foreach (['can_edit_all_markers' => 'Modifica tutti i marker', 'can_import' => 'Importa dati', 'can_view_analytics' => 'Analitiche', 'can_view_reports' => 'Proprietari', 'can_export' => 'Export'] as $key => $label): ?>
                                 <div class="col-md-6">
                                     <div class="form-check">
-                                        <input class="form-check-input" type="checkbox" name="<?= analyticspro_h($key) ?>" value="1" <?= !empty($subuser[$key]) ? 'checked' : '' ?>>
-                                        <label class="form-check-label"><?= analyticspro_h($label) ?></label>
+                                        <input class="form-check-input" type="checkbox" id="subuser-<?= (int) $subuser['id'] ?>-<?= analyticspro_h($key) ?>" name="<?= analyticspro_h($key) ?>" value="1" <?= !empty($subuser[$key]) ? 'checked' : '' ?>>
+                                        <label class="form-check-label" for="subuser-<?= (int) $subuser['id'] ?>-<?= analyticspro_h($key) ?>"><?= analyticspro_h($label) ?></label>
                                     </div>
                                 </div>
                             <?php endforeach; ?>

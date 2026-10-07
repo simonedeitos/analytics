@@ -89,7 +89,7 @@ if ($canViewAnalytics) {
 
 $topbarContent = '';
 
-analyticspro_render_header('Dashboard', ['app_assets' => true, 'topbar_content' => $topbarContent]);
+analyticspro_render_header('Panoramica', ['app_assets' => true, 'topbar_content' => $topbarContent, 'body_class' => 'dashboard-page']);
 
 ob_start();
 ?>
@@ -122,10 +122,10 @@ $pageActions = (string) ob_get_clean();
 
 $quickActions = [
     ['visible' => true, 'url' => 'mappa.php', 'icon' => 'bi-map', 'title' => 'Apri mappa', 'desc' => 'Esplora la distribuzione territoriale'],
-    ['visible' => true, 'url' => 'assegnati.php', 'icon' => 'bi-pin-map', 'title' => 'Marker assegnati', 'desc' => 'Controlla la tua coda operativa'],
+    ['visible' => true, 'url' => 'assegnati.php', 'icon' => 'bi-pin-map', 'title' => 'Assegnati a me', 'desc' => 'Controlla la tua coda operativa'],
     ['visible' => $canImport, 'url' => 'importa.php', 'icon' => 'bi-upload', 'title' => 'Importa dati', 'desc' => 'Carica CSV o Excel'],
-    ['visible' => $canViewReports, 'url' => 'report.php', 'icon' => 'bi-table', 'title' => 'Report', 'desc' => 'Apri la vista tabellare'],
-    ['visible' => analyticspro_is_main_user(), 'url' => 'subutenti.php', 'icon' => 'bi-people', 'title' => 'Subutenti', 'desc' => 'Gestisci permessi e inviti'],
+    ['visible' => $canViewReports, 'url' => 'report.php', 'icon' => 'bi-table', 'title' => 'Proprietari', 'desc' => 'Apri la vista tabellare'],
+    ['visible' => analyticspro_is_main_user(), 'url' => 'subutenti.php', 'icon' => 'bi-people', 'title' => 'Team', 'desc' => 'Gestisci permessi e inviti'],
 ];
 ?>
 <div id="analyticspro-app"
@@ -155,9 +155,9 @@ $quickActions = [
         <div class="card-body">
             <?= analyticspro_ui_page_header(
                 'Ciao, ' . analyticspro_full_name($user),
-                'Una home unificata per monitorare territorio e attività, tutto a portata di mano!',
+                'Il tuo territorio, i tuoi immobili e le attività del team, in un unico posto.',
                 $pageActions,
-                ['eyebrow' => 'Dashboard']
+                ['eyebrow' => 'Panoramica']
             ) ?>
             <ul class="nav nav-pills ap-dashboard-tabs mt-4" id="dashboardTabPills" role="tablist">
                 <li class="nav-item"><button class="nav-link active" type="button" data-dashboard-tab="all">Panoramica</button></li>
@@ -274,8 +274,8 @@ $quickActions = [
                 <div class="col-12">
                     <div class="card border-0 shadow-sm h-100">
                         <div class="card-body">
-                            <h2 class="h5 mb-3">Quick actions</h2>
-                            <div class="d-grid gap-2">
+                            <h2 class="h5 mb-3">Azioni rapide</h2>
+                            <div class="d-grid gap-2 ap-quick-actions">
                                 <?php foreach ($quickActions as $action): ?>
                                     <?php if (!$action['visible']) continue; ?>
                                     <a href="<?= analyticspro_h(analyticspro_base_url($action['url'])) ?>" class="btn btn-outline-primary text-start">

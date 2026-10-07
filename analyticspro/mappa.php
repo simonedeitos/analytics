@@ -20,9 +20,60 @@ ob_start();
 ?>
 <div class="analyticspro-map-toolbar">
     <div class="analyticspro-map-toolbar-primary">
+        <div class="analyticspro-map-search">
+            <i class="bi bi-search" aria-hidden="true"></i>
+            <label for="map-search" class="visually-hidden">Cerca indirizzo o dati catastali</label>
+            <input id="map-search" type="search" class="form-control form-control-sm" placeholder="Cerca indirizzo, foglio, particella…">
+        </div>
+        <div class="analyticspro-map-field">
+            <label for="map-comune-filter" class="form-label small mb-1">Comune</label>
+            <select id="map-comune-filter" class="form-select form-select-sm"><option value="">Tutti i comuni</option></select>
+        </div>
+        <div class="dropdown analyticspro-map-toolbar-dropdown">
+            <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" data-bs-boundary="viewport" aria-expanded="false">
+                Stato contatto
+            </button>
+            <div class="dropdown-menu p-3 shadow analyticspro-map-dropdown" id="map-filter-panel">
+                <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mb-2">
+                    <strong class="small text-uppercase text-muted">Stati</strong>
+                    <button id="btn-select-all-stati" type="button" class="btn btn-xs btn-outline-secondary">Deseleziona tutti</button>
+                </div>
+                <div class="d-flex flex-wrap align-items-center gap-1 analyticspro-map-filter-list">
+                    <?php foreach ([
+                        '' => 'Non impostato',
+                        'non_interessato' => 'Non Interessato',
+                        'interessato' => 'Interessato',
+                        'contattato' => 'Contattato',
+                        'da_contattare' => 'Da Contattare',
+                        'non_raggiungibile' => 'Non Raggiungibile',
+                        'in_vendita_noi' => 'In Vendita NOI',
+                        'in_vendita_altri' => 'In Vendita ALTRI',
+                        'altro' => 'Altro',
+                    ] as $value => $label): ?>
+                        <div class="form-check form-check-inline me-0">
+                            <input class="form-check-input map-stato-filter" type="checkbox" value="<?= analyticspro_h($value) ?>" id="filter-stato-<?= $value === '' ? 'null' : analyticspro_h(str_replace('_', '-', $value)) ?>" checked>
+                            <label class="form-check-label" for="filter-stato-<?= $value === '' ? 'null' : analyticspro_h(str_replace('_', '-', $value)) ?>"><?= analyticspro_h($label) ?></label>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+                <div id="map-category-filter-panel" class="d-flex flex-wrap align-items-center gap-1 mt-2 small"></div>
+                <div class="d-flex justify-content-end mt-3 pt-2 border-top">
+                    <button id="btn-apply-filter" type="button" class="btn btn-xs btn-primary">Applica</button>
+                </div>
+            </div>
+        </div>
+        <div class="analyticspro-map-field">
+            <label for="map-assigned-filter" class="form-label small mb-1">Assegnato a</label>
+            <select id="map-assigned-filter" class="form-select form-select-sm"><option value="">Tutti</option></select>
+        </div>
+        <div class="form-check form-switch analyticspro-map-toolbar-switch mb-0">
+            <input class="form-check-input" type="checkbox" role="switch" id="cadastral-layer-toggle">
+            <label class="form-check-label small fw-semibold" for="cadastral-layer-toggle">Layer catastale</label>
+        </div>
+        <div class="analyticspro-map-actions">
         <div class="dropdown analyticspro-map-toolbar-dropdown">
             <button class="btn btn-outline-primary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" data-bs-boundary="viewport" aria-expanded="false">
-                <i class="bi bi-search me-1"></i>Ricerca Particella
+                <i class="bi bi-plus-lg me-1"></i>Trova nuova area
             </button>
             <div class="dropdown-menu p-3 shadow analyticspro-map-dropdown analyticspro-find-area-dropdown">
                 <div class="small text-uppercase text-muted fw-semibold mb-2">Ricerca Particella</div>
@@ -51,66 +102,10 @@ ob_start();
                 </div>
             </div>
         </div>
-        <div class="dropdown analyticspro-map-toolbar-dropdown">
-            <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" data-bs-boundary="viewport" aria-expanded="false">
-                <i class="bi bi-funnel me-1"></i>Filtri mappa
-            </button>
-            <div class="dropdown-menu p-3 shadow analyticspro-map-dropdown" id="map-filter-panel">
-                <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mb-2">
-                    <strong class="small text-uppercase text-muted">Stati</strong>
-                    <button id="btn-select-all-stati" type="button" class="btn btn-xs btn-outline-secondary">Deseleziona tutti</button>
-                </div>
-                <div class="d-flex flex-wrap align-items-center gap-1 analyticspro-map-filter-list">
-                    <div class="form-check form-check-inline me-0">
-                        <input class="form-check-input map-stato-filter" type="checkbox" value="" id="filter-stato-null" checked>
-                        <label class="form-check-label" for="filter-stato-null">Non impostato</label>
-                    </div>
-                    <div class="form-check form-check-inline me-0">
-                        <input class="form-check-input map-stato-filter" type="checkbox" value="non_interessato" id="filter-stato-non-interessato" checked>
-                        <label class="form-check-label" for="filter-stato-non-interessato">Non Interessato</label>
-                    </div>
-                    <div class="form-check form-check-inline me-0">
-                        <input class="form-check-input map-stato-filter" type="checkbox" value="interessato" id="filter-stato-interessato" checked>
-                        <label class="form-check-label" for="filter-stato-interessato">Interessato</label>
-                    </div>
-                    <div class="form-check form-check-inline me-0">
-                        <input class="form-check-input map-stato-filter" type="checkbox" value="contattato" id="filter-stato-contattato" checked>
-                        <label class="form-check-label" for="filter-stato-contattato">Contattato</label>
-                    </div>
-                    <div class="form-check form-check-inline me-0">
-                        <input class="form-check-input map-stato-filter" type="checkbox" value="da_contattare" id="filter-stato-da-contattare" checked>
-                        <label class="form-check-label" for="filter-stato-da-contattare">Da Contattare</label>
-                    </div>
-                    <div class="form-check form-check-inline me-0">
-                        <input class="form-check-input map-stato-filter" type="checkbox" value="non_raggiungibile" id="filter-stato-non-raggiungibile" checked>
-                        <label class="form-check-label" for="filter-stato-non-raggiungibile">Non Raggiungibile</label>
-                    </div>
-                    <div class="form-check form-check-inline me-0">
-                        <input class="form-check-input map-stato-filter" type="checkbox" value="in_vendita_noi" id="filter-stato-in-vendita-noi" checked>
-                        <label class="form-check-label" for="filter-stato-in-vendita-noi">In Vendita NOI</label>
-                    </div>
-                    <div class="form-check form-check-inline me-0">
-                        <input class="form-check-input map-stato-filter" type="checkbox" value="in_vendita_altri" id="filter-stato-in-vendita-altri" checked>
-                        <label class="form-check-label" for="filter-stato-in-vendita-altri">In Vendita ALTRI</label>
-                    </div>
-                    <div class="form-check form-check-inline me-0">
-                        <input class="form-check-input map-stato-filter" type="checkbox" value="altro" id="filter-stato-altro" checked>
-                        <label class="form-check-label" for="filter-stato-altro">Altro</label>
-                    </div>
-                </div>
-                <div id="map-category-filter-panel" class="d-flex flex-wrap align-items-center gap-1 mt-2 small"></div>
-                <div class="d-flex justify-content-end mt-3 pt-2 border-top">
-                    <button id="btn-apply-filter" type="button" class="btn btn-xs btn-primary">Applica</button>
-                </div>
-            </div>
-        </div>
-        <div class="form-check form-switch analyticspro-map-toolbar-switch mb-0">
-            <input class="form-check-input" type="checkbox" role="switch" id="cadastral-layer-toggle">
-            <label class="form-check-label small fw-semibold" for="cadastral-layer-toggle">Mostra layer catastale</label>
-        </div>
         <button class="btn btn-outline-primary btn-sm" id="refresh-map">
             <i class="bi bi-arrow-clockwise me-1"></i>Aggiorna dati
         </button>
+        </div>
     </div>
     <?php if (analyticspro_is_admin()): ?>
         <form method="get" class="analyticspro-map-toolbar-secondary">
@@ -131,6 +126,7 @@ analyticspro_render_header('Mappa', [
     'app_assets' => true,
     'body_class' => 'map-page',
     'topbar_content' => $mapTopbarControls,
+    'extra_head' => '<link rel="stylesheet" href="' . analyticspro_h(analyticspro_asset_url('assets/css/map.css')) . '">',
 ]);
 ?>
 <div id="analyticspro-app"
@@ -154,6 +150,25 @@ analyticspro_render_header('Mappa', [
 
     <div id="analyticspro-map-shell" class="analyticspro-map-shell">
         <div id="map-fullpage"></div>
+        <section id="map-visible-area" class="analyticspro-map-visible-area" aria-label="Area visibile">
+            <div class="analyticspro-map-overlay-heading"><i class="bi bi-bounding-box" aria-hidden="true"></i> Area visibile</div>
+            <div class="analyticspro-map-visible-counts" role="status" aria-live="polite">
+                <div><strong id="map-visible-count">—</strong><span>Immobili</span></div>
+                <div><strong id="map-visible-owners" aria-describedby="map-visible-owners-help">—</strong><span>Proprietari</span></div>
+            </div>
+            <small id="map-visible-owners-help" class="analyticspro-map-owners-help">Disponibile dopo aver aperto i dettagli</small>
+            <?php if (!analyticspro_is_subuser() || !empty($subuserPermissions['can_view_reports'])): ?>
+                <a class="analyticspro-map-list-link" href="<?= analyticspro_h(analyticspro_base_url('report.php') . (analyticspro_is_admin() ? '?tenant_id=' . rawurlencode($selectedTenant) : '')) ?>" title="Proprietari">Vedi elenco <i class="bi bi-arrow-right" aria-hidden="true"></i></a>
+            <?php endif; ?>
+        </section>
+        <aside class="analyticspro-map-legend" aria-label="Legenda stati contatto">
+            <strong>Stato contatto</strong>
+            <span><i class="analyticspro-map-legend-dot is-uncontacted" aria-hidden="true"></i>Non contattato</span>
+            <span><i class="analyticspro-map-legend-dot is-contacted" aria-hidden="true"></i>Contattato</span>
+            <span><i class="analyticspro-map-legend-dot is-recontact" aria-hidden="true"></i>Da ricontattare</span>
+            <span><i class="analyticspro-map-legend-dot is-unreachable" aria-hidden="true"></i>Non raggiungibile</span>
+            <small class="analyticspro-map-legend-note">Colori di riferimento; i marker mantengono i colori personalizzati.</small>
+        </aside>
         <div id="cadastral-opacity-control" class="d-none analyticspro-cadastral-opacity-control">
             <i class="bi bi-layers-half text-muted" aria-hidden="true"></i>
             <input type="range"
