@@ -1330,26 +1330,45 @@
     function initReportFiltersToggle() {
         var button = document.getElementById('report-filters-toggle');
         var filters = document.getElementById('report-filters');
-        if (!button || !filters || button.dataset.reportBound) return;
-        function setVisible(visible) {
-            filters.hidden = !visible;
-            button.setAttribute('aria-expanded', String(visible));
-            button.textContent = visible ? 'Nascondi filtri' : 'Mostra filtri';
-        }
-        try { setVisible(localStorage.getItem('analyticspro-report-filters-visible') !== '0'); } catch (error) { setVisible(true); }
-        button.addEventListener('click', function () {
-            var visible = filters.hidden;
-            setVisible(visible);
-            try { localStorage.setItem('analyticspro-report-filters-visible', visible ? '1' : '0'); } catch (error) {}
-        });
-        document.addEventListener('keydown', function (event) {
-            if (event.key === 'Escape' && state.reportContactPopover) {
-                var contactButton = state.reportContactButton;
-                closeReportContacts();
-                if (contactButton && contactButton.isConnected) contactButton.focus();
+        if (!button || !filters) return;
+        if (!button.dataset.reportBound) {
+            function setVisible(visible) {
+                filters.hidden = !visible;
+                button.setAttribute('aria-expanded', String(visible));
+                button.setAttribute('aria-label', visible ? 'Nascondi filtri' : 'Mostra filtri');
+                button.title = visible ? 'Nascondi filtri' : 'Mostra filtri';
             }
-        });
-        button.dataset.reportBound = '1';
+            try { setVisible(localStorage.getItem('analyticspro-report-filters-visible') === '1'); } catch (error) { setVisible(false); }
+            button.addEventListener('click', function () {
+                var visible = filters.hidden;
+                setVisible(visible);
+                try { localStorage.setItem('analyticspro-report-filters-visible', visible ? '1' : '0'); } catch (error) {}
+            });
+            document.addEventListener('keydown', function (event) {
+                if (event.key === 'Escape' && state.reportContactPopover) {
+                    var contactButton = state.reportContactButton;
+                    closeReportContacts();
+                    if (contactButton && contactButton.isConnected) contactButton.focus();
+                }
+            });
+            button.dataset.reportBound = '1';
+        }
+        var resetButton = document.getElementById('report-filters-reset');
+        if (resetButton && !resetButton.dataset.reportBound) {
+            resetButton.addEventListener('click', function () {
+                ['comune', 'foglio', 'particella', 'stato', 'assigned', 'color', 'categoria'].forEach(function (name) {
+                    var control = document.getElementById('report-filter-' + name);
+                    if (control) control.value = '';
+                });
+                var colorSelect = document.getElementById('report-filter-color');
+                if (colorSelect) {
+                    updateColorSelectAppearance(colorSelect);
+                    updateReportFilterColorPreview('');
+                }
+                applyReportFilters();
+            });
+            resetButton.dataset.reportBound = '1';
+        }
     }
 
     function updateReportSummary(properties) {

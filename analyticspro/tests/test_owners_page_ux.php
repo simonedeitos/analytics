@@ -5,6 +5,7 @@ declare(strict_types=1);
 $root = dirname(__DIR__);
 $page = (string) file_get_contents($root . '/report.php');
 $source = (string) file_get_contents($root . '/assets/js/analyticspro.js');
+$styles = (string) file_get_contents($root . '/assets/css/owners.css');
 $dom = new DOMDocument();
 libxml_use_internal_errors(true);
 $dom->loadHTML(preg_replace('/<\?[\s\S]*?\?>/', '', substr($page, strpos($page, '<div id="analyticspro-app"'))));
@@ -16,8 +17,16 @@ foreach (['comune', 'foglio', 'particella', 'stato', 'assigned', 'color', 'categ
 }
 if ($xpath->query('//select[@id="report-filter-categoria"]')->length !== 1
     || $xpath->query('//*[@id="report-filters"]//*[@id="report-table"]')->length !== 0
+    || $xpath->query('//*[@id="report-filters"]//*[@id="report-search" or @id="report-address-search"]')->length !== 0
+    || $xpath->query('//*[@id="report-filters"][@hidden]')->length !== 1
+    || $xpath->query('//*[@id="report-filters-reset"]')->length !== 1
+    || $xpath->query('//*[@id="report-filters-toggle"][@aria-expanded="false"]')->length !== 1
+    || !str_contains($page, 'bi-funnel')
+    || !str_contains($page, 'class="analyticspro-map-field owners-filter-field"')
+    || !str_contains($styles, 'grid-template-columns: minmax(100px, 1fr)')
+    || !str_contains($styles, '.owners-filter-field .form-select')
     || !str_contains($page, "analyticspro_asset_url('assets/css/map.css')")) {
-    throw new RuntimeException('Category select, independently visible table and shared drawer styles are required.');
+    throw new RuntimeException('Compact collapsed filters, visible search controls, reset action and shared map field styles are required.');
 }
 
 $script = 'const source = ' . json_encode($source, JSON_THROW_ON_ERROR) . ";\n" . <<<'JS'
@@ -26,8 +35,8 @@ const vm = require('node:vm');
 const nodes = {};
 const handlers = {};
 const state = { canViewPhone: true, role: 'tenant' };
-const storage = { value: '0', getItem() { return this.value; }, setItem(key, value) { this.value = value; } };
-let savedOwnerKey, presented, opened, readOnly;
+const storage = { value: null, getItem() { return this.value; }, setItem(key, value) { this.value = value; } };
+let savedOwnerKey, presented, opened, readOnly, filterApplications = 0;
 function node(id) {
     return nodes[id] = {
         value: '', dataset: {}, innerHTML: '', hidden: false, attributes: {},
@@ -43,6 +52,7 @@ const property = {
 };
 const context = {
     state, localStorage: storage,
+    applyReportFilters() { filterApplications++; },
     document: {
         getElementById(id) { return nodes[id] || null; },
         createElement() { return { innerHTML: '' }; },
@@ -67,6 +77,7 @@ const context = {
     colorPaletteOptions() { return '<option>Colore</option>'; },
     updateEditorColorPreview() {},
     updateColorSelectAppearance() {},
+    updateReportFilterColorPreview() {},
     updateMapEditorPresentation(p) { presented = p; },
     renderEditorOwnerSelect(p, key) { savedOwnerKey = key; },
     renderEditorOwners(p, key) { assert.equal(key, savedOwnerKey); },
@@ -85,14 +96,19 @@ for (const name of ['propertyCanViewPhone', 'ownerCanEdit', 'ownerGroupKey', 'ed
 }
 const toggle = node('report-filters-toggle');
 const filters = node('report-filters');
+const reset = node('report-filters-reset');
+const resettableFilters = ['comune', 'foglio', 'particella', 'stato', 'assigned', 'color', 'categoria']
+    .map(name => node('report-filter-' + name));
 context.initReportFiltersToggle();
 assert.equal(filters.hidden, true);
 assert.equal(toggle.attributes['aria-expanded'], 'false');
-assert.equal(toggle.textContent, 'Mostra filtri');
+assert.equal(toggle.attributes['aria-label'], 'Mostra filtri');
+assert.equal(toggle.title, 'Mostra filtri');
 toggle.click();
 assert.equal(filters.hidden, false);
 assert.equal(storage.value, '1');
 assert.equal(toggle.attributes['aria-expanded'], 'true');
+assert.equal(toggle.attributes['aria-label'], 'Nascondi filtri');
 const click = toggle.click;
 context.initReportFiltersToggle();
 assert.equal(toggle.click, click, 'Initialization is idempotent');
@@ -101,7 +117,11 @@ storage.getItem = () => { throw new Error('Storage unavailable'); };
 storage.setItem = () => { throw new Error('Storage unavailable'); };
 context.initReportFiltersToggle();
 toggle.click();
-assert.equal(filters.hidden, true, 'Toggle works even when browser storage is blocked');
+assert.equal(filters.hidden, false, 'Toggle works even when browser storage is blocked');
+resettableFilters.forEach(control => { control.value = 'active'; });
+reset.click();
+assert.ok(resettableFilters.every(control => control.value === ''), 'Reset clears the advanced filters');
+assert.equal(filterApplications, 1, 'Reset reapplies the existing filter logic');
 
 const contact = { dataset: { propertyId: '1' }, isConnected: true, focus() { this.focused = true; } };
 context.toggleReportContacts(contact);
