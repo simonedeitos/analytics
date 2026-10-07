@@ -807,7 +807,7 @@
 
     function propertyHeaderFacts(property) {
         return [
-            { label: 'Categoria catastale', value: property.categoria || '—' },
+            { label: 'Categoria', value: property.categoria || '—' },
             { label: 'Classe', value: property.classe || '—' },
             { label: 'Rendita', value: property.rendita || '—' },
             { label: 'Piano', value: property.piano || '—' },
