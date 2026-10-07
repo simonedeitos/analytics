@@ -1237,7 +1237,12 @@
     function renderAssignedTable() {
         if (!document.getElementById('assigned-table')) return;
         var grouped = groupPropertiesByUnit(getAssignedPropertiesForDisplay());
-        initDataTable('#assigned-table', buildTableData(grouped, 'assigned'), state.canExport || state.role !== 'subuser', 'assigned');
+        initDataTable(
+    '#assigned-table',
+    buildTableData(grouped, 'assigned'),
+    false,
+    'assigned'
+);
     }
 
     function reportStatusBadge(label, property) {
