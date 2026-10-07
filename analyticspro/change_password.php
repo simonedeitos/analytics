@@ -54,7 +54,7 @@ analyticspro_render_header('Cambio password', ['body_class' => 'bg-auth', 'auth_
         <div class="ap-auth-panel">
             <div class="ap-auth-panel-inner">
                 <h2 class="h3 mb-2">Nuova password</h2>
-                <p class="text-muted small mb-4">Imposta una nuova password per continuare a usare AnalyticsPRO in sicurezza.</p>
+                <p class="text-muted small mb-4">Imposta una nuova password per continuare a usare easyradar in sicurezza.</p>
                 <form method="post">
                     <input type="hidden" name="csrf_token" value="<?= analyticspro_h(analyticspro_csrf_token()) ?>">
                     <div class="mb-3">

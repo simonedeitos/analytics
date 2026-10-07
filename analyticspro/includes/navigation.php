@@ -23,13 +23,37 @@ function analyticspro_nav_items(?array $user = null, ?array $subuserPermissions 
 
     return [
         [
-            'label' => 'Panoramica',
+            'label' => '',
             'items' => [
                 [
-                    'label' => 'Dashboard',
+                    'label' => 'Panoramica',
                     'icon' => 'bi-speedometer2',
                     'url' => analyticspro_base_url('dashboard.php'),
                     'page' => ['dashboard.php'],
+                    'visible' => true,
+                    'badge' => 0,
+                ],
+                [
+                    'label' => 'Mappa',
+                    'icon' => 'bi-map',
+                    'url' => analyticspro_base_url('mappa.php'),
+                    'page' => ['mappa.php'],
+                    'visible' => true,
+                    'badge' => 0,
+                ],
+                [
+                    'label' => 'Proprietari',
+                    'icon' => 'bi-people',
+                    'url' => analyticspro_base_url('report.php'),
+                    'page' => ['report.php'],
+                    'visible' => !analyticspro_is_subuser() || !empty($subuserPermissions['can_view_reports']),
+                    'badge' => 0,
+                ],
+                [
+                    'label' => 'Assegnati a me',
+                    'icon' => 'bi-pin-map',
+                    'url' => analyticspro_base_url('assegnati.php'),
+                    'page' => ['assegnati.php'],
                     'visible' => true,
                     'badge' => 0,
                 ],
@@ -44,45 +68,10 @@ function analyticspro_nav_items(?array $user = null, ?array $subuserPermissions 
             ],
         ],
         [
-            'label' => 'Territorio',
+            'label' => 'Gestione',
             'items' => [
                 [
-                    'label' => 'Mappa',
-                    'icon' => 'bi-map',
-                    'url' => analyticspro_base_url('mappa.php'),
-                    'page' => ['mappa.php'],
-                    'visible' => true,
-                    'badge' => 0,
-                ],
-                [
-                    'label' => 'Marker assegnati',
-                    'icon' => 'bi-pin-map',
-                    'url' => analyticspro_base_url('assegnati.php'),
-                    'page' => ['assegnati.php'],
-                    'visible' => true,
-                    'badge' => 0,
-                ],
-            ],
-        ],
-        [
-            'label' => 'Analisi',
-            'visible' => !analyticspro_is_subuser() || !empty($subuserPermissions['can_view_reports']),
-            'items' => [
-                [
-                    'label' => 'Report in griglia',
-                    'icon' => 'bi-table',
-                    'url' => analyticspro_base_url('report.php'),
-                    'page' => ['report.php'],
-                    'visible' => !analyticspro_is_subuser() || !empty($subuserPermissions['can_view_reports']),
-                    'badge' => 0,
-                ],
-            ],
-        ],
-        [
-            'label' => 'Account',
-            'items' => [
-                [
-                    'label' => 'Subutenti',
+                    'label' => 'Team',
                     'icon' => 'bi-people',
                     'url' => analyticspro_base_url('subutenti.php'),
                     'page' => ['subutenti.php'],

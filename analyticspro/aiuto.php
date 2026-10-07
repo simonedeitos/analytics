@@ -10,16 +10,16 @@ analyticspro_require_auth();
 $user = analyticspro_current_user();
 $role = (string) $user['role'];
 $subPermissions = $role === 'subuser' ? analyticspro_get_subuser_permissions((int) $user['id']) : [];
-analyticspro_render_header('Aiuto');
+analyticspro_render_header('Aiuto', ['body_class' => 'help-page']);
 ?>
 
-<?= analyticspro_ui_page_header('Aiuto', 'Guida operativa, FAQ e permessi del tuo profilo in un layout più leggibile e coerente con la nuova app.', '', ['eyebrow' => 'Supporto']) ?>
+<?= analyticspro_ui_page_header('Come possiamo aiutarti?', 'Guide, risposte e informazioni sui permessi per lavorare al meglio con easyradar.', '', ['eyebrow' => 'Aiuto']) ?>
 
 <!-- ===== SEARCH BAR ===== -->
 <div class="mb-4">
     <div class="input-group input-group-lg shadow-sm">
         <span class="input-group-text bg-white border-end-0"><i class="bi bi-search text-muted"></i></span>
-        <input type="text" id="helpSearch" class="form-control border-start-0 ps-0"
+        <input type="text" id="helpSearch" class="form-control border-start-0 ps-0" aria-label="Cerca nella guida e nelle domande frequenti"
                placeholder="Cerca un argomento o una parola chiave..."
                autocomplete="off">
     </div>
@@ -35,7 +35,7 @@ analyticspro_render_header('Aiuto');
             $perms = [
                 ['icon' => 'bi-upload',          'label' => 'Import dati',              'on' => !empty($subPermissions['can_import'])],
                 ['icon' => 'bi-bar-chart-line',  'label' => 'Analitiche',               'on' => !empty($subPermissions['can_view_analytics'])],
-                ['icon' => 'bi-table',           'label' => 'Report in griglia',        'on' => !empty($subPermissions['can_view_reports'])],
+                ['icon' => 'bi-table',           'label' => 'Proprietari',              'on' => !empty($subPermissions['can_view_reports'])],
                 ['icon' => 'bi-download',        'label' => 'Export (CSV/Excel)',        'on' => !empty($subPermissions['can_export'])],
                 ['icon' => 'bi-geo-alt',         'label' => 'Modifica tutti i marker',  'on' => !empty($subPermissions['can_edit_all_markers'])],
             ];
@@ -134,7 +134,7 @@ analyticspro_render_header('Aiuto');
                                 <p>Il campo <strong>Genere</strong> viene derivato dal codice fiscale: per persone fisiche resta <strong>M</strong>/<strong>F</strong>, mentre con codice fiscale interamente numerico (P.IVA a 11 cifre) viene impostato <strong>Società</strong>.</p>
 
                                 <h6 class="mt-3">Storico intestatari</h6>
-                                <p>AnalyticsPRO conserva uno storico completo degli intestatari nel tempo. Quando scegli <strong>Sostituisci</strong>, tutti gli intestatari correnti dell'immobile vengono chiusi con <code>is_current=0</code> e <code>valid_to</code> valorizzato; i nuovi vengono inseriti come correnti.</p>
+                                <p>easyradar conserva uno storico completo degli intestatari nel tempo. Quando scegli <strong>Sostituisci</strong>, tutti gli intestatari correnti dell'immobile vengono chiusi con <code>is_current=0</code> e <code>valid_to</code> valorizzato; i nuovi vengono inseriti come correnti.</p>
                                 <p>Eccezione continuità: se un intestatario ha lo stesso codice fiscale sia prima che dopo, la riga esistente resta corrente (senza duplicati) e vengono aggiornati solo i campi anagrafici/contatto non vuoti in ingresso.</p>
 
                                 <h6 class="mt-3">Inserimento manuale</h6>
@@ -189,7 +189,7 @@ analyticspro_render_header('Aiuto');
                                 <p>Durante import il sistema aggiunge note automatiche con autore <strong>Sistema</strong>: una nota di cambio intestatario (precedenti/nuovi con CF in chiaro) oppure, per nuovi immobili, una nota con timestamp e nome file importato.</p>
 
                                 <h6 class="mt-3">Assegnazione a subutenti</h6>
-                                <p>Dal popup del marker puoi assegnare l'immobile a uno o più subutenti. I subutenti assegnati lo vedranno nella sezione <em>Marker assegnati</em> e, se il loro permesso è configurato su "solo marker assegnati", potranno modificare solo questi.</p>
+                                <p>Dal popup del marker puoi assegnare l'immobile a uno o più subutenti. I subutenti assegnati lo vedranno nella sezione <em>Assegnati a me</em> e, se il loro permesso è configurato su "solo marker assegnati", potranno modificare solo questi.</p>
                                 <h6 class="mt-3">Crea nuovo marker dalla mappa catastale</h6>
                                 <p>Con layer catastale attivo puoi cliccare sulla mappa e usare <strong>Crea nuovo marker</strong>. Le coordinate del click vengono sempre mantenute nel modulo (visibili nel riepilogo <em>Coordinate</em>) anche quando i dati AdE sono incompleti: puoi completare i campi manualmente e salvare. Dopo il salvataggio la mappa si centra subito sul marker appena creato/aperto e viene mostrato un popup di conferma con il riepilogo dei dati salvati.</p>
                             </div>
@@ -200,19 +200,19 @@ analyticspro_render_header('Aiuto');
                     <div class="accordion-item guide-item">
                         <h2 class="accordion-header">
                             <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#g4">
-                                <i class="bi bi-table me-2 text-primary"></i>Report e dashboard
+                                <i class="bi bi-table me-2 text-primary"></i>Proprietari e panoramica
                             </button>
                         </h2>
                         <div id="g4" class="accordion-collapse collapse" data-bs-parent="#guideAccordion">
                             <div class="accordion-body small">
-                                <h6>Sezione "Marker assegnati"</h6>
+                                <h6>Sezione "Assegnati a me"</h6>
                                 <p>Vista a tabella focalizzata sugli immobili assegnati. Ogni riga mostra il <strong>pallino colorato</strong> con il colore corrente del marker, tutti i dati catastali, stato, note e assegnazioni. Gli immobili duplicati sugli stessi estremi catastali vengono mostrati come <strong>riga unificata</strong>, mantenendo in chiaro tutti i singoli intestatari. Tutte le colonne (incluso il colore) sono filtrabili. Se hai il permesso di export puoi scaricare la tabella in <strong>CSV o Excel</strong>. Puoi modificare direttamente i campi abilitati dalla tabella senza aprire il popup mappa.</p>
 
-                                <h6 class="mt-3">Sezione "Report in griglia"</h6>
-                                <p>Vista generale dell'intero patrimonio del tenant con <strong>filtri avanzati</strong> su tutte le colonne. A differenza di "Marker assegnati", mostra tutti gli immobili del tenant (non solo quelli assegnati al subutente corrente). Anche qui gli eventuali duplicati sullo stesso immobile vengono aggregati in un <strong>cluster logico unico</strong> con tutti gli intestatari visibili. Utile per analisi comparative, selezioni multi-criteri e panoramiche globali. L'utente principale può anche eliminare singole righe non più necessarie direttamente dalla tabella, con conferma esplicita.</p>
+                                <h6 class="mt-3">Sezione "Proprietari"</h6>
+                                <p>Vista generale dell'intero patrimonio del tenant con <strong>filtri avanzati</strong> su tutte le colonne. A differenza di "Assegnati a me", mostra tutti gli immobili del tenant (non solo quelli assegnati al subutente corrente). Anche qui gli eventuali duplicati sullo stesso immobile vengono aggregati in un <strong>cluster logico unico</strong> con tutti gli intestatari visibili. Utile per analisi comparative, selezioni multi-criteri e panoramiche globali. L'utente principale può anche eliminare singole righe non più necessarie direttamente dalla tabella, con conferma esplicita.</p>
 
-                                <h6 class="mt-3">Blocchi analitici in dashboard</h6>
-                                <p>La dashboard raccoglie <strong>KPI numerici</strong> (totale immobili, distribuzioni, conteggi per stato) e <strong>grafici</strong> (distribuzione per comune, provincia, categoria catastale, genere intestatari, fasce d'età, titolarità). I dati si aggiornano in tempo reale in base agli import effettuati e possono essere filtrati per periodo, provincia e categoria.</p>
+                                <h6 class="mt-3">Blocchi analitici in Panoramica</h6>
+                                <p>La panoramica raccoglie <strong>KPI numerici</strong> (totale immobili, distribuzioni, conteggi per stato) e <strong>grafici</strong> (distribuzione per comune, provincia, categoria catastale, genere intestatari, fasce d'età, titolarità). I dati si aggiornano in tempo reale in base agli import effettuati e possono essere filtrati per periodo, provincia e categoria.</p>
                             </div>
                         </div>
                     </div>
@@ -250,7 +250,7 @@ analyticspro_render_header('Aiuto');
                             <div class="accordion-body small">
                                 <h6>Come creare e invitare un subutente (utente principale)</h6>
                                 <ol>
-                                    <li>Vai alla sezione <strong>Subutenti</strong> nel menu.</li>
+                                    <li>Vai alla sezione <strong>Team</strong> nel menu.</li>
                                     <li>Compila il modulo con <em>Nome</em>, <em>Cognome</em> ed <em>Email</em> del subutente.</li>
                                     <li>Premi <strong>INVITA</strong>: il sistema genera una password temporanea e invia automaticamente una email al subutente con le credenziali di accesso.</li>
                                     <li>Il subutente al primo login dovrà obbligatoriamente impostare una nuova password.</li>
@@ -260,9 +260,9 @@ analyticspro_render_header('Aiuto');
                                 <ul>
                                     <li><strong>Modifica marker</strong>: scegli se il subutente può modificare <em>tutti</em> i marker del tenant o <em>solo quelli assegnati a lui</em>.</li>
                                     <li><strong>Import dati</strong>: se disabilitato, la voce "Import dati" non appare nel menu del subutente.</li>
-                                    <li><strong>Analitiche</strong>: abilita o disabilita i blocchi analitici della dashboard.</li>
-                                    <li><strong>Report in griglia</strong>: abilita o disabilita la sezione report.</li>
-                                    <li><strong>Export</strong>: abilita o disabilita l'esportazione CSV/Excel dalla sezione "Marker assegnati".</li>
+                                    <li><strong>Analitiche</strong>: abilita o disabilita i blocchi analitici della panoramica.</li>
+                                    <li><strong>Proprietari</strong>: abilita o disabilita la sezione proprietari.</li>
+                                    <li><strong>Export</strong>: abilita o disabilita l'esportazione CSV/Excel dalla sezione "Assegnati a me".</li>
                                 </ul>
 
                                 <h6 class="mt-3">Limitazioni dei subutenti</h6>
@@ -315,7 +315,7 @@ analyticspro_render_header('Aiuto');
                     <?php
                     $faqs = [
                         [
-                            'q' => 'Come mi registro su AnalyticsPRO?',
+                            'q' => 'Come mi registro su easyradar?',
                             'a' => 'Vai alla pagina di registrazione pubblica, compila il modulo con nome, cognome, email e password e invia la richiesta. Il tuo account sarà in stato "in attesa di approvazione". Riceverai una email non appena l\'amministratore avrà approvato il tuo profilo.',
                         ],
                         [
@@ -340,11 +340,11 @@ analyticspro_render_header('Aiuto');
                         ],
                         [
                             'q' => 'Cosa succede se importo lo stesso immobile due volte con intestatario diverso?',
-                            'a' => 'AnalyticsPRO rileva il duplicato (stessi Comune + Foglio + Particella + Subalterno) e mostra una finestra di conferma. Puoi scegliere di aggiornare il dato (il vecchio intestatario viene storicizzato) oppure mantenere quello esistente e ignorare il nuovo.',
+                            'a' => 'easyradar rileva il duplicato (stessi Comune + Foglio + Particella + Subalterno) e mostra una finestra di conferma. Puoi scegliere di aggiornare il dato (il vecchio intestatario viene storicizzato) oppure mantenere quello esistente e ignorare il nuovo.',
                         ],
                         [
                             'q' => 'Posso vedere chi era intestatario di un immobile in passato?',
-                            'a' => 'Sì. AnalyticsPRO conserva uno storico degli intestatari nel tempo. Ogni aggiornamento non cancella il dato precedente ma lo archivia con la data di sostituzione, così puoi sempre risalire alla storia della titolarità di ogni immobile.',
+                            'a' => 'Sì. easyradar conserva uno storico degli intestatari nel tempo. Ogni aggiornamento non cancella il dato precedente ma lo archivia con la data di sostituzione, così puoi sempre risalire alla storia della titolarità di ogni immobile.',
                         ],
                         [
                             'q' => 'Cosa succede se clicco su un gruppo di marker sulla mappa?',
@@ -368,15 +368,15 @@ analyticspro_render_header('Aiuto');
                         ],
                         [
                             'q' => 'Posso assegnare un immobile a più subutenti contemporaneamente?',
-                            'a' => 'Sì. Dal popup del marker puoi assegnare l\'immobile a uno o più subutenti. I subutenti assegnati troveranno l\'immobile nella loro sezione "Marker assegnati".',
+                            'a' => 'Sì. Dal popup del marker puoi assegnare l\'immobile a uno o più subutenti. I subutenti assegnati troveranno l\'immobile nella loro sezione "Assegnati a me".',
                         ],
                         [
-                            'q' => 'Cos\'è la sezione "Marker assegnati" e come si differenzia dal "Report in griglia"?',
-                            'a' => '"Marker assegnati" è una vista a tabella focalizzata sugli immobili assegnati all\'utente corrente (o al subutente). Ogni riga mostra il pallino colorato, tutte le colonne sono filtrabili e puoi modificare direttamente i dati. Il "Report in griglia" invece mostra l\'intero patrimonio del tenant con filtri avanzati, utile per analisi e panoramiche globali.',
+                            'q' => 'Cos\'è la sezione "Assegnati a me" e come si differenzia da "Proprietari"?',
+                            'a' => '"Assegnati a me" è una vista a tabella focalizzata sugli immobili assegnati all\'utente corrente (o al subutente). Ogni riga mostra il pallino colorato, tutte le colonne sono filtrabili e puoi modificare direttamente i dati. La sezione "Proprietari" invece mostra l\'intero patrimonio del tenant con filtri avanzati, utile per analisi e panoramiche globali.',
                         ],
                         [
                             'q' => 'Come posso esportare i dati?',
-                            'a' => 'Dalla sezione "Marker assegnati" (se il permesso export è abilitato) trovi i pulsanti per esportare in CSV o Excel. L\'esportazione tiene conto dei filtri attivi.',
+                            'a' => 'Dalla sezione "Assegnati a me" (se il permesso export è abilitato) trovi i pulsanti per esportare in CSV o Excel. L\'esportazione tiene conto dei filtri attivi.',
                         ],
                         [
                             'q' => 'Perché non vedo il numero di telefono degli intestatari?',
@@ -392,19 +392,19 @@ analyticspro_render_header('Aiuto');
                         ],
                         [
                             'q' => 'Come invito un subutente?',
-                            'a' => 'Vai alla sezione "Subutenti" nel menu, compila nome, cognome ed email del subutente e premi INVITA. Il sistema genera automaticamente una password temporanea e invia una email di invito al subutente.',
+                            'a' => 'Vai alla sezione "Team" nel menu, compila nome, cognome ed email del subutente e premi "Invia invito". Il sistema genera automaticamente una password temporanea e invia una email di invito al subutente.',
                         ],
                         [
                             'q' => 'Posso configurare i permessi di un subutente dopo l\'invito?',
-                            'a' => 'Sì. Dalla gestione subutenti puoi modificare in qualsiasi momento i permessi: modifica tutti i marker o solo assegnati, accesso all\'import, ai blocchi analitici della dashboard, al report e all\'export.',
+                            'a' => 'Sì. Dalla sezione Team puoi modificare in qualsiasi momento i permessi: modifica tutti i marker o solo assegnati, accesso all\'import, ai blocchi analitici della panoramica, alla sezione Proprietari e all\'export.',
                         ],
                         [
                             'q' => 'Un subutente può vedere le analitiche?',
-                            'a' => 'Solo se l\'utente principale ha abilitato il permesso "Analitiche" per quel subutente. In caso contrario i blocchi analitici della dashboard restano nascosti.',
+                            'a' => 'Solo se l\'utente principale ha abilitato il permesso "Analitiche" per quel subutente. In caso contrario i blocchi analitici della panoramica restano nascosti.',
                         ],
                         [
                             'q' => 'Come filtrare per colore o stato nella tabella?',
-                            'a' => 'Nelle sezioni "Marker assegnati" e "Report in griglia" tutte le colonne, incluso il colore e lo stato del marker, sono filtrabili tramite i controlli presenti nell\'intestazione della tabella.',
+                            'a' => 'Nelle sezioni "Assegnati a me" e "Proprietari" tutte le colonne, incluso il colore e lo stato del marker, sono filtrabili tramite i controlli presenti nell\'intestazione della tabella.',
                         ],
                         [
                             'q' => 'I dati che importo sono al sicuro?',

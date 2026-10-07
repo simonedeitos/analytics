@@ -11,7 +11,7 @@ function analyticspro_smtp_settings(): array
         'pass' => analyticspro_system_config('smtp_pass', analyticspro_env('SMTP_PASS', '')),
         'security' => analyticspro_system_config('smtp_security', analyticspro_env('SMTP_SECURITY', 'tls')),
         'from_email' => analyticspro_system_config('smtp_from_email', analyticspro_env('SMTP_FROM_EMAIL', '')),
-        'from_name' => analyticspro_system_config('smtp_from_name', analyticspro_env('SMTP_FROM_NAME', 'AnalyticsPRO')),
+        'from_name' => analyticspro_system_config('smtp_from_name', analyticspro_env('SMTP_FROM_NAME', 'easyradar')),
     ];
 }
 

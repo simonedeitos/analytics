@@ -44,7 +44,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $adminEmail = analyticspro_system_config('admin_notification_email');
         $emailSent = false;
         if ($adminEmail) {
-            $emailSent = analyticspro_send_email($adminEmail, 'Nuova registrazione AnalyticsPRO', sprintf('<p>Nuova registrazione: <strong>%s %s</strong> (%s)</p>', analyticspro_h($nome), analyticspro_h($cognome), analyticspro_h($email)));
+            $emailSent = analyticspro_send_email($adminEmail, 'Nuova registrazione easyradar', sprintf('<p>Nuova registrazione: <strong>%s %s</strong> (%s)</p>', analyticspro_h($nome), analyticspro_h($cognome), analyticspro_h($email)));
         }
         analyticspro_db()->prepare('UPDATE registration_requests SET email_sent_to_admin = :flag WHERE user_id = :user_id')->execute([
             'flag' => $emailSent ? 1 : 0,
@@ -66,7 +66,7 @@ analyticspro_render_header('Registrazione', ['body_class' => 'bg-auth', 'auth_pa
         <div class="ap-auth-brand">
             <div>
                 <div class="ap-page-eyebrow text-white-50">Nuovo tenant</div>
-                <h1>Richiedi l'accesso ad AnalyticsPRO</h1>
+                <h1>Richiedi l'accesso a easyradar</h1>
                 <p>Crea il tuo account principale per gestire immobili geolocalizzati, team e workflow di import in un'unica applicazione.</p>
             </div>
             <ul class="mb-0 ps-3 small">

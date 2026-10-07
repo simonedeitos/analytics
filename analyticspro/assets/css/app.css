@@ -1,11 +1,11 @@
 /* =====================================================================
-   AnalyticsPRO – App CSS
-   Brand colours: blue #2A519F · orange #f28e0e
+   easyradar – App CSS
+   Brand colours: orange #e66b12 · secondary blue #2A519F
    ===================================================================== */
 
 /* ----- Auth pages ---------------------------------------------------- */
 .bg-auth {
-    background: linear-gradient(160deg, #e8eef8 0%, #f7f9fc 100%);
+    background: linear-gradient(160deg, #fff2e8 0%, #f7f8fa 100%);
     min-height: 100vh;
 }
 .auth-card { border-radius: 1rem; }
@@ -15,7 +15,7 @@
 
 /* ----- Cards --------------------------------------------------------- */
 .metric-card {
-    border-left: 4px solid var(--ap-blue);
+    border-left: 4px solid var(--ap-orange);
     background: var(--ap-surface);
 }
 
@@ -387,10 +387,10 @@
 }
 
 /* ----- Admin sub-nav ------------------------------------------------- */
-.ap-admin-subnav .nav-link { color: var(--ap-blue); }
+.ap-admin-subnav .nav-link { color: var(--ap-orange-dark); }
 .ap-admin-subnav .nav-link.active {
-    background: var(--ap-blue);
-    border-color: var(--ap-blue);
+    background: var(--ap-orange);
+    border-color: var(--ap-orange);
     color: #fff;
 }
 

@@ -67,8 +67,8 @@
 }
 
 .accordion-button:not(.collapsed) {
-    background: var(--ap-blue-light);
-    color: var(--ap-blue-dark);
+    background: var(--ap-orange-light);
+    color: var(--ap-orange-dark);
 }
 
 .ap-subtle-block {
@@ -80,6 +80,35 @@
 .auth-card {
     border-radius: var(--ap-radius-lg);
 }
+
+.dashboard-page .ap-hero-card { padding: .25rem; }
+.dashboard-page .ap-hero-card .ap-page-header { margin-bottom: 0; }
+.dashboard-page .ap-page-actions select { width: auto; max-width: 180px; }
+.dashboard-page .ap-dashboard-tabs {
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--ap-border);
+}
+.dashboard-page .ap-kpi-card { border: 1px solid var(--ap-border) !important; }
+.dashboard-page .ap-quick-actions .btn {
+    border-color: var(--ap-border);
+    color: var(--ap-text);
+    padding: .85rem 1rem;
+}
+.dashboard-page .ap-quick-actions .btn > .bi { color: var(--ap-orange); }
+.dashboard-page .ap-quick-actions .btn .small { font-weight: 400; margin-top: .2rem; }
+.team-page .form-label { font-size: .8rem; font-weight: 600; }
+.team-page .form-check { padding-top: .3rem; padding-bottom: .3rem; }
+.team-page .ap-subtle-block { background: var(--ap-surface); border-color: var(--ap-border) !important; }
+.team-page .ap-subtle-block:last-child { margin-bottom: 0 !important; }
+.team-page .ap-subtle-block strong { overflow-wrap: anywhere; }
+.team-page .ap-subtle-block .text-muted { overflow-wrap: anywhere; }
+.help-page .card-header.bg-primary {
+    background: var(--ap-orange-light) !important;
+    color: var(--ap-orange-dark) !important;
+}
+.help-page .accordion-button { font-size: .875rem; font-weight: 600; padding: 1.1rem 1.25rem; }
+.help-page .accordion-body { line-height: 1.8; }
+.help-page .accordion-button:focus { box-shadow: inset 0 0 0 2px var(--ap-orange); }
 
 @media (max-width: 991.98px) {
     .ap-filter-bar,
