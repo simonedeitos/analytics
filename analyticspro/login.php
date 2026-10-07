@@ -38,7 +38,7 @@ analyticspro_render_header('Login', ['body_class' => 'bg-auth', 'auth_page' => t
 ?>
 <div class="card border-0 shadow-lg ap-auth-card">
     <div class="ap-auth-grid">
-        <div class="ap-auth-brand">
+        <div class="ap-auth-brand ap-auth-brand-image">
             <div>
                 <div class="ap-page-eyebrow text-white-50">Bentornato</div>
                 <h1>Accedi alla tua dashboard immobiliare</h1>
@@ -52,6 +52,9 @@ analyticspro_render_header('Login', ['body_class' => 'bg-auth', 'auth_page' => t
         </div>
         <div class="ap-auth-panel">
             <div class="ap-auth-panel-inner">
+                <?php if (is_file(ANALYTICSPRO_ROOT . '/logo.png')): ?>
+                    <img class="ap-auth-logo" src="<?= analyticspro_h(analyticspro_asset_url('logo.png')) ?>" alt="easyradar">
+                <?php endif; ?>
                 <h2 class="h3 mb-2">Accedi a easyradar</h2>
                 <p class="text-muted small mb-4">Inserisci le tue credenziali per entrare nel pannello.</p>
                 <form method="post">

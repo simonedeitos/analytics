@@ -306,6 +306,21 @@
     flex-direction: column;
     justify-content: space-between;
 }
+.ap-auth-brand-image {
+    background-color: var(--ap-orange);
+    background-image: linear-gradient(135deg, rgba(150,61,6,.85) 0%, rgba(184,75,8,.65) 55%, rgba(230,107,18,.4) 100%), url("../../sfondologin.png");
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+}
+.ap-auth-logo {
+    display: block;
+    height: 56px;
+    width: auto;
+    max-width: 100%;
+    object-fit: contain;
+    margin: 0 auto 1.5rem;
+}
 
 @media (prefers-reduced-motion: reduce) {
     .ap-skeleton { animation: none; }
