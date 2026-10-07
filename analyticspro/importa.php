@@ -42,13 +42,6 @@ analyticspro_render_header('Importa dati', ['app_assets' => true]);
      data-missing-coordinates-stats-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/missing_coordinates_stats.php')) ?>"
      data-admin-import-gml-url="<?= analyticspro_h(analyticspro_base_url('admin/import_gml.php')) ?>">
 
-    <?= analyticspro_ui_page_header(
-        'Importa dati',
-        'Carica file catastali provenienti da EasyCatasto, inserisci record manuali e monitora l\'arricchimento delle coordinate con uno stile coerente con la nuova app.',
-        '',
-        ['eyebrow' => 'Import & enrichment']
-    ) ?>
-
     <div class="card border-0 shadow-sm mb-4">
         <div class="card-body">
             <h2 class="h5">Importa dati da CSV / Excel</h2>
