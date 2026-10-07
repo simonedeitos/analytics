@@ -39,16 +39,8 @@ analyticspro_render_header('Report in griglia', ['app_assets' => true]);
      data-property-delete-endpoint="<?= analyticspro_h(analyticspro_base_url('api/data/delete_property.php')) ?>"
      data-report-query="<?= analyticspro_h($reportQuery) ?>">
 
-    <?= analyticspro_ui_page_header(
-        'Report in griglia',
-        'Vista tabellare con filtri rapidi per immobile e intestatario.',
-        '',
-        ['eyebrow' => 'Dati operativi']
-    ) ?>
-
     <div class="card border-0 shadow-sm">
         <div class="card-body">
-            <p class="text-muted small">Vista generale di tutti gli immobili del tenant con filtri su ogni colonna, incluso colore e stato.</p>
             <div id="report-filters" class="report-filter-bar mb-3">
                 <div class="row g-2 align-items-end">
                     <div class="col-12 col-md-3">
