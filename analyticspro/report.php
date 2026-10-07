@@ -76,94 +76,79 @@ analyticspro_render_header('Proprietari', [
     <div class="card-body">
         <div class="owners-grid-heading">
             <div class="owners-search-row">
-                
-                <button id="report-filters-toggle" type="button" class="btn btn-outline-secondary btn-sm" aria-expanded="true" aria-controls="report-filters">Nascondi filtri</button>
-
+                <div>
+                    <label for="report-address-search" class="visually-hidden">Cerca indirizzo</label>
+                    <div class="owners-search">
+                        <i class="bi bi-search" aria-hidden="true"></i>
+                        <input id="report-address-search" type="search" class="form-control" placeholder="Cerca indirizzo...">
+                    </div>
+                </div>
+                <div>
+                    <label for="report-search" class="visually-hidden">Cerca proprietario</label>
+                    <div class="owners-search">
+                        <i class="bi bi-search" aria-hidden="true"></i>
+                        <input id="report-search" type="search" class="form-control" placeholder="Cerca per nome e cognome...">
+                    </div>
+                </div>
+                <button id="report-filters-toggle" type="button" class="btn btn-outline-secondary btn-sm owners-filter-toggle" aria-expanded="false" aria-controls="report-filters" aria-label="Mostra filtri">
+                    <i class="bi bi-funnel" aria-hidden="true"></i><span>Filtri</span>
+                </button>
             </div>
         </div>
 
-
-            <div id="report-filters" class="report-filter-bar mb-3">
-                <div>
-                    <label
-                        for="report-address-search"
-                        class="form-label form-label-sm small mb-1"
-                    >
-                        Cerca indirizzo
-                    </label>
-                    <div class="owners-search">
-                        <i class="bi bi-search" aria-hidden="true"></i>
-                        <input
-                            id="report-address-search"
-                            type="search"
-                            class="form-control"
-                            placeholder="Cerca indirizzo..."
-                        >
-                    </div>
+        <div id="report-filters" class="report-filter-bar owners-advanced-filters mb-3" hidden>
+            <div class="owners-filter-row">
+                <div class="analyticspro-map-field owners-filter-field">
+                    <i class="bi bi-geo-alt" aria-hidden="true"></i>
+                    <label for="report-filter-comune" class="visually-hidden">Comune</label>
+                    <input id="report-filter-comune" class="form-control form-control-sm" placeholder="Comune">
                 </div>
-
-                <!-- Cerca proprietario -->
-                <div>
-                    <label
-                        for="report-search"
-                        class="form-label form-label-sm small mb-1"
-                    >
-                        Cerca proprietario
-                    </label>
-                    <div class="owners-search">
-                        <i class="bi bi-search" aria-hidden="true"></i>
-                        <input
-                            id="report-search"
-                            type="search"
-                            class="form-control"
-                            placeholder="Cerca per nome e cognome..."
-                        >
-                    </div>
-                </div>
-                
-                
-                <div class="owners-filter-row">
-                    <div>
-                        <label for="report-filter-comune" class="form-label form-label-sm small mb-1">Comune</label>
-                        <input id="report-filter-comune" class="form-control form-control-sm" placeholder="Comune">
-                    </div>
-                    <fieldset class="owners-cadastral-filter">
-                        <legend class="form-label small mb-1">Foglio/Particella</legend>
-                        <div class="d-flex align-items-center gap-2">
+                <fieldset class="owners-cadastral-filter">
+                    <legend class="visually-hidden">Foglio e particella</legend>
+                    <div class="owners-cadastral-fields">
+                        <div class="analyticspro-map-field owners-filter-field">
+                            <i class="bi bi-hash" aria-hidden="true"></i>
                             <label for="report-filter-foglio" class="visually-hidden">Foglio</label>
                             <input id="report-filter-foglio" class="form-control form-control-sm" placeholder="F.">
-                            <span class="text-muted" aria-hidden="true">/</span>
+                        </div>
+                        <div class="analyticspro-map-field owners-filter-field">
+                            <i class="bi bi-hash" aria-hidden="true"></i>
                             <label for="report-filter-particella" class="visually-hidden">Particella</label>
                             <input id="report-filter-particella" class="form-control form-control-sm" placeholder="P.">
                         </div>
-                    </fieldset>
-                    <div>
-                        <label for="report-filter-stato" class="form-label form-label-sm small mb-1">Stato contatto</label>
-                        <select id="report-filter-stato" class="form-select form-select-sm">
-                            <option value="">Tutti</option>
-                        </select>
                     </div>
-                    <div>
-                        <label for="report-filter-assigned" class="form-label form-label-sm small mb-1">Assegnato a</label>
-                        <input id="report-filter-assigned" class="form-control form-control-sm" placeholder="Nome subutente">
-                    </div>
-                    <div>
-                        <label for="report-filter-color" class="form-label form-label-sm small mb-1">Colore</label>
-                        <div class="d-flex align-items-center gap-2">
-                            <span id="report-filter-color-preview" class="color-dot" aria-hidden="true"></span>
-                            <select id="report-filter-color" class="form-select form-select-sm">
-                                <option value="">Tutti</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div>
-                        <label for="report-filter-categoria" class="form-label form-label-sm small mb-1">Categoria</label>
-                        <select id="report-filter-categoria" class="form-select form-select-sm">
-                            <option value="">Tutte</option>
-                        </select>
-                    </div>
+                </fieldset>
+                <div class="analyticspro-map-field owners-filter-field">
+                    <i class="bi bi-chat-left-text" aria-hidden="true"></i>
+                    <label for="report-filter-stato" class="visually-hidden">Stato contatto</label>
+                    <select id="report-filter-stato" class="form-select form-select-sm">
+                        <option value="">Tutti</option>
+                    </select>
                 </div>
+                <div class="analyticspro-map-field owners-filter-field">
+                    <i class="bi bi-person" aria-hidden="true"></i>
+                    <label for="report-filter-assigned" class="visually-hidden">Assegnato a</label>
+                    <input id="report-filter-assigned" class="form-control form-control-sm" placeholder="Assegnato a">
+                </div>
+                <div class="analyticspro-map-field owners-filter-field owners-color-filter">
+                    <span id="report-filter-color-preview" class="color-dot" aria-hidden="true"></span>
+                    <label for="report-filter-color" class="visually-hidden">Colore</label>
+                    <select id="report-filter-color" class="form-select form-select-sm">
+                        <option value="">Tutti</option>
+                    </select>
+                </div>
+                <div class="analyticspro-map-field owners-filter-field">
+                    <i class="bi bi-tags" aria-hidden="true"></i>
+                    <label for="report-filter-categoria" class="visually-hidden">Categoria</label>
+                    <select id="report-filter-categoria" class="form-select form-select-sm">
+                        <option value="">Tutte</option>
+                    </select>
+                </div>
+                <button id="report-filters-reset" type="button" class="btn btn-link owners-filter-reset">
+                    <i class="bi bi-x-circle me-1" aria-hidden="true"></i>Azzera filtri
+                </button>
             </div>
+        </div>
             <div class="owners-table-scroll">
             <table id="report-table" class="table table-hover w-100 align-middle">
                 <caption class="visually-hidden">Immobili e proprietari: contatti, stato, assegnazioni e azioni</caption>

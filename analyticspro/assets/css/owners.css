@@ -29,8 +29,9 @@
 .owners-page .owners-summary-card small { color: #77818d; font-size: .75rem; }
 .owners-page .owners-grid { border: 1px solid var(--owners-border); border-radius: .85rem; box-shadow: none; }
 .owners-page .owners-grid .card-body { padding: 1.4rem; min-width: 0; }
-.owners-page .owners-grid-heading { margin-bottom: 1.25rem; }
+.owners-page .owners-grid-heading { margin-bottom: .75rem; }
 .owners-page .owners-search-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)) auto; gap: 1rem; align-items: end; width: 100%; }
+.owners-page .owners-filter-toggle { display: inline-flex; align-items: center; justify-content: center; gap: .5rem; min-height: 2.4rem; border-radius: 8px; white-space: nowrap; }
 .owners-page h2 { font-size: 1rem; font-weight: 700; margin: 0; }
 .owners-page .owners-search { position: relative; width: 100%; }
 .owners-page .owners-search .bi { position: absolute; left: .8rem; top: .65rem; color: #8b939e; }
@@ -39,10 +40,27 @@
 .owners-page .form-select { border-color: var(--owners-border); border-radius: .5rem; min-height: 2.4rem; }
 .owners-page .form-control:focus,
 .owners-page .form-select:focus { border-color: var(--owners-accent); box-shadow: 0 0 0 .15rem #ed741c20; }
-.owners-page .report-filter-bar { position: static; background: transparent; padding: 0 0 1.25rem; border: 0; border-bottom: 1px solid var(--owners-border); border-radius: 0; }
-.owners-page .owners-filter-row { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 1rem; align-items: end; }
+.owners-page .report-filter-bar { position: static; background: transparent; padding: 0 0 .85rem; border: 0; border-bottom: 1px solid var(--owners-border); border-radius: 0; }
+.owners-page .owners-advanced-filters[hidden] { display: none !important; }
+.owners-page .owners-filter-row { display: grid; grid-template-columns: minmax(100px, 1fr) minmax(135px, 1.2fr) repeat(4, minmax(110px, 1fr)) auto; gap: .55rem; align-items: end; }
+.owners-page .owners-filter-field { flex: initial; min-width: 0; }
+.owners-page .owners-filter-field > .bi { left: .65rem; font-size: .8rem; }
+.owners-page .owners-filter-field .form-control,
+.owners-page .owners-filter-field .form-select {
+    min-height: 2.1rem;
+    height: 2.1rem;
+    padding: .25rem .5rem .25rem 1.9rem;
+    border-color: var(--owners-border);
+    border-radius: 8px;
+    font-size: .78rem;
+}
 .owners-page .owners-cadastral-filter { min-width: 0; margin: 0; }
 .owners-page .owners-cadastral-filter legend { float: none; width: auto; color: var(--ap-muted); }
+.owners-page .owners-cadastral-fields { display: flex; gap: .35rem; }
+.owners-page .owners-cadastral-fields > .owners-filter-field { flex: 1 1 0; }
+.owners-page .owners-color-filter .color-dot { position: absolute; z-index: 1; top: 50%; left: .7rem; width: .55rem; height: .55rem; transform: translateY(-50%); pointer-events: none; }
+.owners-page .owners-filter-reset { min-height: 2.1rem; padding: .25rem .2rem; color: var(--ap-blue); font-size: .78rem; white-space: nowrap; }
+.owners-page .owners-filter-reset:hover { color: var(--ap-blue); }
 .owners-page .owners-extra-filters { margin-top: .75rem; color: var(--ap-muted); font-size: .8rem; }
 .owners-page summary { cursor: pointer; }
 .owners-page .owners-table-scroll { overflow-x: auto; }
