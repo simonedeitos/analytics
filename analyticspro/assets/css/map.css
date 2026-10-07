@@ -117,10 +117,13 @@
     left: 20px;
     z-index: 800;
     border: 1px solid var(--ap-border, #e4e8ee);
-    border-radius: 12px;
+    border-radius: 8px;
     background: var(--ap-surface, #fff);
     box-shadow: 0 4px 20px rgb(26 44 73 / 10%);
     color: var(--ap-text, #24334b);
+
+    line-height: 0.4;
+}e-height: 1.2;
 }
 
 .analyticspro-map-visible-area {
