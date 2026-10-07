@@ -76,8 +76,14 @@ analyticspro_render_header('Proprietari', [
     <div class="card-body">
         <div class="owners-grid-heading">
             <div class="owners-search-row">
+                
+                <button id="report-filters-toggle" type="button" class="btn btn-outline-secondary btn-sm" aria-expanded="true" aria-controls="report-filters">Nascondi filtri</button>
 
-                <!-- Cerca indirizzo -->
+            </div>
+        </div>
+
+
+            <div id="report-filters" class="report-filter-bar mb-3">
                 <div>
                     <label
                         for="report-address-search"
@@ -114,14 +120,8 @@ analyticspro_render_header('Proprietari', [
                         >
                     </div>
                 </div>
-
-                <button id="report-filters-toggle" type="button" class="btn btn-outline-secondary btn-sm" aria-expanded="true" aria-controls="report-filters">Nascondi filtri</button>
-
-            </div>
-        </div>
-
-
-            <div id="report-filters" class="report-filter-bar mb-3">
+                
+                
                 <div class="owners-filter-row">
                     <div>
                         <label for="report-filter-comune" class="form-label form-label-sm small mb-1">Comune</label>
