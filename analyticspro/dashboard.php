@@ -110,12 +110,7 @@ ob_start();
             <?php endforeach; ?>
         </select>
     <?php endif; ?>
-    <?php if ($canExport): ?>
-        <button type="button" class="btn btn-outline-primary btn-sm" id="dashboard-export"><i class="bi bi-download me-1"></i>Export</button>
-    <?php endif; ?>
-    <?php if ($canImport): ?>
-        <a href="<?= analyticspro_h(analyticspro_base_url('importa.php')) ?>" class="btn btn-primary btn-sm"><i class="bi bi-plus-circle me-1"></i>Importa</a>
-    <?php endif; ?>
+
 </div>
 <?php
 $pageActions = (string) ob_get_clean();
