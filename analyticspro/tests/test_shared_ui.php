@@ -90,6 +90,20 @@ check_ui(str_contains($html, 'aria-current="page"'), 'active navigation remains 
 check_ui(!str_contains($html, 'analitiche.php'), 'removed analytics route is not linked');
 check_ui(str_contains($html, 'id="apHamburger"') && str_contains($html, 'id="apSidebarCollapseToggle"'), 'mobile/collapsed navigation hooks preserved');
 check_ui(str_contains($html, 'analyticspro:layout-resize') && str_contains($html, 'analyticspro:topbar-resize'), 'technical layout event names preserved');
+$_SERVER['SCRIPT_FILENAME'] = ANALYTICSPRO_ROOT . '/mappa.php';
+ob_start();
+analyticspro_render_header('Mappa del territorio', [
+    'topbar_content' => '<button id="map-test-action">Aggiorna dati</button>',
+    'topbar_after' => '<input id="map-test-filter" aria-label="Ricerca">',
+]);
+analyticspro_render_footer();
+$mapHtml = (string) ob_get_clean();
+$mapHeader = substr($mapHtml, strpos($mapHtml, '<header class="ap-topbar'), strpos($mapHtml, '</header>') - strpos($mapHtml, '<header class="ap-topbar'));
+check_ui(str_contains($mapHeader, '<h1 class="ap-topbar-title mb-0">Mappa del territorio</h1>'), 'map uses a page heading');
+check_ui(!str_contains($mapHeader, 'ap-topbar-breadcrumb'), 'map header does not repeat the brand');
+check_ui(strpos($mapHeader, 'map-test-action') < strpos($mapHeader, 'ap-topbar-filters'), 'map actions precede the dedicated filter row');
+check_ui(str_contains($mapHeader, 'id="map-test-filter"'), 'map filters rendered inside the observed topbar');
+$_SERVER['SCRIPT_FILENAME'] = ANALYTICSPRO_ROOT . '/dashboard.php';
 foreach (['tokens', 'app', 'layout', 'components', 'pages'] as $stylesheet) {
     check_ui(str_contains($html, "assets/css/{$stylesheet}.css?v="), "{$stylesheet} stylesheet uses versioned asset helper");
 }

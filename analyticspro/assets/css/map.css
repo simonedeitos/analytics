@@ -1,7 +1,29 @@
-.map-page .analyticspro-map-toolbar-primary {
-    flex: 1 1 auto;
+.map-page .analyticspro-map-header {
     flex-wrap: wrap;
-    gap: .65rem;
+    gap: 1.25rem;
+    padding-block: 1.5rem;
+    background: var(--ap-surface);
+}
+
+.map-page .analyticspro-map-header .ap-topbar-title {
+    font-size: 1.65rem;
+    font-weight: 700;
+    white-space: normal;
+}
+
+.map-page .ap-topbar-filters {
+    flex: 0 0 100%;
+    min-width: 0;
+}
+
+.map-page .analyticspro-map-toolbar {
+    width: 100%;
+}
+
+.map-page .analyticspro-map-toolbar-primary {
+    flex: 1 1 100%;
+    flex-wrap: nowrap;
+    gap: .75rem;
 }
 
 .analyticspro-map-actions {
@@ -13,8 +35,9 @@
 
 .map-page .analyticspro-map-search {
     position: relative;
-    flex: 1 1 220px;
-    max-width: 320px;
+    flex: 1 1 280px;
+    min-width: 180px;
+    max-width: none;
 }
 
 .analyticspro-map-search > .bi {
@@ -27,29 +50,65 @@
 
 .analyticspro-map-search .form-control {
     padding-left: 2.2rem;
-    min-height: 38px;
+    min-height: 42px;
 }
 
 .analyticspro-map-field {
-    min-width: 140px;
+    position: relative;
+    flex: 0 1 160px;
+    min-width: 130px;
 }
 
-.map-page .analyticspro-map-field .form-label {
-    display: block;
-    font-size: .67rem;
+.analyticspro-map-field > .bi {
+    position: absolute;
+    left: .75rem;
+    top: 50%;
+    transform: translateY(-50%);
     color: var(--ap-text-muted, #748096);
+    pointer-events: none;
 }
 
-.map-page .analyticspro-map-toolbar .btn,
 .map-page .analyticspro-map-field .form-select {
-    min-height: 38px;
+    padding-left: 2rem;
+}
+
+.map-page .analyticspro-map-toolbar-primary > .dropdown > .btn,
+.map-page .analyticspro-map-actions > .btn,
+.map-page .analyticspro-map-actions > .dropdown > .btn,
+.map-page .analyticspro-map-field .form-select {
+    min-height: 42px;
     border-radius: 8px;
+    white-space: nowrap;
 }
 
 .map-page .analyticspro-map-toolbar-switch {
     padding: .5rem .75rem;
-    border-left: 1px solid var(--ap-border, #e4e8ee);
-    border-right: 1px solid var(--ap-border, #e4e8ee);
+    min-height: 42px;
+    margin-left: auto;
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+@media (max-width: 1199.98px) {
+    .map-page .analyticspro-map-toolbar-primary {
+        flex-wrap: wrap;
+    }
+}
+
+@media (max-width: 575.98px) {
+    .map-page .analyticspro-map-header {
+        padding: 1rem;
+        gap: .75rem;
+    }
+    .map-page .analyticspro-map-header .ap-topbar-end {
+        margin-left: 0;
+    }
+    .map-page .analyticspro-map-search {
+        flex-basis: 100%;
+    }
+    .map-page .analyticspro-map-toolbar-switch {
+        margin-left: 0;
+    }
 }
 
 .analyticspro-map-visible-area,

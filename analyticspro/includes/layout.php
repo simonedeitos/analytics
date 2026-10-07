@@ -216,8 +216,12 @@ function analyticspro_render_header(string $title, array $options = []): void
                     <i class="bi bi-layout-sidebar-inset"></i>
                 </button>
                 <div class="ap-topbar-heading">
+                    <?php if ($currentPage === 'mappa.php'): ?>
+                    <h1 class="ap-topbar-title mb-0"><?= analyticspro_h($title) ?></h1>
+                    <?php else: ?>
                     <span class="ap-topbar-breadcrumb">easyradar</span>
                     <span class="ap-topbar-title"><?= analyticspro_h($title) ?></span>
+                    <?php endif; ?>
                 </div>
             </div>
             <div class="ap-topbar-end">
@@ -225,6 +229,9 @@ function analyticspro_render_header(string $title, array $options = []): void
                     <div class="ap-topbar-slot"><?= $topbarContent ?></div>
                 <?php endif; ?>
             </div>
+            <?php if (!empty($options['topbar_after'])): ?>
+                <div class="ap-topbar-filters"><?= $options['topbar_after'] ?></div>
+            <?php endif; ?>
         </header>
 
         <div class="ap-main">

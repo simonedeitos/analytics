@@ -1125,10 +1125,10 @@
 
         var reportColumns = [
             { title: 'Immobile', data: 'propertyHtml', render: function (data, type, row) { return type === 'display' ? data : [row.comune, row.indirizzo, row.unita, row.categoriaFilter].join(' '); } },
-            { title: 'Proprietari', data: 'owners', name: 'owners', reportExport: true, render: function (data, type, row) { return type === 'filter' || type === 'sort' ? row.ownerSearch : data; } },
+            { title: 'Proprietari', data: 'owners', name: 'owners', reportExport: true, render: function (data, type, row) { return type === 'display' ? row.ownersHtml : (type === 'filter' || type === 'sort' ? row.ownerSearch : data); } },
             { title: 'Contatti', data: 'contactsHtml', reportExport: true, render: function (data, type, row) { return type === 'display' ? data : row.contactsText; } },
             { title: 'Stato', data: 'stato', name: 'stato', reportExport: true, render: function (data, type, row) { return type === 'display' ? reportStatusBadge(data, row.raw) : data; } },
-            { title: 'Assegnato a', data: 'assignmentsText', name: 'assigned', reportExport: true },
+            { title: 'Assegnato a', data: 'assignmentsText', name: 'assigned', reportExport: true, render: function (data, type, row) { return type === 'display' ? '<span class="owners-assignment' + ((row.raw.assignments || []).length ? '' : ' text-muted') + '"><i class="bi bi-person" aria-hidden="true"></i>' + data + '</span>' : data; } },
             { title: 'Dettaglio', data: 'actionsHtml' },
             { title: 'Colore', data: 'colore', name: 'color', visible: false, reportExport: true, render: function (data, type, row) { return type === 'filter' || type === 'sort' || type === 'export' ? (row.raw.colore_marker || '') : data; } },
             { title: 'Comune', data: 'comune', name: 'comune', visible: false, reportExport: true },
@@ -1247,18 +1247,25 @@
             da_contattare: 'followup',
             non_raggiungibile: 'unreachable',
         }[status] || 'neutral';
-        var displayLabel = status === 'da_contattare' ? 'Da ricontattare' : (label || STATE_OPTIONS['']);
+        var displayLabel = status === 'da_contattare' ? 'Da ricontattare' : (!status ? 'Non contattato' : (label || STATE_OPTIONS['']));
         return '<span class="owners-status owners-status--' + tone + '">' + escapeHtml(displayLabel) + '</span>';
     }
 
     function buildReportTableData(properties) {
         return buildTableData(properties, 'report').map(function (row) {
             var property = row.raw;
-            row.propertyHtml = '<div class="owners-property-title">' + row.colore + escapeHtml(row.comune || 'Comune non disponibile') + '</div>'
-                + '<div>' + escapeHtml(row.indirizzo || 'Indirizzo non disponibile') + '</div>'
+            row.propertyHtml = '<div class="owners-property-title">' + reportStatusBadge(row.stato, property).replace('owners-status ', 'owners-status owners-property-dot ') + escapeHtml(row.indirizzo || 'Indirizzo non disponibile') + '</div>'
+                + '<div class="owners-property-location">' + escapeHtml(row.comune || 'Comune non disponibile') + (row.provincia ? ' (' + escapeHtml(row.provincia) + ')' : '') + '</div>'
                 + '<div class="owners-property-meta">' + escapeHtml(row.unita)
                 + (row.categoriaFilter ? ' · ' + escapeHtml(row.categoriaFilter) : '') + '</div>';
             row.owners = buildOwnersTableHtml(Object.assign({}, property, { can_view_phone: false }));
+            var owners = property.owners || [];
+            var firstOwner = owners[0];
+            row.ownersHtml = firstOwner
+                ? '<details class="owners-owner-details"><summary><strong>' + escapeHtml(((firstOwner.cognome || '') + ' ' + (firstOwner.nome || '')).trim() || 'Intestatario') + '</strong>'
+                    + '<span class="owners-property-meta">' + (owners.length > 1 ? '+' + (owners.length - 1) + (owners.length === 2 ? ' intestatario' : ' intestatari') : escapeHtml([ownerTitolaritaLabel(firstOwner, property), ownerQuotaLabel(firstOwner, property)].filter(Boolean).join(' ') || 'Quota non disponibile')) + '</span></summary>'
+                    + '<div class="owners-owner-expanded">' + row.owners + '</div></details>'
+                : row.owners;
             var contactText = [];
             var contactHtml = [];
             (property.owners || []).forEach(function (owner) {
@@ -1268,12 +1275,17 @@
                 var name = ((owner.cognome || '') + ' ' + (owner.nome || '')).trim() || 'Intestatario';
                 contactText.push([name].concat(phones, email ? [email] : []).join(' '));
                 contactHtml.push('<div class="owners-contact"><div class="small text-muted">' + escapeHtml(name) + '</div>'
-                    + (phones.length ? buildPhoneChips(owner.telefono) : '')
-                    + (email ? '<div class="small">' + escapeHtml(email) + '</div>' : '') + '</div>');
+                    + (phones.length ? '<div class="owners-phone-list">' + phones.map(function (phone) {
+                        var label = phone.length > 6 ? phone.slice(0, 3) + ' ••• ' + phone.slice(-3) : phone;
+                        return '<button type="button" class="btn btn-sm copy-phone-btn" data-phone="' + escapeHtml(phone) + '" data-default-label="' + escapeHtml(label) + '"><i class="bi bi-telephone me-2" aria-hidden="true"></i>' + escapeHtml(label) + '</button>';
+                    }).join('') + '</div>' : '<div class="small text-muted"><i class="bi bi-telephone me-2" aria-hidden="true"></i>Non disponibile</div>')
+                    + (email ? '<div class="small"><i class="bi bi-envelope me-2" aria-hidden="true"></i>' + escapeHtml(email) + '</div>' : '') + '</div>');
             });
             row.contactsText = contactText.join(' · ');
-            row.contactsHtml = contactHtml.join('') || '<span class="text-muted small">Nessun contatto disponibile</span>';
-            row.actionsHtml = '<div class="owners-row-actions">' + row.detail + row.editor + row.deleteAction + '</div>';
+            row.contactsHtml = contactHtml.join('') || '<span class="text-muted small">Non disponibile</span>';
+            row.actionsHtml = '<div class="owners-row-actions">' + row.detail
+                + '<details class="owners-action-menu"><summary aria-label="Altre azioni"><i class="bi bi-three-dots-vertical" aria-hidden="true"></i></summary>'
+                + '<div class="owners-action-options">' + row.editor + row.deleteAction + '</div></details></div>';
             return row;
         });
     }

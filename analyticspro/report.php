@@ -45,65 +45,71 @@ analyticspro_render_header('Proprietari', [
 
     <header class="owners-header">
         <div>
-            <h1>Proprietari</h1>
-            <p>Immobili, intestatari e contatti in un'unica vista.</p>
+            <h1>Censimento e proprietari</h1>
+            <p>Tutti gli immobili e i contatti delle tue mappature</p>
         </div>
         <div class="owners-header-actions">
-            <div id="report-export-actions" aria-label="Esporta proprietari"></div>
+            <?php if (!analyticspro_is_subuser()): ?>
+            <div class="dropdown">
+                <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false"><i class="bi bi-download me-2" aria-hidden="true"></i>Esporta</button>
+                <div id="report-export-actions" class="dropdown-menu dropdown-menu-end" aria-label="Esporta proprietari"></div>
+            </div>
+            <?php endif; ?>
             <a class="btn btn-primary" href="<?= analyticspro_h(analyticspro_base_url('mappa.php')) ?>"><i class="bi bi-map me-2" aria-hidden="true"></i>Apri mappa</a>
         </div>
     </header>
 
     <section class="owners-summary" aria-label="Riepilogo immobili caricati">
         <article class="owners-summary-card">
-            <span class="owners-summary-icon"><i class="bi bi-buildings" aria-hidden="true"></i></span>
-            <div><span>Immobili</span><strong id="report-summary-properties" aria-live="polite">—</strong><small>Unità catastali caricate</small></div>
+            <span class="owners-summary-icon"><i class="bi bi-house-door" aria-hidden="true"></i></span>
+            <div><strong id="report-summary-properties" aria-live="polite">—</strong><span>Immobili</span></div>
         </article>
         <article class="owners-summary-card">
             <span class="owners-summary-icon"><i class="bi bi-people" aria-hidden="true"></i></span>
-            <div><span>Intestatari</span><strong id="report-summary-owners" aria-live="polite">—</strong><small>Intestazioni negli immobili</small></div>
+            <div><strong id="report-summary-owners" aria-live="polite">—</strong><span>Intestatari</span></div>
         </article>
         <article class="owners-summary-card">
             <span class="owners-summary-icon"><i class="bi bi-telephone" aria-hidden="true"></i></span>
-            <div><span>Con telefono</span><strong id="report-summary-phones" aria-live="polite">—</strong><small>Intestatari con telefono visibile</small></div>
+            <div><strong id="report-summary-phones" aria-live="polite">—</strong><span>Con telefono</span></div>
         </article>
     </section>
 
     <div class="card owners-grid">
         <div class="card-body">
             <div class="owners-grid-heading">
-                <h2>Elenco proprietari</h2>
                 <div class="owners-search">
                     <label for="report-search" class="visually-hidden">Cerca immobili, proprietari e contatti</label>
                     <i class="bi bi-search" aria-hidden="true"></i>
-                    <input id="report-search" type="search" class="form-control" placeholder="Cerca immobili, proprietari e contatti">
+                    <input id="report-search" type="search" class="form-control" placeholder="Cerca proprietario, indirizzo o telefono...">
                 </div>
             </div>
             <div id="report-filters" class="report-filter-bar mb-3">
-                <div class="row g-3 align-items-end">
-                    <div class="col-12 col-sm-6 col-xl-2">
+                <div class="owners-filter-row">
+                    <div>
                         <label for="report-filter-comune" class="form-label form-label-sm small mb-1">Comune</label>
                         <input id="report-filter-comune" class="form-control form-control-sm" placeholder="Comune">
                     </div>
-                    <div class="col-6 col-xl-2">
-                        <label for="report-filter-foglio" class="form-label form-label-sm small mb-1">Foglio</label>
-                        <input id="report-filter-foglio" class="form-control form-control-sm" placeholder="Foglio">
-                    </div>
-                    <div class="col-6 col-xl-2">
-                        <label for="report-filter-particella" class="form-label form-label-sm small mb-1">Particella</label>
-                        <input id="report-filter-particella" class="form-control form-control-sm" placeholder="Particella">
-                    </div>
-                    <div class="col-12 col-sm-6 col-xl-2">
+                    <fieldset class="owners-cadastral-filter">
+                        <legend class="form-label small mb-1">Foglio/Particella</legend>
+                        <div class="d-flex align-items-center gap-2">
+                            <label for="report-filter-foglio" class="visually-hidden">Foglio</label>
+                            <input id="report-filter-foglio" class="form-control form-control-sm" placeholder="F.">
+                            <span class="text-muted" aria-hidden="true">/</span>
+                            <label for="report-filter-particella" class="visually-hidden">Particella</label>
+                            <input id="report-filter-particella" class="form-control form-control-sm" placeholder="P.">
+                        </div>
+                    </fieldset>
+                    <div>
                         <label for="report-filter-stato" class="form-label form-label-sm small mb-1">Stato contatto</label>
                         <select id="report-filter-stato" class="form-select form-select-sm">
                             <option value="">Tutti</option>
                         </select>
                     </div>
-                    <div class="col-12 col-sm-6 col-xl-2">
+                    <div>
                         <label for="report-filter-assigned" class="form-label form-label-sm small mb-1">Assegnato a</label>
                         <input id="report-filter-assigned" class="form-control form-control-sm" placeholder="Nome subutente">
                     </div>
-                    <div class="col-12 col-sm-6 col-xl-2">
+                    <div>
                         <label for="report-filter-color" class="form-label form-label-sm small mb-1">Colore</label>
                         <div class="d-flex align-items-center gap-2">
                             <span id="report-filter-color-preview" class="color-dot" aria-hidden="true"></span>
@@ -112,15 +118,20 @@ analyticspro_render_header('Proprietari', [
                             </select>
                         </div>
                     </div>
-                    <div class="col-12 col-sm-6 col-xl-3">
-                        <label for="report-filter-categoria" class="form-label form-label-sm small mb-1">Categoria catastale</label>
-                        <input id="report-filter-categoria" class="form-control form-control-sm" placeholder="Es. A2, C1">
-                    </div>
-                    <div class="col-12 col-sm-6 col-xl-3">
-                        <label for="report-filter-owner" class="form-label form-label-sm small mb-1">Proprietario</label>
-                        <input id="report-filter-owner" class="form-control form-control-sm" placeholder="Nome o cognome proprietario">
-                    </div>
                 </div>
+                <details class="owners-extra-filters">
+                    <summary>Altri filtri</summary>
+                    <div class="row g-3 mt-1">
+                        <div class="col-12 col-sm-6">
+                            <label for="report-filter-categoria" class="form-label form-label-sm small mb-1">Categoria catastale</label>
+                            <input id="report-filter-categoria" class="form-control form-control-sm" placeholder="Es. A2, C1">
+                        </div>
+                        <div class="col-12 col-sm-6">
+                            <label for="report-filter-owner" class="form-label form-label-sm small mb-1">Proprietario</label>
+                            <input id="report-filter-owner" class="form-control form-control-sm" placeholder="Nome o cognome proprietario">
+                        </div>
+                    </div>
+                </details>
             </div>
             <div class="owners-table-scroll">
             <table id="report-table" class="table table-hover w-100 align-middle">

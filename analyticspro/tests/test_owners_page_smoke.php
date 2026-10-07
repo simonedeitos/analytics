@@ -26,6 +26,13 @@ foreach ([
     'report-filter-color',
     'report-filter-owner',
     'report-filter-categoria',
+    'Censimento e proprietari',
+    'Tutti gli immobili e i contatti delle tue mappature',
+    'Cerca proprietario, indirizzo o telefono...',
+    'owners-filter-row',
+    'owners-cadastral-filter',
+    'owners-extra-filters',
+    'dropdown-menu dropdown-menu-end',
     'api/data/properties.php',
     'api/data/update_property.php',
     'api/data/delete_property.php',
@@ -91,6 +98,10 @@ const property = {
 let row = context.buildReportTableData([property])[0];
 assert.match(row.propertyHtml, /&lt;Milano&gt;/);
 assert.match(row.propertyHtml, /F\.10 P\.42\/1/);
+assert.match(row.propertyHtml, /owners-property-title.*Via Roma 2/);
+assert.match(row.propertyHtml, /owners-property-dot.*owners-status--followup/);
+assert.match(row.ownersHtml, /<strong>Rossi Mario<\/strong>/);
+assert.match(row.ownersHtml, /1\/2/);
 assert.match(row.owners, /1\/2/);
 assert.match(row.owners, /Nato a: Roma/);
 assert.doesNotMatch(row.owners, /copy-phone-btn/);
@@ -101,7 +112,7 @@ assert.equal(row.stato, 'Da contattare');
 assert.match(context.reportStatusBadge(row.stato, property), /owners-status--followup.*Da ricontattare/);
 assert.match(context.reportStatusBadge('Contattato', { stato: 'contattato' }), /owners-status--contacted.*Contattato/);
 assert.match(context.reportStatusBadge('Non Raggiungibile', { stato: 'non_raggiungibile' }), /owners-status--unreachable.*Non Raggiungibile/);
-assert.match(context.reportStatusBadge('Non impostato', { stato: '' }), /owners-status--neutral.*Non impostato/);
+assert.match(context.reportStatusBadge('Non impostato', { stato: '' }), /owners-status--neutral.*Non contattato/);
 assert.match(context.reportStatusBadge('Interessato', { stato: 'interessato' }), /Interessato/);
 assert.match(context.reportStatusBadge('<Altro>', { stato: 'altro' }), /&lt;Altro&gt;/);
 assert.equal(property.stato, 'da_contattare', 'Badge must not modify stored status');
@@ -109,6 +120,20 @@ assert.equal(row.assignmentsText, 'Agente');
 assert.match(row.actionsHtml, /open-detail-modal/);
 assert.match(row.actionsHtml, /open-editor-modal" disabled/);
 assert.match(row.actionsHtml, /delete-property-btn/);
+assert.match(row.actionsHtml, /<details class="owners-action-menu">/);
+const multiOwner = { ...property, provincia: '<BS>', owners: [
+    { nome: '<Mario>', cognome: 'Rossi', telefono: '3331234567', quota: '1/2' },
+    { nome: 'Anna', cognome: 'Verdi', email: 'anna@example.test', quota: '1/2' },
+] };
+const multiRow = context.buildReportTableData([multiOwner])[0];
+assert.match(multiRow.propertyHtml, /\(&lt;BS&gt;\)/);
+assert.match(multiRow.ownersHtml, /\+1 intestatario/);
+assert.match(multiRow.ownersHtml, /&lt;Mario&gt;/);
+assert.match(multiRow.ownersHtml, /Verdi Anna/, 'All owners remain available in expanded markup');
+assert.match(multiRow.contactsHtml, /333 ••• 567/);
+assert.match(multiRow.contactsHtml, /data-phone="3331234567"/, 'Copy hook retains the complete phone');
+assert.match(multiRow.contactsText, /3331234567/, 'Search and export retain complete contacts');
+assert.match(context.buildReportTableData([{ ...property, owners: [], assignments: [] }])[0].contactsHtml, /Non disponibile/);
 const restricted = { ...property, can_view_phone: false };
 row = context.buildReportTableData([restricted])[0];
 assert.doesNotMatch(row.contactsHtml, /123|456|copy-phone-btn/);
@@ -141,6 +166,13 @@ for (const button of config.buttons) {
     assert.ok(exported.every(column => !['actionsHtml', 'detail', 'editor', 'deleteAction', 'foglioFilter', 'particellaFilter'].includes(column.data)));
 }
 const statusColumn = config.columns.find(column => column.name === 'stato');
+const ownersColumn = config.columns.find(column => column.name === 'owners');
+assert.equal(ownersColumn.render(multiRow.owners, 'display', multiRow), multiRow.ownersHtml);
+assert.equal(ownersColumn.render(multiRow.owners, 'export', multiRow), multiRow.owners, 'Export keeps original owner information');
+assert.equal(ownersColumn.render(multiRow.owners, 'sort', multiRow), multiRow.ownerSearch, 'Sorting is unchanged');
+const assignmentColumn = config.columns.find(column => column.name === 'assigned');
+assert.match(assignmentColumn.render(multiRow.assignmentsText, 'display', multiRow), /bi-person/);
+assert.equal(assignmentColumn.render(multiRow.assignmentsText, 'export', multiRow), multiRow.assignmentsText);
 assert.match(statusColumn.render('Da contattare', 'display', context.buildReportTableData([property])[0]), /Da ricontattare/);
 assert.equal(statusColumn.render('Da contattare', 'filter', row), 'Da contattare');
 assert.equal(statusColumn.render('Da contattare', 'export', row), 'Da contattare');
