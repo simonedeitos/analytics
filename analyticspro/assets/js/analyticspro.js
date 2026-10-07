@@ -3736,7 +3736,7 @@
             var titolarita = ownerTitolaritaLabel(owner, property);
             if (quota) ownershipParts.push(quota);
             if (titolarita) ownershipParts.push(titolarita);
-            var canManagePhone = selection !== 'all' && canViewPhone && ownerCanEdit(owner, property) && Number(owner.id || 0) > 0 && Number(owner._sourcePropertyId || property.id || 0) > 0;
+            var canManagePhone = canViewPhone && ownerCanEdit(owner, property) && Number(owner.id || 0) > 0 && Number(owner._sourcePropertyId || property.id || 0) > 0;
             return '<div class="border rounded p-2 mb-2">'
                 + '<div class="fw-semibold small">' + escapeHtml(fullName) + '</div>'
                 + (ownershipParts.length ? '<div class="owner-meta small">' + escapeHtml(ownershipParts.join(' · ')) + '</div>' : '')
