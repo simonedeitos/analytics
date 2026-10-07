@@ -1133,7 +1133,7 @@
             { title: 'Colore', data: 'colore', name: 'color', visible: false, reportExport: true, render: function (data, type, row) { return type === 'filter' || type === 'sort' || type === 'export' ? (row.raw.colore_marker || '') : data; } },
             { title: 'Comune', data: 'comune', name: 'comune', visible: false, reportExport: true },
             { title: 'Foglio/Particella/Sub', data: 'unita', visible: false, reportExport: true },
-            { title: 'Indirizzo', data: 'indirizzo', visible: false, reportExport: true },
+            { title: 'Indirizzo', data: 'indirizzo', name: 'indirizzo', visible: false, reportExport: true },
             { title: 'Modifica', data: 'editor', visible: false },
             { title: 'Elimina', data: 'deleteAction', visible: false },
             { title: 'Foglio filtro', data: 'foglioFilter', name: 'foglioFilter', visible: false },
@@ -1260,34 +1260,96 @@
                 + (row.categoriaFilter ? ' · ' + escapeHtml(row.categoriaFilter) : '') + '</div>';
             row.owners = buildOwnersTableHtml(Object.assign({}, property, { can_view_phone: false }));
             var owners = property.owners || [];
-            var firstOwner = owners[0];
-            row.ownersHtml = firstOwner
-                ? '<details class="owners-owner-details"><summary><strong>' + escapeHtml(((firstOwner.cognome || '') + ' ' + (firstOwner.nome || '')).trim() || 'Intestatario') + '</strong>'
-                    + '<span class="owners-property-meta">' + (owners.length > 1 ? '+' + (owners.length - 1) + (owners.length === 2 ? ' intestatario' : ' intestatari') : escapeHtml([ownerTitolaritaLabel(firstOwner, property), ownerQuotaLabel(firstOwner, property)].filter(Boolean).join(' ') || 'Quota non disponibile')) + '</span></summary>'
-                    + '<div class="owners-owner-expanded">' + row.owners + '</div></details>'
+            row.ownersHtml = owners.length
+                ? '<div class="owners-owner-list">' + owners.map(function (owner, index) {
+                    return '<button type="button" class="owners-owner-link open-report-editor" data-property-id="' + property.id + '" data-owner-key="' + escapeHtml(editorOwnerSelectionKey(owner, index)) + '"><strong>'
+                        + escapeHtml(((owner.cognome || '') + ' ' + (owner.nome || '')).trim() || 'Intestatario') + '</strong></button>';
+                }).join('') + '</div>'
                 : row.owners;
             var contactText = [];
-            var contactHtml = [];
+            var hasPhone = false;
             (property.owners || []).forEach(function (owner) {
                 var phones = propertyCanViewPhone(property) ? splitPhoneNumbers(owner.telefono) : [];
                 var email = String(owner.email || '').trim();
                 if (!phones.length && !email) return;
+                if (phones.length) hasPhone = true;
                 var name = ((owner.cognome || '') + ' ' + (owner.nome || '')).trim() || 'Intestatario';
                 contactText.push([name].concat(phones, email ? [email] : []).join(' '));
-                contactHtml.push('<div class="owners-contact"><div class="small text-muted">' + escapeHtml(name) + '</div>'
-                    + (phones.length ? '<div class="owners-phone-list">' + phones.map(function (phone) {
-                        var label = phone.length > 6 ? phone.slice(0, 3) + ' ••• ' + phone.slice(-3) : phone;
-                        return '<button type="button" class="btn btn-sm copy-phone-btn" data-phone="' + escapeHtml(phone) + '" data-default-label="' + escapeHtml(label) + '"><i class="bi bi-telephone me-2" aria-hidden="true"></i>' + escapeHtml(label) + '</button>';
-                    }).join('') + '</div>' : '<div class="small text-muted"><i class="bi bi-telephone me-2" aria-hidden="true"></i>Non disponibile</div>')
-                    + (email ? '<div class="small"><i class="bi bi-envelope me-2" aria-hidden="true"></i>' + escapeHtml(email) + '</div>' : '') + '</div>');
             });
             row.contactsText = contactText.join(' · ');
-            row.contactsHtml = contactHtml.join('') || '<span class="text-muted small">Non disponibile</span>';
+            var contactLabel = hasPhone ? 'Mostra recapiti' : (propertyCanViewPhone(property) ? 'Telefono non disponibile' : 'Telefono riservato');
+            if (!hasPhone && contactText.length) contactLabel += ' · Mostra recapiti';
+            row.contactsHtml = '<button type="button" class="owners-contact-toggle report-contact-toggle' + (hasPhone ? '' : ' owners-contact-toggle--unavailable')
+                + '" data-property-id="' + property.id + '" aria-label="' + escapeHtml(contactLabel) + '" title="' + escapeHtml(contactLabel) + '"'
+                + (contactText.length ? '' : ' disabled') + '><i class="bi bi-telephone' + (hasPhone ? '-fill' : '-x') + '" aria-hidden="true"></i></button>';
             row.actionsHtml = '<div class="owners-row-actions">' + row.detail
                 + '<details class="owners-action-menu"><summary aria-label="Altre azioni"><i class="bi bi-three-dots-vertical" aria-hidden="true"></i></summary>'
                 + '<div class="owners-action-options">' + row.editor + row.deleteAction + '</div></details></div>';
             return row;
         });
+    }
+
+    function buildReportContactsHtml(property) {
+        return (property.owners || []).map(function (owner) {
+            var phones = propertyCanViewPhone(property) ? splitPhoneNumbers(owner.telefono) : [];
+            var email = String(owner.email || '').trim();
+            if (!phones.length && !email) return '';
+            var name = ((owner.cognome || '') + ' ' + (owner.nome || '')).trim() || 'Intestatario';
+            return '<div class="owners-contact"><div class="small text-muted">' + escapeHtml(name) + '</div>'
+                + (phones.length ? '<div class="owners-phone-list">' + phones.map(function (phone) {
+                    return '<button type="button" class="btn btn-sm copy-phone-btn" data-phone="' + escapeHtml(phone) + '" data-default-label="' + escapeHtml(phone) + '"><i class="bi bi-telephone me-2" aria-hidden="true"></i>' + escapeHtml(phone) + '</button>';
+                }).join('') + '</div>' : '')
+                + (email ? '<div class="small"><i class="bi bi-envelope me-2" aria-hidden="true"></i>' + escapeHtml(email) + '</div>' : '') + '</div>';
+        }).join('');
+    }
+
+    function closeReportContacts() {
+        if (!state.reportContactPopover) return;
+        state.reportContactPopover.dispose();
+        state.reportContactPopover = null;
+        state.reportContactButton = null;
+    }
+
+    function toggleReportContacts(button) {
+        var wasOpen = state.reportContactButton === button;
+        closeReportContacts();
+        if (wasOpen) return;
+        var property = findPropertyGroupById(Number(button.dataset.propertyId || 0));
+        if (!property) return;
+        var content = document.createElement('div');
+        content.innerHTML = buildReportContactsHtml(property);
+        if (!content.innerHTML) return;
+        state.reportContactButton = button;
+        state.reportContactPopover = new bootstrap.Popover(button, {
+            trigger: 'manual', container: 'body', placement: 'auto', html: true,
+            title: 'Recapiti', content: content, customClass: 'owners-contact-popover'
+        });
+        state.reportContactPopover.show();
+    }
+
+    function initReportFiltersToggle() {
+        var button = document.getElementById('report-filters-toggle');
+        var filters = document.getElementById('report-filters');
+        if (!button || !filters || button.dataset.reportBound) return;
+        function setVisible(visible) {
+            filters.hidden = !visible;
+            button.setAttribute('aria-expanded', String(visible));
+            button.textContent = visible ? 'Nascondi filtri' : 'Mostra filtri';
+        }
+        try { setVisible(localStorage.getItem('analyticspro-report-filters-visible') !== '0'); } catch (error) { setVisible(true); }
+        button.addEventListener('click', function () {
+            var visible = filters.hidden;
+            setVisible(visible);
+            try { localStorage.setItem('analyticspro-report-filters-visible', visible ? '1' : '0'); } catch (error) {}
+        });
+        document.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape' && state.reportContactPopover) {
+                var contactButton = state.reportContactButton;
+                closeReportContacts();
+                if (contactButton && contactButton.isConnected) contactButton.focus();
+            }
+        });
+        button.dataset.reportBound = '1';
     }
 
     function updateReportSummary(properties) {
@@ -1312,6 +1374,8 @@
 
     function renderReportTable() {
         if (!document.getElementById('report-table')) return;
+        closeReportContacts();
+        initReportFiltersToggle();
         var grouped = groupPropertiesByUnit(state.properties);
         initDataTable(
     '#report-table',
@@ -1321,13 +1385,15 @@
 );
         updateReportSummary(grouped);
         hydrateReportFilters();
-        var searchInput = document.getElementById('report-search');
-        if (searchInput && !searchInput.dataset.reportBound) {
-            searchInput.addEventListener('input', applyReportFilters);
-            searchInput.dataset.reportBound = '1';
-        }
+        ['report-search', 'report-address-search'].forEach(function (id) {
+            var searchInput = document.getElementById(id);
+            if (searchInput && !searchInput.dataset.reportBound) {
+                searchInput.addEventListener('input', applyReportFilters);
+                searchInput.dataset.reportBound = '1';
+            }
+        });
         if (state.reportQuery) {
-            var ownerInput = document.getElementById('report-filter-owner');
+            var ownerInput = document.getElementById('report-search');
             if (ownerInput && !ownerInput.value) {
                 ownerInput.value = state.reportQuery;
             }
@@ -1338,6 +1404,17 @@
     function hydrateReportFilters() {
         var colorSelect = document.getElementById('report-filter-color');
         var stateSelect = document.getElementById('report-filter-stato');
+        var categorySelect = document.getElementById('report-filter-categoria');
+        if (categorySelect) {
+            var selectedCategory = categorySelect.value;
+            var categories = Array.from(new Set(state.properties.map(function (property) {
+                return String(property.categoria || '');
+            }).filter(Boolean))).sort(function (a, b) { return a.localeCompare(b, 'it', { numeric: true }); });
+            categorySelect.innerHTML = '<option value="">Tutte</option>' + categories.map(function (category) {
+                return '<option value="' + escapeHtml(category) + '">' + escapeHtml(category) + '</option>';
+            }).join('');
+            categorySelect.value = categories.indexOf(selectedCategory) !== -1 ? selectedCategory : '';
+        }
         if (colorSelect) {
             var selectedColor = colorSelect.value;
             var colors = [], seen = {};
@@ -1364,15 +1441,18 @@
         var foglioValue   = (document.getElementById('report-filter-foglio')   || {}).value || '';
         var particellaValue = (document.getElementById('report-filter-particella') || {}).value || '';
         var categoriaValue = (document.getElementById('report-filter-categoria') || {}).value || '';
-        var ownerValue = (document.getElementById('report-filter-owner') || {}).value || '';
+        var ownerValue = (document.getElementById('report-search') || {}).value || '';
+        var addressValue = (document.getElementById('report-address-search') || {}).value || '';
         var statoValue    = (document.getElementById('report-filter-stato')    || {}).value || '';
         var assignedValue = (document.getElementById('report-filter-assigned') || {}).value || '';
-        table.search((document.getElementById('report-search') || {}).value || '');
+        closeReportContacts();
+        table.search('');
+        table.column('indirizzo:name').search(addressValue);
         table.column('color:name').search(colorValue);
         table.column('comune:name').search(comuneValue);
         table.column('foglioFilter:name').search(foglioValue);
         table.column('particellaFilter:name').search(particellaValue);
-        table.column('categoriaFilter:name').search(categoriaValue);
+        table.column('categoriaFilter:name').search(categoriaValue ? '^' + $.fn.dataTable.util.escapeRegex(categoriaValue) + '$' : '', true, false);
         table.column('owners:name').search(ownerValue);
         table.column('assigned:name').search(assignedValue);
         table.column('stato:name').search(statoValue);
@@ -3863,7 +3943,7 @@
             editorModal.innerHTML = '<div class="modal fade" id="property-editor-modal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><div class="d-flex align-items-start justify-content-between gap-2 flex-wrap w-100"><h5 class="modal-title mb-0">Modifica marker</h5><div class="d-flex align-items-start gap-2 ms-auto flex-wrap"><div id="editor-owner-select-wrap" class="d-none" style="min-width:260px;"><label for="editor-owner-select" class="form-label small mb-1 text-muted">Intestatario da modificare</label><select id="editor-owner-select" class="form-select form-select-sm"></select></div><button type="button" class="btn-close mt-1" data-bs-dismiss="modal" aria-label="Chiudi"></button></div></div></div><div class="modal-body"><div id="property-editor-meta" class="small text-muted mb-3"></div><div id="property-editor-error" class="alert alert-danger py-2 px-3 small d-none mb-3"></div><div id="editor-owners-block" class="mb-3"><label id="editor-owners-label" class="form-label small mb-1">Intestatari e telefoni</label><div id="editor-owners-content"></div></div><div class="row g-2"><div class="col-md-6"><label class="form-label small mb-1">Stato</label><select id="editor-state" class="form-select form-select-sm"></select></div><div class="col-md-6"><label class="form-label small mb-1">Colore marker</label><div class="d-flex align-items-center gap-2"><span id="editor-color-preview" class="color-dot" style="width:18px;height:18px;"></span><select id="editor-color" class="form-select form-select-sm"></select></div></div><div class="col-12"><label class="form-label small mb-1">Stato personalizzato</label><input id="editor-custom-state" class="form-control form-control-sm" placeholder="Stato personalizzato"></div><div class="col-12"><label class="form-label small mb-1">Assegnazioni</label><div id="editor-assignments-summary" class="small"></div></div><div class="col-12"><button type="button" class="btn btn-outline-secondary btn-sm d-none" id="editor-assignments-open"><i class="bi bi-person-plus me-1"></i>Gestisci assegnazioni</button></div><div class="col-12"><label class="form-label small mb-1">Note (log)</label><div id="editor-note-log" class="border rounded p-2 bg-light-subtle small mb-2" style="max-height:170px;overflow:auto;"></div><input id="editor-note" class="form-control form-control-sm" placeholder="Scrivi una nota (una riga)"></div></div></div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Annulla</button><button type="button" class="btn btn-primary btn-sm" id="editor-save-btn">Salva</button></div></div></div></div>';
             document.body.appendChild(editorModal.firstElementChild);
         }
-        if (document.getElementById('map-fullpage')) prepareMapEditorDrawer();
+        if (document.getElementById('map-fullpage') || document.getElementById('report-table')) prepareMapEditorDrawer();
         if (!document.getElementById('assignment-picker-modal')) {
             var assignmentModal = document.createElement('div');
             assignmentModal.innerHTML = '<div class="modal fade" id="assignment-picker-modal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Assegna subutenti</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button></div><div class="modal-body"><div id="assignment-picker-meta" class="small text-muted mb-2"></div><div id="assignment-picker-error" class="alert alert-danger py-2 px-3 small d-none mb-2"></div><div id="assignment-picker-list" class="vstack gap-2"></div></div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Annulla</button><button type="button" class="btn btn-primary btn-sm" id="assignment-picker-save">Salva assegnazioni</button></div></div></div></div>';
@@ -3958,6 +4038,7 @@
         body.appendChild(contactFields);
         var noteLabel = document.getElementById('editor-note-log').parentNode.querySelector('label');
         if (noteLabel) noteLabel.textContent = 'Note e attività';
+        document.getElementById('editor-save-btn').textContent = 'Salva modifiche';
     }
 
     function updateMapEditorPresentation(property) {
@@ -4082,7 +4163,7 @@
         var label = document.getElementById('editor-owners-label');
         if (!container) return;
         container.innerHTML = buildEditorOwnersHtml(property, selectedOwnerId);
-        if (document.getElementById('map-fullpage')) {
+        if (document.getElementById('map-fullpage') || document.getElementById('report-table')) {
             container.querySelectorAll('.add-owner-phone-toggle-btn').forEach(function (button) {
                 button.textContent = '+ Aggiungi recapito';
                 button.title = 'Aggiungi recapito telefonico';
@@ -4860,7 +4941,20 @@
         });
     }
 
-    function openEditorModal(propertyId) {
+    function openReportEditor(propertyId, selectedOwnerKey) {
+        var property = findPropertyGroupById(propertyId);
+        if (!property) return;
+        var owner = (property.owners || []).find(function (item, index) {
+            return editorOwnerSelectionKey(item, index) === selectedOwnerKey;
+        });
+        if (!property.can_edit || (owner && !ownerCanEdit(owner, property))) {
+            openDetailModal(propertyId, selectedOwnerKey);
+            return;
+        }
+        openEditorModal(propertyId, selectedOwnerKey);
+    }
+
+    function openEditorModal(propertyId, selectedOwnerKey) {
         ensureSharedModals();
         var property = findPropertyGroupById(propertyId);
         if (!property) { alert('Immobile non trovato.'); return; }
@@ -4876,7 +4970,7 @@
         if (!modalEl || !stateEl || !colorEl || !customStateEl || !noteEl || !saveBtn) return;
         setModalError('property-editor-error', '');
         meta.textContent = (property.comune || '') + ' \u00B7 ' + unitLabel(property) + ' \u00B7 ' + ((property.indirizzo || '') + ' ' + (property.civico || '')).trim();
-        if (document.getElementById('map-fullpage')) updateMapEditorPresentation(property);
+        if (document.getElementById('map-fullpage') || document.getElementById('report-table')) updateMapEditorPresentation(property);
         stateEl.innerHTML = buildSelectOptions(property.stato !== null && property.stato !== undefined ? property.stato : '');
         var allowedColors = MARKER_COLOR_PALETTE.map(function (item) { return item.value; });
         var defaultColor = defaultColorForState(property.stato || '');
@@ -4892,21 +4986,26 @@
         noteEl.value = '';
         modalEl.dataset.propertyId = String(property.id);
         saveBtn.dataset.propertyId = String(property.id);
-        renderEditorOwnerSelect(property, 'all');
-        renderEditorOwners(property, 'all');
+        renderEditorOwnerSelect(property, selectedOwnerKey || 'all');
+        renderEditorOwners(property, selectedOwnerKey || 'all');
         renderEditorNotesLog(property);
         refreshEditorAssignmentSummary(property);
         if (assignmentBtn) { assignmentBtn.classList.toggle('d-none', state.role === 'subuser'); assignmentBtn.dataset.propertyId = String(property.id); }
         bootstrap.Modal.getOrCreateInstance(modalEl).show();
     }
 
-    function openDetailModal(propertyId) {
+    function openDetailModal(propertyId, selectedOwnerKey) {
         ensureSharedModals();
-        var property = findPropertyById(propertyId);
+        var property = document.getElementById('report-table') ? findPropertyGroupById(propertyId) : findPropertyById(propertyId);
         var modalEl = document.getElementById('property-detail-modal');
         var bodyEl  = document.getElementById('property-detail-content');
         if (!property || !modalEl || !bodyEl) return;
         modalEl.dataset.propertyId = String(property.id);
+        if (selectedOwnerKey) {
+            property = Object.assign({}, property, { owners: property.owners.filter(function (owner, index) {
+                return editorOwnerSelectionKey(owner, index) === selectedOwnerKey;
+            }) });
+        }
         bodyEl.innerHTML = buildPropertyCardHtml(property, { mapMode: false });
         bootstrap.Modal.getOrCreateInstance(modalEl).show();
     }
@@ -5110,6 +5209,15 @@
 
     document.addEventListener('click', function (event) {
         var t = event.target;
+        var contactBtn = t.closest('.report-contact-toggle');
+        if (contactBtn) { event.preventDefault(); toggleReportContacts(contactBtn); return; }
+        if (!t.closest('.owners-contact-popover')) closeReportContacts();
+        var reportOwnerBtn = t.closest('.open-report-editor');
+        if (reportOwnerBtn) {
+            event.preventDefault();
+            openReportEditor(Number(reportOwnerBtn.dataset.propertyId || 0), reportOwnerBtn.dataset.ownerKey);
+            return;
+        }
         var phoneBtn = t.closest('.copy-phone-btn');
         if (phoneBtn) {
             event.preventDefault();
@@ -5239,7 +5347,13 @@
         }
         if (t.closest('.close-map-popup'))    { event.preventDefault(); if (state.map) state.map.closePopup(); return; }
         if (t.closest('.close-detail-modal')) { event.preventDefault(); var dm = bootstrap.Modal.getInstance(document.getElementById('property-detail-modal')); if (dm) dm.hide(); return; }
-        var detailBtn = t.closest('.open-detail-modal');   if (detailBtn)     { event.preventDefault(); openDetailModal(Number(detailBtn.dataset.propertyId || 0)); return; }
+        var detailBtn = t.closest('.open-detail-modal');
+        if (detailBtn) {
+            event.preventDefault();
+            if (detailBtn.closest('#report-table')) openReportEditor(Number(detailBtn.dataset.propertyId || 0));
+            else openDetailModal(Number(detailBtn.dataset.propertyId || 0));
+            return;
+        }
         var editorBtn = t.closest('.open-editor-modal');   if (editorBtn)     { event.preventDefault(); openEditorModal(Number(editorBtn.dataset.propertyId || 0)); return; }
         var deleteBtn = t.closest('.delete-property-btn');
         if (deleteBtn) {

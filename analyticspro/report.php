@@ -24,7 +24,8 @@ $reportQuery    = trim((string) analyticspro_get('q', ''));
 
 analyticspro_render_header('Proprietari', [
     'app_assets' => true,
-    'extra_head' => '<link rel="stylesheet" href="' . analyticspro_h(analyticspro_asset_url('assets/css/owners.css')) . '">',
+    'extra_head' => '<link rel="stylesheet" href="' . analyticspro_h(analyticspro_asset_url('assets/css/map.css')) . '">'
+        . '<link rel="stylesheet" href="' . analyticspro_h(analyticspro_asset_url('assets/css/owners.css')) . '">',
 ]);
 ?>
 <div id="analyticspro-app"
@@ -74,12 +75,12 @@ analyticspro_render_header('Proprietari', [
 <div class="card owners-grid">
     <div class="card-body">
         <div class="owners-grid-heading">
-            <div class="row align-items-end gx-2">
+            <div class="owners-search-row">
 
                 <!-- Cerca indirizzo -->
-                <div class="col-12 col-md-5">
+                <div>
                     <label
-                        for="report-filter-categoria"
+                        for="report-address-search"
                         class="form-label form-label-sm small mb-1"
                     >
                         Cerca indirizzo
@@ -95,13 +96,13 @@ analyticspro_render_header('Proprietari', [
                     </div>
                 </div>
 
-                <!-- Cerca proprietario, indirizzo ecc. -->
-                <div class="col-12 col-md-5">
+                <!-- Cerca proprietario -->
+                <div>
                     <label
-                        for="report-filter-categoria"
+                        for="report-search"
                         class="form-label form-label-sm small mb-1"
                     >
-                        Cerca proprietario, indirizzo o telefono
+                        Cerca proprietario
                     </label>
                     <div class="owners-search">
                         <i class="bi bi-search" aria-hidden="true"></i>
@@ -109,25 +110,12 @@ analyticspro_render_header('Proprietari', [
                             id="report-search"
                             type="search"
                             class="form-control"
-                            placeholder="Cerca proprietario, indirizzo o telefono..."
+                            placeholder="Cerca per nome e cognome..."
                         >
                     </div>
                 </div>
 
-                <!-- Categoria catastale -->
-                <div class="col-12 col-md-2">
-                    <label
-                        for="report-filter-categoria"
-                        class="form-label form-label-sm small mb-1"
-                    >
-                        Categoria
-                    </label>
-                    <input
-                        id="report-filter-categoria"
-                        class="form-control form-control-sm"
-                        placeholder="Es. A2, C1"
-                    >
-                </div>
+                <button id="report-filters-toggle" type="button" class="btn btn-outline-secondary btn-sm" aria-expanded="true" aria-controls="report-filters">Nascondi filtri</button>
 
             </div>
         </div>
@@ -168,6 +156,13 @@ analyticspro_render_header('Proprietari', [
                             </select>
                         </div>
                     </div>
+                    <div>
+                        <label for="report-filter-categoria" class="form-label form-label-sm small mb-1">Categoria</label>
+                        <select id="report-filter-categoria" class="form-select form-select-sm">
+                            <option value="">Tutte</option>
+                        </select>
+                    </div>
+                </div>
             </div>
             <div class="owners-table-scroll">
             <table id="report-table" class="table table-hover w-100 align-middle">
