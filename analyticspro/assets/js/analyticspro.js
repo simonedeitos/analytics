@@ -1313,7 +1313,12 @@
     function renderReportTable() {
         if (!document.getElementById('report-table')) return;
         var grouped = groupPropertiesByUnit(state.properties);
-        initDataTable('#report-table', buildReportTableData(grouped), state.role !== 'subuser', 'report');
+        initDataTable(
+    '#report-table',
+    buildReportTableData(grouped),
+    state.canExport,
+    'report'
+);
         updateReportSummary(grouped);
         hydrateReportFilters();
         var searchInput = document.getElementById('report-search');
