@@ -77,7 +77,7 @@ function analyticspro_fetch_properties_payload(array $user, string $mode = 'all'
         $where[] = 'p.id IN (' . implode(',', $idPlaceholders) . ')';
     }
     $columns = $mapSummary
-        ? 'p.id, p.user_id, p.provincia, p.comune, p.cod_catastale, p.sezione, p.foglio, p.particella, p.subalterno, p.rendita, p.categoria, p.lat, p.lng, p.posizione_verificata, p.coord_source, p.stato, p.stato_personalizzato, p.colore_marker'
+        ? 'p.id, p.user_id, p.provincia, p.comune, p.cod_catastale, p.sezione, p.foglio, p.particella, p.subalterno, p.rendita, p.categoria, p.indirizzo, p.civico, p.lat, p.lng, p.posizione_verificata, p.coord_source, p.stato, p.stato_personalizzato, p.colore_marker'
         : 'p.*';
     $sql = 'SELECT ' . $columns . ', tenant.nome AS tenant_nome, tenant.cognome AS tenant_cognome FROM properties p JOIN users tenant ON tenant.id = p.user_id ' . implode(' ', $joins);
     if ($where) {

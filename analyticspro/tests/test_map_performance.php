@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 $source = file_get_contents(__DIR__ . '/../assets/js/analyticspro.js');
 $functions = '';
-foreach (['loadProperties', 'renderMap', 'normalizedPropertyGroupIds', 'fetchMapPropertyDetails', 'bindMapPopup', 'refreshSavedMapProperties', 'savePropertyPayload'] as $name) {
+foreach (['loadProperties', 'renderMap', 'renderMapLayers', 'normalizedPropertyGroupIds', 'fetchMapPropertyDetails', 'bindMapPopup', 'refreshSavedMapProperties', 'savePropertyPayload'] as $name) {
     preg_match('/    (?:async )?function ' . $name . '\(.*?(?=\n    (?:async )?function )/s', $source, $match);
     if (!$match) {
         throw new RuntimeException('Funzione non trovata: ' . $name);
@@ -36,8 +36,8 @@ let groupPropertiesByUnit = records => [Object.assign({}, records[0], {
 })];
 const createMapMarker = property => marker(property);
 const db = new Map([
-    [1, { id: 1, categoria: 'A2', stato: 'interessato', colore_marker: '#198754', owners: [{ nome: 'Uno' }], notes: [{ testo: 'Nota' }] }],
-    [2, { id: 2, categoria: 'A2', stato: 'interessato', colore_marker: '#198754', owners: [{ nome: 'Due' }] }],
+    [1, { id: 1, lat: 45, lng: 9, categoria: 'A2', stato: 'interessato', colore_marker: '#198754', owners: [{ nome: 'Uno' }], notes: [{ testo: 'Nota' }] }],
+    [2, { id: 2, lat: 45, lng: 9, categoria: 'A2', stato: 'interessato', colore_marker: '#198754', owners: [{ nome: 'Due' }] }],
     [3, { id: 3, categoria: 'A7', stato: '', owners: [] }]
 ]);
 async function api(url, options) {
@@ -84,6 +84,12 @@ $test .= <<<'JS'
     assert.ok(layer.content.includes('Uno') && layer.content.includes('Due'));
     await layer.popupopen();
     assert.equal(calls.length, 1, 'Dettagli in cache al secondo click');
+    const rebuiltLayer = marker(group);
+    bindMapPopup(rebuiltLayer);
+    assert.ok(rebuiltLayer.popup(rebuiltLayer).includes('Caricamento'));
+    await rebuiltLayer.popupopen();
+    assert.ok(rebuiltLayer.content.includes('Uno'), 'Idratare i marker ricreati mentre una richiesta era in corso');
+    assert.equal(calls.length, 1, 'Usare dettagli già caricati anche nei marker ricreati');
 
     const untouched = state.properties[2];
     state.mapLayersByProperty = new Map([[1, layer], [2, layer]]);
@@ -97,6 +103,21 @@ $test .= <<<'JS'
     assert.equal(state.properties[2], untouched, 'Preservare immobili non modificati');
     assert.equal(layer.style.fillColor, '#198754');
     assert.ok(state.markers.refreshed);
+    const originalApi = api;
+    api = async (url, options) => {
+        const payload = await originalApi(url, options);
+        if (payload.properties) payload.properties.sort((a, b) => b.id - a.id);
+        return payload;
+    };
+    db.get(1).stato = '';
+    db.get(1).colore_marker = '#0d6efd';
+    await refreshSavedMapProperties([2]);
+    assert.equal(layer._analyticsPropertyData.id, 2, 'Il membro aggiornato più recente deve diventare primario');
+    assert.equal(layer._analyticsPropertyData.stato, 'interessato');
+    assert.equal(layer.style.fillColor, '#198754', 'Non usare stato/colore del vecchio primario non modificabile');
+    api = originalApi;
+    db.get(1).stato = 'interessato';
+    db.get(1).colore_marker = '#198754';
 
     filteredStates = [''];
     await refreshSavedMapProperties([1]);
@@ -141,6 +162,30 @@ $test .= <<<'JS'
     await staleRender;
     assert.equal(state.markers.layers.size, 1, 'Non applicare rendering obsoleti dopo un refresh');
     assert.ok(state.mapLayersByProperty.has(999));
+    state.properties = [Object.assign({}, db.get(1))];
+    await renderMapForTest();
+    let releaseDetails;
+    api = async (url, options) => {
+        await new Promise(resolve => { releaseDetails = resolve; });
+        return originalApi(url, options);
+    };
+    const coordinateRefresh = refreshSavedMapProperties([1], true);
+    await renderMapForTest();
+    db.get(1).lat = 46;
+    db.get(1).lng = 10;
+    releaseDetails();
+    await coordinateRefresh;
+    assert.equal(state.markers.layers.size, 1, 'Filtro durante salvataggio non deve duplicare il marker');
+    assert.equal(state.mapLayersByProperty.get(1)._analyticsPropertyData.lat, 46);
+    assert.ok(state.markers.layers.has(state.mapLayersByProperty.get(1)));
+    api = originalApi;
+    state.properties = Array.from({ length: 450 }, (_, id) => ({ id: id + 1, lat: 45, lng: 9, stato: '' }));
+    const pendingFilterRender = renderMapForTest();
+    db.get(1).lat = 47;
+    await refreshSavedMapProperties([1], true);
+    await pendingFilterRender;
+    assert.equal(state.markers.layers.size, 450, 'Attendere il rendering in corso prima di aggiornare il marker');
+    assert.equal(state.mapLayersByProperty.get(1)._analyticsPropertyData.lat, 47);
     console.log('PASS: map lazy details, cache, retries, grouped saves and targeted marker refresh');
 })().catch(error => { console.error(error); process.exitCode = 1; });
 JS;

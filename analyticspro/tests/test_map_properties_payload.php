@@ -17,7 +17,7 @@ final class MapPayloadDatabase
             INSERT INTO users VALUES (7, 'Tenant', 'Uno'), (8, 'Altro', 'Tenant'), (10, 'Sub', 'Utente');
             CREATE TABLE properties (
                 id INTEGER PRIMARY KEY, user_id INTEGER, provincia TEXT, comune TEXT, cod_catastale TEXT,
-                sezione TEXT, foglio TEXT, particella TEXT, subalterno TEXT, rendita TEXT, categoria TEXT,
+                sezione TEXT, foglio TEXT, particella TEXT, subalterno TEXT, rendita TEXT, categoria TEXT, indirizzo TEXT, civico TEXT,
                 lat REAL, lng REAL, posizione_verificata INTEGER, coord_source TEXT, stato TEXT,
                 stato_personalizzato TEXT, colore_marker TEXT, updated_at TEXT
             );

@@ -1509,7 +1509,12 @@
         showMapFeedback('Coordinate aggiornate per la proprietà #' + targetProperty.id + '.', 'success', 2400);
     }
 
-    async function renderMap() {
+    function renderMap() {
+        state.mapRenderPromise = renderMapLayers();
+        return state.mapRenderPromise;
+    }
+
+    async function renderMapLayers() {
         var container = document.getElementById('map-fullpage') || document.getElementById('map-container');
         if (!container) return;
 
@@ -1841,8 +1846,13 @@
 
     async function fetchMapPropertyDetails(ids) {
         var payload = await api(withTenant(state.propertiesEndpoint + '?mode=all&property_ids=' + ids.join(',')));
-        var byId = new Map((payload.properties || []).map(function (property) { return [Number(property.id), property]; }));
-        state.properties = state.properties.map(function (property) { return byId.get(Number(property.id)) || property; });
+        var properties = payload.properties || [];
+        var byId = new Map(properties.map(function (property) { return [Number(property.id), property]; }));
+        var index = 0;
+        // Mantiene l'ordine server nel gruppo senza sostituire i record estranei.
+        state.properties = state.properties.map(function (property) {
+            return byId.has(Number(property.id)) ? properties[index++] : property;
+        });
         return byId;
     }
 
@@ -1855,7 +1865,12 @@
         marker.on('popupopen', async function () {
             var ids = normalizedPropertyGroupIds(marker._analyticsPropertyData);
             var records = state.properties.filter(function (property) { return ids.indexOf(Number(property.id)) !== -1; });
-            if (records.every(function (property) { return Array.isArray(property.owners); })) return;
+            if (records.length === ids.length && records.every(function (property) { return Array.isArray(property.owners); })) {
+                marker._analyticsPropertyData = groupPropertiesByUnit(records)[0];
+                marker._analyticsPropertyId = Number(marker._analyticsPropertyData.id);
+                if (marker.isPopupOpen()) marker.setPopupContent(buildPopupHtml(marker._analyticsPropertyData));
+                return;
+            }
             try {
                 if (!marker._analyticsDetailsPromise) {
                     marker._analyticsDetailsPromise = fetchMapPropertyDetails(ids);
@@ -1866,6 +1881,7 @@
                     throw new Error('Dettagli non disponibili. Aggiorna i dati della mappa.');
                 }
                 marker._analyticsPropertyData = groupPropertiesByUnit(records)[0];
+                marker._analyticsPropertyId = Number(marker._analyticsPropertyData.id);
                 if (marker.isPopupOpen()) marker.setPopupContent(buildPopupHtml(marker._analyticsPropertyData));
             } catch (error) {
                 if (marker.isPopupOpen()) {
@@ -1888,16 +1904,24 @@
             normalizedPropertyGroupIds(layer._analyticsPropertyData).forEach(function (id) { groupIds.add(id); });
         });
         await fetchMapPropertyDetails(Array.from(groupIds));
-        layers.forEach(function (layer) {
-            var ids = normalizedPropertyGroupIds(layer._analyticsPropertyData);
-            var records = state.properties.filter(function (property) { return ids.indexOf(Number(property.id)) !== -1; });
-            var property = groupPropertiesByUnit(records)[0];
-            if (coordinatesChanged) {
-                state.markers.removeLayer(layer);
+        var pendingRender;
+        do {
+            pendingRender = state.mapRenderPromise;
+            if (pendingRender) await pendingRender;
+        } while (pendingRender !== state.mapRenderPromise);
+        var records = state.properties.filter(function (property) { return groupIds.has(Number(property.id)); });
+        groupPropertiesByUnit(records).forEach(function (property) {
+            if (!property.lat || !property.lng || !isFinite(Number(property.lat)) || !isFinite(Number(property.lng))) return;
+            var ids = normalizedPropertyGroupIds(property);
+            var layer = null;
+            ids.forEach(function (id) { layer = layer || state.mapLayersByProperty.get(id); });
+            if (coordinatesChanged || !layer) {
+                if (layer) state.markers.removeLayer(layer);
                 layer = createMapMarker(property);
                 ids.forEach(function (id) { state.mapLayersByProperty.set(id, layer); });
             }
             layer._analyticsPropertyData = property;
+            layer._analyticsPropertyId = Number(property.id);
             var color = property.colore_marker || '#2A519F';
             layer.options.fillColor = color;
             layer.options.color = groupHasApproximateCoordinates(property) ? '#dc3545' : color;
