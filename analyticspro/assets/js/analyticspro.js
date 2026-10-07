@@ -122,7 +122,7 @@
     }
 
     function getStatiFilter() {
-        if (state.mapStatiFilter && Array.isArray(state.mapStatiFilter) && state.mapStatiFilter.length > 0) {
+        if (Array.isArray(state.mapStatiFilter)) {
             return state.mapStatiFilter;
         }
         return Object.keys(STATE_OPTIONS).slice();
@@ -784,6 +784,12 @@
         }).join('');
     }
 
+    function buildOwnerSearchText(property) {
+        return (property.owners || []).map(function (owner) {
+            return ((owner.nome || '') + ' ' + (owner.cognome || '')).trim();
+        }).filter(Boolean).join(' ');
+    }
+
     function updateEditorColorPreview(color) {
         var preview = document.getElementById('editor-color-preview');
         if (!preview) return;
@@ -801,6 +807,7 @@
 
     function propertyHeaderFacts(property) {
         return [
+            { label: 'Categoria catastale', value: property.categoria || '—' },
             { label: 'Classe', value: property.classe || '—' },
             { label: 'Rendita', value: property.rendita || '—' },
             { label: 'Piano', value: property.piano || '—' },
@@ -1082,9 +1089,13 @@
                 provincia: property.provincia || '',
                 indirizzo: ((property.indirizzo || '') + ' ' + (property.civico || '')).trim(),
                 unita: unitLabel(property),
+                foglioFilter: property.foglio || '',
+                particellaFilter: property.particella || '',
+                categoriaFilter: property.categoria || '',
                 stato: STATE_OPTIONS[property.stato !== null && property.stato !== undefined ? property.stato : ''] || (property.stato || ''),
                 colore: '<span class="color-dot" style="background:' + escapeHtml(property.colore_marker || '#0d6efd') + '"></span>',
                 owners: buildOwnersTableHtml(property),
+                ownerSearch: buildOwnerSearchText(property),
                 assignmentsText: escapeHtml(assignmentNamesLabel(property)),
                 assignments: buildAssignmentSummary(property),
                 detail: detailColumn(property),
@@ -1103,16 +1114,19 @@
         }
 
         var reportColumns = [
-            { title: 'Colore', data: 'colore' },
+            { title: 'Colore', data: 'colore', render: function (data, type, row) { return type === 'filter' || type === 'sort' ? (row.raw.colore_marker || '') : data; } },
             { title: 'Comune', data: 'comune' },
             { title: 'Foglio/Particella/Sub', data: 'unita' },
             { title: 'Indirizzo', data: 'indirizzo' },
-            { title: 'Intestatari', data: 'owners' },
+            { title: 'Intestatari', data: 'owners', render: function (data, type, row) { return type === 'filter' || type === 'sort' ? row.ownerSearch : data; } },
             { title: 'Assegnati a', data: 'assignmentsText' },
             { title: 'Stato', data: 'stato' },
             { title: 'Dettaglio', data: 'detail' },
             { title: 'Modifica', data: 'editor' },
             { title: 'Elimina', data: 'deleteAction' },
+            { title: 'Foglio filtro', data: 'foglioFilter', name: 'foglioFilter', visible: false },
+            { title: 'Particella filtro', data: 'particellaFilter', name: 'particellaFilter', visible: false },
+            { title: 'Categoria filtro', data: 'categoriaFilter', name: 'categoriaFilter', visible: false },
         ];
         var assignedColumns = [
             { title: 'Colore', data: 'colore' },
@@ -1158,7 +1172,7 @@
             lengthMenu: context === 'assigned' || context === 'report' ? [25, 50, 75, 100, 150] : [25, 50, 100],
             order: [],
             language: { url: 'https://cdn.datatables.net/plug-ins/1.13.8/i18n/it-IT.json' },
-            dom: buttons.length ? 'Bfrtip' : 'frtip',
+            dom: context === 'report' ? (buttons.length ? 'Btip' : 'tip') : (buttons.length ? 'Bfrtip' : 'frtip'),
             buttons: buttons,
             columnDefs: [{
                 targets: columns.reduce(function (targets, column, index) {
@@ -1204,12 +1218,9 @@
         initDataTable('#report-table', buildTableData(grouped, 'report'), state.role !== 'subuser', 'report');
         hydrateReportFilters();
         if (state.reportQuery) {
-            var comuneInput = document.getElementById('report-filter-comune');
-            if (comuneInput && !comuneInput.value) {
-                comuneInput.value = state.reportQuery;
-            }
-            if (state.tables['#report-table']) {
-                state.tables['#report-table'].search(state.reportQuery).draw();
+            var ownerInput = document.getElementById('report-filter-owner');
+            if (ownerInput && !ownerInput.value) {
+                ownerInput.value = state.reportQuery;
             }
         }
         applyReportFilters();
@@ -1242,11 +1253,17 @@
         var colorValue    = (document.getElementById('report-filter-color')    || {}).value || '';
         var comuneValue   = (document.getElementById('report-filter-comune')   || {}).value || '';
         var foglioValue   = (document.getElementById('report-filter-foglio')   || {}).value || '';
+        var particellaValue = (document.getElementById('report-filter-particella') || {}).value || '';
+        var categoriaValue = (document.getElementById('report-filter-categoria') || {}).value || '';
+        var ownerValue = (document.getElementById('report-filter-owner') || {}).value || '';
         var statoValue    = (document.getElementById('report-filter-stato')    || {}).value || '';
         var assignedValue = (document.getElementById('report-filter-assigned') || {}).value || '';
-        table.column(0).search(colorValue ? 'background:' + colorValue : '', true, false);
+        table.column(0).search(colorValue);
         table.column(1).search(comuneValue);
-        table.column(2).search(foglioValue);
+        table.column('foglioFilter:name').search(foglioValue);
+        table.column('particellaFilter:name').search(particellaValue);
+        table.column('categoriaFilter:name').search(categoriaValue);
+        table.column(4).search(ownerValue);
         table.column(5).search(assignedValue);
         table.column(6).search(statoValue);
         table.draw();
@@ -1374,15 +1391,30 @@
             state.mapCategoriaFilter = active.slice();
         }
 
-        container.innerHTML = '<strong class="me-1">Categoria:</strong>'
+        container.innerHTML = '<div class="w-100 d-flex justify-content-between align-items-center gap-2 mb-1"><strong class="text-uppercase text-muted">Categorie</strong>'
+            + '<button id="btn-select-all-categorie" type="button" class="btn btn-xs btn-outline-secondary">Seleziona tutte</button></div>'
             + categories.map(function (category, index) {
                 var safeId = 'filter-categoria-' + index;
                 return '<div class="form-check form-check-inline me-0">'
                     + '<input class="form-check-input map-categoria-filter" type="checkbox" value="' + escapeHtml(category) + '" id="' + safeId + '"' + (active.indexOf(category) !== -1 ? ' checked' : '') + ' style="width:0.75rem;height:0.75rem;">'
                     + '<label class="form-check-label" for="' + safeId + '">' + escapeHtml(category) + '</label>'
                     + '</div>';
-            }).join('')
-            + '<button id="btn-select-all-categorie" class="btn btn-xs btn-outline-secondary" style="font-size:0.7rem;padding:0.1rem 0.4rem;margin-left:1rem;">Seleziona tutte</button>';
+            }).join('');
+        updateMapFilterToggleButtons();
+    }
+
+    function updateMapFilterToggleButtons() {
+        var groups = [
+            { selector: '.map-stato-filter', buttonId: 'btn-select-all-stati', selectAll: 'Seleziona tutti', deselectAll: 'Deseleziona tutti' },
+            { selector: '.map-categoria-filter', buttonId: 'btn-select-all-categorie', selectAll: 'Seleziona tutte', deselectAll: 'Deseleziona tutte' }
+        ];
+        groups.forEach(function (group) {
+            var button = document.getElementById(group.buttonId);
+            if (!button) return;
+            var checkboxes = Array.from(document.querySelectorAll(group.selector));
+            var allSelected = checkboxes.length > 0 && checkboxes.every(function (checkbox) { return checkbox.checked; });
+            button.textContent = allSelected ? group.deselectAll : group.selectAll;
+        });
     }
 
     function isApproximateCoordSource(coordSource) {
@@ -3712,7 +3744,7 @@
         if (payload.particella) details.push('<li><strong>Particella:</strong> ' + escapeHtml(payload.particella) + '</li>');
         return '<div class="map-popup-wrapper">'
             + '<div class="card map-popup-card">'
-            + '<div class="card-header py-2 px-3 fw-semibold"><i class="bi bi-geo-alt-fill me-1"></i>Risultato Trova area</div>'
+            + '<div class="card-header py-2 px-3 fw-semibold"><i class="bi bi-geo-alt-fill me-1"></i>Risultato Ricerca Particella</div>'
             + '<div class="card-body py-2 px-3"><ul class="list-unstyled small mb-0">' + details.join('') + '</ul></div>'
             + '</div></div>';
     }
@@ -4616,6 +4648,7 @@
             applyReportFilters();
         }
         if (event.target.id === 'report-filter-stato') applyReportFilters();
+        if (event.target.classList.contains('map-stato-filter') || event.target.classList.contains('map-categoria-filter')) updateMapFilterToggleButtons();
         if (event.target.id === 'ade-zips')      setAdeUploadButtonState('ade-zips',      'ade-zips-submit',  '<i class="bi bi-cloud-upload me-1"></i>Importa',     '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Importazione\u2026', false);
         if (event.target.id === 'ade-sql-files') setAdeUploadButtonState('ade-sql-files', 'ade-sql-submit',   '<i class="bi bi-cloud-upload me-1"></i>Importa SQL', '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Importazione\u2026', false);
     });
@@ -4798,18 +4831,17 @@
         if (t.id === 'btn-apply-filter') {
             var cbs = document.querySelectorAll('.map-stato-filter:checked');
             var nf  = Array.from(cbs).map(function (cb) { return cb.value; });
-            state.mapStatiFilter = nf.length > 0 ? nf : Object.keys(STATE_OPTIONS).slice();
+            state.mapStatiFilter = nf;
             var categoryChecks = document.querySelectorAll('.map-categoria-filter:checked');
             state.mapCategoriaFilter = Array.from(categoryChecks).map(function (cb) { return cb.value; });
             renderMap();
         }
-        if (t.id === 'btn-select-all-stati') { var cbs2 = document.querySelectorAll('.map-stato-filter'); var allC = Array.from(cbs2).every(function(cb){return cb.checked;}); cbs2.forEach(function(cb){cb.checked=!allC;}); }
+        if (t.id === 'btn-select-all-stati') { var cbs2 = document.querySelectorAll('.map-stato-filter'); var allC = Array.from(cbs2).every(function(cb){return cb.checked;}); cbs2.forEach(function(cb){cb.checked=!allC;}); updateMapFilterToggleButtons(); }
         if (t.id === 'btn-select-all-categorie') {
             var cbs3 = document.querySelectorAll('.map-categoria-filter');
             var allC3 = Array.from(cbs3).every(function(cb){return cb.checked;});
             cbs3.forEach(function(cb){cb.checked=!allC3;});
-            state.mapCategoriaFilter = Array.from(document.querySelectorAll('.map-categoria-filter:checked')).map(function (cb) { return cb.value; });
-            renderMap();
+            updateMapFilterToggleButtons();
         }
         if (t.id === 'ade-zips-submit')      submitAdeUpload('ade-zips',      'ade-zips-submit',  'zip', '<i class="bi bi-cloud-upload me-1"></i>Importa',     '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Importazione\u2026').catch(function(e){alert(e.message);});
         if (t.id === 'ade-sql-submit')       submitAdeUpload('ade-sql-files', 'ade-sql-submit',   'sql', '<i class="bi bi-cloud-upload me-1"></i>Importa SQL', '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Importazione\u2026').catch(function(e){alert(e.message);});
@@ -4825,7 +4857,7 @@
 
     var assignedSaveBtn = document.getElementById('assigned-save');
     if (assignedSaveBtn) assignedSaveBtn.addEventListener('click', async function () { await loadProperties(); });
-    ['report-filter-comune','report-filter-foglio','report-filter-assigned'].forEach(function (id) { var el = document.getElementById(id); if (el) el.addEventListener('input', function () { applyReportFilters(); }); });
+    ['report-filter-comune','report-filter-foglio','report-filter-particella','report-filter-categoria','report-filter-owner','report-filter-assigned'].forEach(function (id) { var el = document.getElementById(id); if (el) el.addEventListener('input', function () { applyReportFilters(); }); });
 
     document.querySelectorAll('[data-dashboard-tab]').forEach(function (button) {
         button.addEventListener('click', function () {

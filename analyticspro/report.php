@@ -41,7 +41,7 @@ analyticspro_render_header('Report in griglia', ['app_assets' => true]);
 
     <?= analyticspro_ui_page_header(
         'Report in griglia',
-        'Vista tabellare densa con filtri rapidi, ricerca globale e export coerente con il nuovo design system.',
+        'Vista tabellare con filtri rapidi per immobile e intestatario.',
         '',
         ['eyebrow' => 'Dati operativi']
     ) ?>
@@ -51,7 +51,7 @@ analyticspro_render_header('Report in griglia', ['app_assets' => true]);
             <p class="text-muted small">Vista generale di tutti gli immobili del tenant con filtri su ogni colonna, incluso colore e stato.</p>
             <div id="report-filters" class="report-filter-bar mb-3">
                 <div class="row g-2 align-items-end">
-                    <div class="col-12 col-md-2">
+                    <div class="col-12 col-md-3">
                         <label for="report-filter-color" class="form-label form-label-sm small mb-1">Colore</label>
                         <div class="d-flex align-items-center gap-2">
                             <span id="report-filter-color-preview" class="color-dot" aria-hidden="true"></span>
@@ -60,21 +60,33 @@ analyticspro_render_header('Report in griglia', ['app_assets' => true]);
                             </select>
                         </div>
                     </div>
-                    <div class="col-12 col-md-2">
+                    <div class="col-12 col-md-3">
                         <label for="report-filter-comune" class="form-label form-label-sm small mb-1">Comune</label>
                         <input id="report-filter-comune" class="form-control form-control-sm" placeholder="Comune">
                     </div>
-                    <div class="col-12 col-md-2">
-                        <label for="report-filter-foglio" class="form-label form-label-sm small mb-1">Foglio/Particella</label>
-                        <input id="report-filter-foglio" class="form-control form-control-sm" placeholder="F. / P.">
+                    <div class="col-12 col-md-3">
+                        <label for="report-filter-foglio" class="form-label form-label-sm small mb-1">Foglio</label>
+                        <input id="report-filter-foglio" class="form-control form-control-sm" placeholder="Foglio">
                     </div>
-                    <div class="col-12 col-md-2">
+                    <div class="col-12 col-md-3">
+                        <label for="report-filter-particella" class="form-label form-label-sm small mb-1">Particella</label>
+                        <input id="report-filter-particella" class="form-control form-control-sm" placeholder="Particella">
+                    </div>
+                    <div class="col-12 col-md-3">
+                        <label for="report-filter-categoria" class="form-label form-label-sm small mb-1">Categoria catastale</label>
+                        <input id="report-filter-categoria" class="form-control form-control-sm" placeholder="Es. A2, C1">
+                    </div>
+                    <div class="col-12 col-md-3">
                         <label for="report-filter-stato" class="form-label form-label-sm small mb-1">Stato</label>
                         <select id="report-filter-stato" class="form-select form-select-sm">
                             <option value="">Tutti</option>
                         </select>
                     </div>
-                    <div class="col-12 col-md-4">
+                    <div class="col-12 col-md-3">
+                        <label for="report-filter-owner" class="form-label form-label-sm small mb-1">Cerca Proprietario</label>
+                        <input id="report-filter-owner" class="form-control form-control-sm" placeholder="Nome o cognome proprietario">
+                    </div>
+                    <div class="col-12 col-md-3">
                         <label for="report-filter-assigned" class="form-label form-label-sm small mb-1">Assegnato a</label>
                         <input id="report-filter-assigned" class="form-control form-control-sm" placeholder="Nome subutente">
                     </div>
