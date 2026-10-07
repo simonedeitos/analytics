@@ -190,11 +190,8 @@ $quickActions = [
         <?php if ($canViewAnalytics): ?>
             <div class="col-12 col-xl-4">
                 <div class="row g-4">
-                    <div class="col-12" data-dashboard-section="all overview anagrafica">
-                        <?= analyticspro_ui_chart_card(['title' => 'Disponibilità contatti', 'icon' => 'bi-telephone', 'canvas_id' => 'chart-contacts', 'height' => '165']) ?>
-                    </div>
                     <div class="col-12" data-dashboard-section="all overview immobili">
-                        <?= analyticspro_ui_chart_card(['title' => 'Titolarità', 'icon' => 'bi-person-check', 'canvas_id' => 'chart-titolarita', 'height' => '165']) ?>
+                        <?= analyticspro_ui_chart_card(['title' => 'Titolarità', 'icon' => 'bi-person-check', 'canvas_id' => 'chart-titolarita', 'height' => '360']) ?>
                     </div>
                 </div>
             </div>
