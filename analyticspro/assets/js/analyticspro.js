@@ -51,7 +51,7 @@
         tenantId: root.dataset.tenantId || '',
         selectedTenant: root.dataset.selectedTenant || '',
         canImport: root.dataset.canImport === '1',
-        canExport: root.dataset.canExport === '1',
+        canExport: root.dataset.canExport === '0',
         canViewReports: root.dataset.canViewReports === '1',
         canViewAnalytics: root.dataset.canViewAnalytics === '1',
         canViewPhone: root.dataset.canViewPhone === '1',
