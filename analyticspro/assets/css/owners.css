@@ -11,6 +11,11 @@
     justify-content: space-between;
     gap: 1rem;
 }
+
+
+
+
+
 .owners-page .owners-header { margin-bottom: 1.5rem; }
 .owners-page h1 { font-size: 1.65rem; font-weight: 700; margin-bottom: .4rem; }
 .owners-page .owners-header p { color: #77818d; margin: 0; }
@@ -40,7 +45,6 @@
 .owners-page .form-select { border-color: var(--owners-border); border-radius: .5rem; min-height: 2.4rem; }
 .owners-page .form-control:focus,
 .owners-page .form-select:focus { border-color: var(--owners-accent); box-shadow: 0 0 0 .15rem #ed741c20; }
-.owners-page .report-filter-bar { position: static; background: transparent; padding: 0 0 .85rem; border: 0; border-bottom: 1px solid var(--owners-border); border-radius: 0; }
 .owners-page .owners-advanced-filters[hidden] { display: none !important; }
 .owners-page .owners-filter-row { display: grid; grid-template-columns: minmax(100px, 1fr) minmax(135px, 1.2fr) repeat(4, minmax(110px, 1fr)) auto; gap: .55rem; align-items: end; }
 .owners-page .owners-filter-field { flex: initial; min-width: 0; }
@@ -58,9 +62,105 @@
 .owners-page .owners-cadastral-filter legend { float: none; width: auto; color: var(--ap-muted); }
 .owners-page .owners-cadastral-fields { display: flex; gap: .35rem; }
 .owners-page .owners-cadastral-fields > .owners-filter-field { flex: 1 1 0; }
-.owners-page .owners-color-filter #report-filter-color-preview { position: absolute; z-index: 1; top: 50%; left: .7rem; width: .55rem; height: .55rem; transform: translateY(-50%); pointer-events: none; }
+
+/* =========================================================
+   FILTRO COLORE - PALETTE ORIZZONTALE
+   ========================================================= */
+
+.owners-page .owners-color-filter {
+    position: relative;
+}
+
+.owners-page .owners-color-filter #report-filter-color-preview {
+    position: absolute;
+    z-index: 2;
+
+    left: .7rem;
+    top: 50%;
+
+    width: .55rem;
+    height: .55rem;
+
+    margin: 0;
+    padding: 0;
+
+    transform: translateY(-50%);
+
+    pointer-events: none;
+}
+
+/* Il menu diventa una piccola palette orizzontale */
+.owners-page .owners-color-filter .dropdown-menu {
+    min-width: auto !important;
+    width: max-content !important;
+
+    padding: .4rem !important;
+
+    display: none;
+    flex-direction: row;
+    align-items: center;
+    gap: .3rem;
+
+    white-space: nowrap;
+
+    border: 1px solid var(--owners-border);
+    border-radius: .5rem;
+    background: #fff;
+
+    box-shadow: 0 .35rem 1rem rgba(0, 0, 0, .12);
+
+    z-index: 1051;
+}
+
+/* Quando Bootstrap apre il dropdown */
+.owners-page .owners-color-filter .dropdown-menu.show {
+    display: flex;
+}
+
+/* Nascondiamo l'aspetto "voce di menu" */
+.owners-page .owners-color-filter .dropdown-item {
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+
+    width: 1.8rem;
+    height: 1.8rem;
+
+    padding: 0 !important;
+    margin: 0 !important;
+
+    border-radius: .4rem;
+
+    font-size: 0 !important;
+
+    background: transparent;
+}
+
+/* Hover */
+.owners-page .owners-color-filter .dropdown-item:hover {
+    background: #f1f2f4;
+}
+
+/* Pallino colore */
+.owners-page .owners-color-filter .dropdown-item .color-dot,
+.owners-page .owners-color-filter .dropdown-item span {
+    width: .9rem;
+    height: .9rem;
+
+    flex: 0 0 .9rem;
+
+    border-radius: 50%;
+}
+
+/* Eventuale voce "Tutti" */
+.owners-page .owners-color-filter .dropdown-item:first-child {
+    border-right: 1px solid var(--owners-border);
+    padding-right: .5rem !important;
+    margin-right: .15rem !important;
+    border-radius: 0;
+}
+
 .owners-page .owners-color-filter .dropdown-toggle { width: 100%; text-align: left; background: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.owners-page .owners-color-filter .dropdown-menu { max-height: 18rem; overflow-y: auto; }
 .owners-page .owners-color-filter .dropdown-item { display: flex; align-items: center; gap: .5rem; font-size: .78rem; }
 .owners-page .owners-filter-reset { min-height: 2.1rem; padding: .25rem .2rem; color: var(--ap-blue); font-size: .78rem; white-space: nowrap; }
 .owners-page .owners-filter-reset:hover { color: var(--ap-blue); }
@@ -108,6 +208,13 @@
 .owners-page .dataTables_wrapper .dataTables_info { padding: 0; margin-left: auto; }
 .owners-page .dataTables_wrapper .dataTables_paginate { padding: 0; }
 .owners-page .page-link { border-color: var(--owners-border); border-radius: .4rem; margin-inline: .15rem; }
+
+
+
+
+
+
+
 @media (max-width: 1199.98px) {
     .owners-page .owners-filter-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
