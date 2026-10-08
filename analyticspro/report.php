@@ -130,12 +130,16 @@ analyticspro_render_header('Proprietari', [
                     <label for="report-filter-assigned" class="visually-hidden">Assegnato a</label>
                     <input id="report-filter-assigned" class="form-control form-control-sm" placeholder="Assegnato a">
                 </div>
-                <div class="analyticspro-map-field owners-filter-field owners-color-filter">
+                <div class="analyticspro-map-field owners-filter-field owners-color-filter dropdown">
                     <span id="report-filter-color-preview" class="color-dot" aria-hidden="true"></span>
                     <label for="report-filter-color" class="visually-hidden">Colore</label>
-                    <select id="report-filter-color" class="form-select form-select-sm">
+                    <select id="report-filter-color" class="form-select form-select-sm d-none" hidden>
                         <option value="">Tutti</option>
                     </select>
+                    <button id="report-filter-color-toggle" type="button" class="form-select form-select-sm dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Colore">
+                        <span id="report-filter-color-label">Tutti</span>
+                    </button>
+                    <ul id="report-filter-color-menu" class="dropdown-menu" aria-labelledby="report-filter-color-toggle"></ul>
                 </div>
                 <div class="analyticspro-map-field owners-filter-field">
                     <i class="bi bi-tags" aria-hidden="true"></i>

@@ -798,6 +798,8 @@
     }
 
     function updateReportFilterColorPreview(color) {
+        var label = document.getElementById('report-filter-color-label');
+        if (label) label.textContent = color ? colorOptionLabel(color, 'Colore personalizzato ' + colorIdentifier(color)) : 'Tutti';
         var preview = document.getElementById('report-filter-color-preview');
         if (!preview) return;
         preview.style.backgroundColor = color || '#dee2e6';
@@ -1247,19 +1249,18 @@
 
     function reportStatusBadge(label, property) {
         var status = property.stato || '';
-        var tone = {
-            contattato: 'contacted',
-            da_contattare: 'followup',
-            non_raggiungibile: 'unreachable',
-        }[status] || 'neutral';
+        var color = /^#[0-9a-f]{6}$/i.test(property.colore_marker || '') ? property.colore_marker : '#0d6efd';
+        var tint = [1, 3, 5].map(function (offset) {
+            return Math.round(parseInt(color.slice(offset, offset + 2), 16) * 0.15 + 255 * 0.85);
+        }).join(', ');
         var displayLabel = status === 'da_contattare' ? 'Da ricontattare' : (!status ? 'Non contattato' : (label || STATE_OPTIONS['']));
-        return '<span class="owners-status owners-status--' + tone + '">' + escapeHtml(displayLabel) + '</span>';
+        return '<span class="owners-status" style="--owners-status-dot-color:' + color + ';--owners-status-background:rgb(' + tint + ');">' + escapeHtml(displayLabel) + '</span>';
     }
 
     function buildReportTableData(properties) {
         return buildTableData(properties, 'report').map(function (row) {
             var property = row.raw;
-            row.propertyHtml = '<div class="owners-property-title">' + reportStatusBadge(row.stato, property).replace('owners-status ', 'owners-status owners-property-dot ') + escapeHtml(row.indirizzo || 'Indirizzo non disponibile') + '</div>'
+            row.propertyHtml = '<div class="owners-property-title">' + reportStatusBadge(row.stato, property).replace('class="owners-status"', 'class="owners-status owners-property-dot"') + escapeHtml(row.indirizzo || 'Indirizzo non disponibile') + '</div>'
                 + '<div class="owners-property-location">' + escapeHtml(row.comune || 'Comune non disponibile') + (row.provincia ? ' (' + escapeHtml(row.provincia) + ')' : '') + '</div>'
                 + '<div class="owners-property-meta">' + escapeHtml(row.unita)
                 + (row.categoriaFilter ? ' · ' + escapeHtml(row.categoriaFilter) : '') + '</div>';
@@ -1447,6 +1448,23 @@
                 return colorOptionHtml(c, colorOptionLabel(c, 'Colore personalizzato ' + colorIdentifier(c)), false);
             }).join('');
             colorSelect.value = (selectedColor && seen[selectedColor]) ? selectedColor : '';
+            var colorMenu = document.getElementById('report-filter-color-menu');
+            if (colorMenu) {
+                colorMenu.innerHTML = '<li><button type="button" class="dropdown-item" data-report-color="">Tutti</button></li>' + colors.map(function (color) {
+                    var swatch = /^#[0-9a-f]{6}$/i.test(color) ? color : '#0d6efd';
+                    return '<li><button type="button" class="dropdown-item" data-report-color="' + escapeHtml(color) + '"><span class="color-dot" style="background:' + swatch + ';" aria-hidden="true"></span>'
+                        + escapeHtml(colorOptionLabel(color, 'Colore personalizzato ' + colorIdentifier(color))) + '</button></li>';
+                }).join('');
+                if (!colorMenu.dataset.reportBound) {
+                    colorMenu.addEventListener('click', function (event) {
+                        var option = event.target.closest('[data-report-color]');
+                        if (!option) return;
+                        colorSelect.value = option.dataset.reportColor;
+                        colorSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                    });
+                    colorMenu.dataset.reportBound = '1';
+                }
+            }
             updateColorSelectAppearance(colorSelect);
             updateReportFilterColorPreview(colorSelect.value);
         }
@@ -1479,7 +1497,7 @@
         table.column('categoriaFilter:name').search(categoriaValue ? '^' + $.fn.dataTable.util.escapeRegex(categoriaValue) + '$' : '', true, false);
         table.column('owners:name').search(ownerValue);
         table.column('assigned:name').search(assignedValue);
-        table.column('stato:name').search(statoValue);
+        table.column('stato:name').search(statoValue ? '^' + $.fn.dataTable.util.escapeRegex(statoValue) + '$' : '', true, false);
         table.draw();
     }
 
