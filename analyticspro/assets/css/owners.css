@@ -58,7 +58,10 @@
 .owners-page .owners-cadastral-filter legend { float: none; width: auto; color: var(--ap-muted); }
 .owners-page .owners-cadastral-fields { display: flex; gap: .35rem; }
 .owners-page .owners-cadastral-fields > .owners-filter-field { flex: 1 1 0; }
-.owners-page .owners-color-filter .color-dot { position: absolute; z-index: 1; top: 50%; left: .7rem; width: .55rem; height: .55rem; transform: translateY(-50%); pointer-events: none; }
+.owners-page .owners-color-filter #report-filter-color-preview { position: absolute; z-index: 1; top: 50%; left: .7rem; width: .55rem; height: .55rem; transform: translateY(-50%); pointer-events: none; }
+.owners-page .owners-color-filter .dropdown-toggle { width: 100%; text-align: left; background: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.owners-page .owners-color-filter .dropdown-menu { max-height: 18rem; overflow-y: auto; }
+.owners-page .owners-color-filter .dropdown-item { display: flex; align-items: center; gap: .5rem; font-size: .78rem; }
 .owners-page .owners-filter-reset { min-height: 2.1rem; padding: .25rem .2rem; color: var(--ap-blue); font-size: .78rem; white-space: nowrap; }
 .owners-page .owners-filter-reset:hover { color: var(--ap-blue); }
 .owners-page .owners-extra-filters { margin-top: .75rem; color: var(--ap-muted); font-size: .8rem; }
@@ -72,14 +75,8 @@
 .owners-page .owners-property-meta { color: #77818d; font-size: .75rem; margin-top: .1rem; line-height: 1.2; }
 .owners-page .owners-property-location { color: var(--ap-muted); font-size: .8rem; margin-left: 1rem; line-height: 1.2; }
 .owners-page .owners-property-title ~ .owners-property-meta { margin-left: 1rem; }
-.owners-page .owners-status { display: inline-flex; align-items: center; gap: .4rem; padding: .35rem .65rem; background: #f0f1f3; color: #647080; border-radius: 1rem; white-space: nowrap; font-size: .75rem; font-weight: 500; }
-.owners-page .owners-status::before { content: ""; width: 6px; height: 6px; flex-shrink: 0; border-radius: 50%; background: #98a2b3; }
-.owners-page .owners-status--contacted { background: #e9f2ff; color: #2864b0; }
-.owners-page .owners-status--contacted::before { background: #3485ff; }
-.owners-page .owners-status--followup { background: var(--ap-orange-light, #fff2e8); color: #9b4b16; }
-.owners-page .owners-status--followup::before { background: #f59e0b; }
-.owners-page .owners-status--unreachable { background: #ffebeb; color: #b83434; }
-.owners-page .owners-status--unreachable::before { background: #ef5c64; }
+.owners-page .owners-status { display: inline-flex; align-items: center; gap: .4rem; padding: .35rem .65rem; background: var(--owners-status-background, #dbebff); color: #212529; border-radius: 1rem; white-space: nowrap; font-size: .75rem; font-weight: 500; }
+.owners-page .owners-status::before { content: ""; width: 6px; height: 6px; flex-shrink: 0; border-radius: 50%; background: var(--owners-status-dot-color, #0d6efd); }
 .owners-page .owners-property-dot { flex: 0 0 8px; width: 8px; height: 8px; overflow: hidden; padding: 0; font-size: 0; background: transparent; gap: 0; }
 .owners-page .owners-property-dot::before { width: 8px; height: 8px; }
 .owners-page .owners-row-actions { display: flex; align-items: flex-start; gap: .5rem; min-width: 8rem; }

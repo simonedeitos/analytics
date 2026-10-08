@@ -5,6 +5,7 @@ declare(strict_types=1);
 $root = dirname(__DIR__);
 $page = (string) file_get_contents($root . '/report.php');
 $source = (string) file_get_contents($root . '/assets/js/analyticspro.js');
+$styles = (string) file_get_contents($root . '/assets/css/owners.css');
 $errors = [];
 
 foreach ([
@@ -24,6 +25,9 @@ foreach ([
     'report-filter-stato',
     'report-filter-assigned',
     'report-filter-color',
+    'report-filter-color-menu',
+    'report-filter-color-toggle',
+    'report-filter-color-preview',
     'report-address-search',
     'report-filter-categoria',
     'Censimento e proprietari',
@@ -44,6 +48,11 @@ foreach ([
 if (str_contains($page, 'Report in griglia')) {
     $errors[] = 'La pagina deve chiamarsi Proprietari.';
 }
+foreach (['background: var(--owners-status-dot-color, #0d6efd)', 'background: var(--owners-status-background, #dbebff)', 'color: #212529'] as $contract) {
+    if (!str_contains($styles, $contract)) {
+        $errors[] = 'Contratto colori dinamici mancante: ' . $contract;
+    }
+}
 
 $script = 'const source = ' . json_encode($source, JSON_THROW_ON_ERROR) . ";\n" . <<<'JS'
 const assert = require('node:assert/strict');
@@ -52,8 +61,9 @@ const elements = {};
 let config;
 let draws = 0;
 const searches = {};
+const searchOptions = {};
 const table = {
-    column(name) { return { search(value) { searches[name] = value; } }; },
+    column(name) { return { search(value, regex, smart) { searches[name] = value; searchOptions[name] = { regex, smart }; } }; },
     search(value) { searches.global = value; return this; },
     draw() { draws++; return this; },
     buttons() { return { container() { return { appendTo(element) { element.exportsMoved = true; } }; } }; },
@@ -61,6 +71,7 @@ const table = {
 const state = { tables: {}, role: 'tenant', canViewPhone: true };
 const context = {
     state,
+    Event,
     document: { getElementById(id) { return elements[id] || null; } },
     $(selector) {
         return {
@@ -68,7 +79,8 @@ const context = {
             DataTable(options) { config = options; return table; },
         };
     },
-    STATE_OPTIONS: { '': 'Non impostato', da_contattare: 'Da contattare', contattato: 'Contattato', non_raggiungibile: 'Non Raggiungibile', interessato: 'Interessato' },
+    STATE_OPTIONS: { '': 'Non impostato', da_contattare: 'Da contattare', contattato: 'Contattato', non_raggiungibile: 'Non Raggiungibile', interessato: 'Interessato', non_interessato: 'Non Interessato', altro: 'Altro (specificare)' },
+    paletteEntryByColor() { return null; },
     escapeHtml(value) { return String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;'); },
     ownerQuotaLabel(owner) { return owner.quota || ''; },
     ownerTitolaritaLabel(owner) { return owner.titolarita || ''; },
@@ -86,6 +98,8 @@ vm.createContext(context);
 for (const name of ['propertyCanViewPhone', 'splitPhoneNumbers', 'buildPhoneChips', 'buildOwnerSearchText',
     'buildOwnersTableHtml', 'unitLabel', 'buildTableData', 'initDataTable', 'reportStatusBadge', 'buildReportTableData',
     'ownerGroupKey', 'editorOwnerSelectionKey', 'buildReportContactsHtml',
+    'colorOptionTextColor', 'colorOptionLabel', 'colorIdentifier', 'colorOptionHtml',
+    'updateColorSelectAppearance', 'updateReportFilterColorPreview',
     'updateReportSummary', 'applyReportFilters', 'renderReportTable', 'hydrateReportFilters']) {
     const start = source.indexOf('    function ' + name + '(');
     assert.notEqual(start, -1, 'Missing function ' + name);
@@ -103,7 +117,7 @@ let row = context.buildReportTableData([property])[0];
 assert.match(row.propertyHtml, /&lt;Milano&gt;/);
 assert.match(row.propertyHtml, /F\.10 P\.42\/1/);
 assert.match(row.propertyHtml, /owners-property-title.*Via Roma 2/);
-assert.match(row.propertyHtml, /owners-property-dot.*owners-status--followup/);
+assert.match(row.propertyHtml, /owners-property-dot.*--owners-status-dot-color:#ff9900/);
 assert.match(row.ownersHtml, /<strong>Rossi Mario<\/strong>/);
 assert.match(row.owners, /1\/2/);
 assert.match(row.owners, /Nato a: Roma/);
@@ -114,10 +128,18 @@ assert.match(context.buildReportContactsHtml(property), /copy-phone-btn/);
 assert.match(context.buildReportContactsHtml(property), /&lt;mail@example.test&gt;/);
 assert.match(row.contactsText, /123 456/);
 assert.equal(row.stato, 'Da contattare');
-assert.match(context.reportStatusBadge(row.stato, property), /owners-status--followup.*Da ricontattare/);
-assert.match(context.reportStatusBadge('Contattato', { stato: 'contattato' }), /owners-status--contacted.*Contattato/);
-assert.match(context.reportStatusBadge('Non Raggiungibile', { stato: 'non_raggiungibile' }), /owners-status--unreachable.*Non Raggiungibile/);
-assert.match(context.reportStatusBadge('Non impostato', { stato: '' }), /owners-status--neutral.*Non contattato/);
+assert.match(context.reportStatusBadge(row.stato, property), /--owners-status-dot-color:#ff9900;--owners-status-background:rgb\(255, 240, 217\).*Da ricontattare/);
+assert.match(context.reportStatusBadge('Contattato', { stato: 'contattato' }), /--owners-status-dot-color:#0d6efd.*Contattato/);
+assert.match(context.reportStatusBadge('Non Raggiungibile', { stato: 'non_raggiungibile' }), /Non Raggiungibile/);
+assert.match(context.reportStatusBadge('Non impostato', { stato: '' }), /Non contattato/);
+for (const status of ['', 'contattato', 'da_contattare', 'non_raggiungibile', 'interessato', 'non_interessato', 'in_vendita_noi', 'in_vendita_altri', 'altro']) {
+    const badge = context.reportStatusBadge('Label', { stato: status, colore_marker: '#123456' });
+    assert.match(badge, /--owners-status-dot-color:#123456;--owners-status-background:rgb\(219, 225, 230\)/);
+}
+for (const color of [undefined, '', '#fff";background:url(https://example.test)']) {
+    assert.match(context.reportStatusBadge('Label', { colore_marker: color }), /--owners-status-dot-color:#0d6efd;/);
+    assert.doesNotMatch(context.reportStatusBadge('Label', { colore_marker: color }), /url\(/);
+}
 assert.match(context.reportStatusBadge('Interessato', { stato: 'interessato' }), /Interessato/);
 assert.match(context.reportStatusBadge('<Altro>', { stato: 'altro' }), /&lt;Altro&gt;/);
 assert.equal(property.stato, 'da_contattare', 'Badge must not modify stored status');
@@ -159,6 +181,41 @@ state.properties = [{ categoria: 'C1' }];
 context.hydrateReportFilters();
 assert.equal(elements['report-filter-categoria'].value, '', 'Clear categories no longer in the dataset');
 delete elements['report-filter-categoria'];
+const colorSelect = elements['report-filter-color'] = {
+    value: '#ff9900', style: { removeProperty(name) { delete this[name]; } },
+    dispatchEvent(event) {
+        assert.equal(event.type, 'change');
+        assert.equal(event.bubbles, true);
+        context.updateColorSelectAppearance(this);
+        context.updateReportFilterColorPreview(this.value);
+    },
+};
+const colorMenu = elements['report-filter-color-menu'] = {
+    dataset: {}, addEventListener(name, handler) { this[name] = handler; },
+};
+const preview = elements['report-filter-color-preview'] = { style: {}, setAttribute() {} };
+const colorLabel = elements['report-filter-color-label'] = {};
+state.properties = [property, { colore_marker: '#123456' }, { colore_marker: '#ff9900' }];
+context.hydrateReportFilters();
+assert.equal((colorSelect.innerHTML.match(/value="#ff9900"/g) || []).length, 1);
+assert.match(colorMenu.innerHTML, /data-report-color="#123456".*class="color-dot" style="background:#123456;/);
+assert.match(colorMenu.innerHTML, /data-report-color="#ff9900".*class="color-dot" style="background:#ff9900;/);
+assert.equal(preview.style.backgroundColor, '#ff9900');
+assert.equal(colorSelect.style.color, '#212529');
+const colorClick = colorMenu.click;
+colorMenu.click({ target: { closest() { return { dataset: { reportColor: '#123456' } }; } } });
+assert.equal(colorSelect.value, '#123456');
+assert.equal(preview.style.backgroundColor, '#123456');
+assert.equal(colorSelect.style.color, '#ffffff');
+assert.equal(colorLabel.textContent, 'Colore personalizzato 123456');
+context.hydrateReportFilters();
+assert.equal(colorMenu.click, colorClick, 'Reload does not duplicate color handlers');
+assert.match(colorMenu.innerHTML, /data-report-color="#ff9900"/, 'Selecting a color does not remove other dataset colors');
+state.properties = [property];
+context.hydrateReportFilters();
+assert.equal(colorSelect.value, '', 'Clear colors no longer in the dataset');
+assert.equal(preview.style.backgroundColor, '#dee2e6');
+assert.equal(colorLabel.textContent, 'Tutti');
 for (const key of ['properties', 'owners', 'phones']) elements['report-summary-' + key] = {};
 context.updateReportSummary([property, restricted]);
 assert.equal(elements['report-summary-properties'].textContent, '2');
@@ -209,9 +266,22 @@ context.applyReportFilters();
 assert.equal(searches.global, '', 'No global multi-field search');
 for (const [name, value] of Object.entries({
     color: '#ff9900', comune: 'Milano', foglioFilter: '10', particellaFilter: '42',
-    categoriaFilter: '^A2$', owners: 'Mario', indirizzo: 'Via Roma', assigned: 'Agente', stato: 'Da contattare',
+    categoriaFilter: '^A2$', owners: 'Mario', indirizzo: 'Via Roma', assigned: 'Agente', stato: '^Da contattare$',
 })) assert.equal(searches[name + ':name'], value);
 assert.equal(draws, 1);
+for (const label of Object.values(context.STATE_OPTIONS)) {
+    elements['report-filter-stato'].value = label;
+    context.applyReportFilters();
+    assert.deepEqual(searchOptions['stato:name'], { regex: true, smart: false });
+    const pattern = new RegExp(searches['stato:name'], 'i');
+    for (const candidate of Object.values(context.STATE_OPTIONS)) {
+        assert.equal(pattern.test(statusColumn.render(candidate, 'filter', row)), candidate === label,
+            `Status ${label} must only match itself, not ${candidate}`);
+    }
+}
+elements['report-filter-stato'].value = '';
+context.applyReportFilters();
+assert.equal(searches['stato:name'], '', 'Tutti clears the status filter');
 state.tables = {};
 context.initDataTable('#report-table', [], false, 'report');
 assert.equal(config.buttons.length, 0);
