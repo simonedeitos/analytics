@@ -96,7 +96,7 @@ analyticspro_render_header('Proprietari', [
             </div>
         </div>
 
-        <div id="report-filters" class="report-filter-bar owners-advanced-filters mb-3" hidden>
+        <div id="report-filters" class="report-filter-bar owners-advanced-filters" hidden>
             <div class="owners-filter-row">
                 <div class="analyticspro-map-field owners-filter-field">
                     <i class="bi bi-geo-alt" aria-hidden="true"></i>
@@ -131,16 +131,27 @@ analyticspro_render_header('Proprietari', [
                     <input id="report-filter-assigned" class="form-control form-control-sm" placeholder="Assegnato a">
                 </div>
                 <div class="analyticspro-map-field owners-filter-field owners-color-filter dropdown">
-                    <span id="report-filter-color-preview" class="color-dot" aria-hidden="true"></span>
-                    <label for="report-filter-color" class="visually-hidden">Colore</label>
-                    <select id="report-filter-color" class="form-select form-select-sm d-none" hidden>
-                        <option value="">Tutti</option>
-                    </select>
-                    <button id="report-filter-color-toggle" type="button" class="form-select form-select-sm dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Colore">
-                        <span id="report-filter-color-label">Tutti</span>
-                    </button>
-                    <ul id="report-filter-color-menu" class="dropdown-menu" aria-labelledby="report-filter-color-toggle"></ul>
-                </div>
+    <span id="report-filter-color-preview" class="color-dot" aria-hidden="true"></span>
+
+    <label for="report-filter-color" class="visually-hidden">Colore</label>
+
+    <select id="report-filter-color" class="form-select form-select-sm d-none" hidden>
+        <option value="">Tutti</option>
+    </select>
+
+    <button
+        id="report-filter-color-toggle"
+        type="button"
+        class="form-select form-select-sm dropdown-toggle"
+        data-bs-toggle="dropdown"
+        aria-expanded="false"
+        aria-label="Colore"
+    >
+        <span id="report-filter-color-label">Tutti</span>
+    </button>
+
+    <ul id="report-filter-color-menu" class="dropdown-menu" aria-labelledby="report-filter-color-toggle"></ul>
+</div>
                 <div class="analyticspro-map-field owners-filter-field">
                     <i class="bi bi-tags" aria-hidden="true"></i>
                     <label for="report-filter-categoria" class="visually-hidden">Categoria</label>
@@ -153,7 +164,7 @@ analyticspro_render_header('Proprietari', [
                 </button>
             </div>
         </div>
-            <div class="owners-table-scroll">
+            <div class="owners-table-scroll owners-table-layer">
             <table id="report-table" class="table table-hover w-100 align-middle">
                 <caption class="visually-hidden">Immobili e proprietari: contatti, stato, assegnazioni e azioni</caption>
                 <thead></thead>
