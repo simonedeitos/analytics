@@ -53,6 +53,16 @@ foreach (['background: var(--owners-status-dot-color, #0d6efd)', 'background: va
         $errors[] = 'Contratto colori dinamici mancante: ' . $contract;
     }
 }
+foreach ([
+    '.owners-page .report-filter-bar { position: relative; z-index: 20;',
+    'backdrop-filter: none;',
+    '.owners-page .owners-color-filter { position: relative; }',
+    '.owners-page .owners-color-filter .dropdown-menu { z-index: 1051;',
+] as $contract) {
+    if (!str_contains($styles, $contract)) {
+        $errors[] = 'Contratto dropdown colore in primo piano mancante: ' . $contract;
+    }
+}
 
 $script = 'const source = ' . json_encode($source, JSON_THROW_ON_ERROR) . ";\n" . <<<'JS'
 const assert = require('node:assert/strict');

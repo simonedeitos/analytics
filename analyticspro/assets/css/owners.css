@@ -40,7 +40,7 @@
 .owners-page .form-select { border-color: var(--owners-border); border-radius: .5rem; min-height: 2.4rem; }
 .owners-page .form-control:focus,
 .owners-page .form-select:focus { border-color: var(--owners-accent); box-shadow: 0 0 0 .15rem #ed741c20; }
-.owners-page .report-filter-bar { position: static; background: transparent; padding: 0 0 .85rem; border: 0; border-bottom: 1px solid var(--owners-border); border-radius: 0; }
+.owners-page .report-filter-bar { position: relative; z-index: 20; background: transparent; -webkit-backdrop-filter: none; backdrop-filter: none; padding: 0 0 .85rem; border: 0; border-bottom: 1px solid var(--owners-border); border-radius: 0; }
 .owners-page .owners-advanced-filters[hidden] { display: none !important; }
 .owners-page .owners-filter-row { display: grid; grid-template-columns: minmax(100px, 1fr) minmax(135px, 1.2fr) repeat(4, minmax(110px, 1fr)) auto; gap: .55rem; align-items: end; }
 .owners-page .owners-filter-field { flex: initial; min-width: 0; }
@@ -60,7 +60,8 @@
 .owners-page .owners-cadastral-fields > .owners-filter-field { flex: 1 1 0; }
 .owners-page .owners-color-filter #report-filter-color-preview { position: absolute; z-index: 1; top: 50%; left: .7rem; width: .55rem; height: .55rem; transform: translateY(-50%); pointer-events: none; }
 .owners-page .owners-color-filter .dropdown-toggle { width: 100%; text-align: left; background: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.owners-page .owners-color-filter .dropdown-menu { max-height: 18rem; overflow-y: auto; }
+.owners-page .owners-color-filter { position: relative; }
+.owners-page .owners-color-filter .dropdown-menu { z-index: 1051; max-height: 18rem; overflow-y: auto; }
 .owners-page .owners-color-filter .dropdown-item { display: flex; align-items: center; gap: .5rem; font-size: .78rem; }
 .owners-page .owners-filter-reset { min-height: 2.1rem; padding: .25rem .2rem; color: var(--ap-blue); font-size: .78rem; white-space: nowrap; }
 .owners-page .owners-filter-reset:hover { color: var(--ap-blue); }
