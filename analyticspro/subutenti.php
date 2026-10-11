@@ -59,8 +59,8 @@ try {
             $pdo->commit();
 
             $inviteUrl = analyticspro_base_url('login.php?email=' . rawurlencode($email) . '&invitation=' . rawurlencode($token));
-            analyticspro_send_email($email, 'Invito easyradar', sprintf(
-                '<p>Sei stato invitato su easyradar.</p><p><strong>Password temporanea:</strong> %s</p><p><a href="%s">Apri la pagina di login</a></p>',
+            analyticspro_send_email($email, 'EasyCatasto: Invito EasyRadar', sprintf(
+                '<p>Sei stato invitato come subutente su EasyRadar.</p><p><strong>Password temporanea:</strong> %s</p><p><a href="%s">Apri la pagina di login</a></p>',
                 analyticspro_h($temporaryPassword),
                 analyticspro_h($inviteUrl)
             ));
