@@ -16,7 +16,7 @@ if (!preg_match('/state\.markers = L\.markerClusterGroup\(\{[\s\S]*?spiderfyDist
     throw new RuntimeException('Spiderfied markers must have additional spacing.');
 }
 if (!str_contains($source, '_spiderfyHiddenLayers: []')
-    || !preg_match('/            var activeSpiderfyEvent = null;[\s\S]*?(?=            state\.map\.addLayer\(state\.markers\);)/', $source, $spiderfyHandlers)
+    || !preg_match('/            var activeSpiderfyEvent = null;[\s\S]*?(?=            if \(document\.getElementById\(\'map-visible-area\'\)\) initializeMapPresentation)/', $source, $spiderfyHandlers)
     || preg_match('/state\.markers\.(?:removeLayer|addLayer)\(/', $spiderfyHandlers[0])
     || !preg_match('/state\._spiderfyHiddenLayers = \[\];\s*state\.markers\.clearLayers\(\);/', $source)) {
     throw new RuntimeException('Spiderfy must hide and restore markers without changing cluster membership.');
@@ -123,7 +123,15 @@ otherCluster.getAllChildMarkers = () => [clusterChild, otherMarker];
 const markerLayers = new Set([spiderMarker, otherMarker, circle, defaultMarker, detachedMarker, clusterChild]);
 let popupClosed = 0;
 state._spiderfyHiddenLayers = [];
-state.map = { closePopup() { popupClosed++; }, on(name, handler) { handlers['map:' + name] = handler; } };
+let groupAdded = false;
+state.map = {
+    closePopup() { popupClosed++; },
+    addLayer() { groupAdded = true; },
+    on(name, handler) {
+        assert.ok(groupAdded, 'Visibility refresh must register after cluster moveend rendering');
+        handlers['map:' + name] = handler;
+    }
+};
 state.markers = {
     on(name, handler) { handlers[name] = handler; },
     eachLayer(fn) { markerLayers.forEach(fn); },

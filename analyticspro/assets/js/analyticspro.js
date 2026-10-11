@@ -2009,9 +2009,6 @@
                 });
             }
             state.markers.on('spiderfied', hideNonSpiderfiedMarkers);
-            state.map.on('moveend', function () {
-                if (activeSpiderfyEvent && state._spiderfyHiddenLayers.length) hideNonSpiderfiedMarkers(activeSpiderfyEvent);
-            });
             state.markers.on('unspiderfied', function () {
                 activeSpiderfyEvent = null;
                 state._spiderfyHiddenLayers.forEach(function (entry) {
@@ -2029,6 +2026,9 @@
                 state._spiderfyHiddenLayers = [];
             });
             state.map.addLayer(state.markers);
+            state.map.on('moveend', function () {
+                if (activeSpiderfyEvent && state._spiderfyHiddenLayers.length) hideNonSpiderfiedMarkers(activeSpiderfyEvent);
+            });
             if (document.getElementById('map-visible-area')) initializeMapPresentation();
             setCadastralLayerEnabled(state.cadastralLayerEnabled);
             window.setTimeout(function () {
