@@ -1,6 +1,0 @@
-*
-!.gitignore
-!.gitkeep
-!downloads/
-downloads/*
-!downloads/.gitkeep
