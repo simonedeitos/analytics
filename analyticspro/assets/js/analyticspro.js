@@ -531,6 +531,10 @@
         });
     }
 
+    function renderTableText(value, type) {
+        return type === 'display' ? escapeHtml(value) : value;
+    }
+
     function localStorageKey(key) {
         return 'analyticspro:' + key;
     }
@@ -1167,6 +1171,11 @@
             { title: 'Elimina', data: 'deleteAction' },
         ];
         var columns = context === 'report' ? reportColumns : (context === 'assigned' ? assignedColumns : fullColumns);
+        columns.forEach(function (column) {
+            if (!column.render && ['tenant', 'provincia', 'comune', 'indirizzo', 'unita', 'stato', 'foglioFilter', 'particellaFilter', 'categoriaFilter'].indexOf(column.data) !== -1) {
+                column.render = renderTableText;
+            }
+        });
         var pageLength = (context === 'assigned' || context === 'report') ? 75 : 25;
 
         var theadHtml = '<tr>' + columns.map(function (c) { return '<th>' + c.title + '</th>'; }).join('') + '</tr>';
