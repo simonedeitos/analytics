@@ -277,6 +277,9 @@ team_check(analyticspro_current_user() === null, 'disable then reactivate before
 $_SESSION['analyticspro_user'] = ['id' => 3, 'status' => 'active'];
 $teamPdo->sessions[] = ['id' => session_id(), 'user_id' => 3, 'expires_at' => '2000-01-01'];
 team_check(analyticspro_current_user() === null, 'expired persisted session rejected');
+$_SESSION['analyticspro_user'] = ['id' => 3, 'status' => 'active'];
+$teamPdo->sessions = [];
+team_check(analyticspro_current_user() === null, 'active user with missing persisted session rejected');
 
 echo "PASS: team service/auth regression ({$checks} checks; PDO doubles, no schema changes)\n";
 
