@@ -82,6 +82,7 @@
         map: null,
         markers: null,
         clusterIconCache: null,
+        _spiderfyHiddenLayers: [],
         charts: {},
         tables: {},
         overlay: importOverlayEl ? new bootstrap.Modal(importOverlayEl) : null,
@@ -1972,7 +1973,23 @@
                     layer.zoomToBounds({ padding: [40, 40] });
                 }
             });
-            state.markers.on('spiderfied', function () { state.map.closePopup(); });
+            state.markers.on('spiderfied', function (event) {
+                state.map.closePopup();
+                var spiderfiedMarkers = new Set(event && event.markers ? event.markers : []);
+                state._spiderfyHiddenLayers = [];
+                state.markers.eachLayer(function (layer) {
+                    if (!spiderfiedMarkers.has(layer)) state._spiderfyHiddenLayers.push(layer);
+                });
+                state._spiderfyHiddenLayers.forEach(function (layer) {
+                    state.markers.removeLayer(layer);
+                });
+            });
+            state.markers.on('unspiderfied', function () {
+                state._spiderfyHiddenLayers.forEach(function (layer) {
+                    state.markers.addLayer(layer);
+                });
+                state._spiderfyHiddenLayers = [];
+            });
             state.map.addLayer(state.markers);
             if (document.getElementById('map-visible-area')) initializeMapPresentation();
             setCadastralLayerEnabled(state.cadastralLayerEnabled);
@@ -2022,6 +2039,7 @@
             layers.push(marker);
             points.push(property);
         }
+        state._spiderfyHiddenLayers = [];
         state.markers.clearLayers();
         state.mapLayersByProperty = layersByProperty;
         state.markers.addLayers(layers);

@@ -15,6 +15,12 @@ foreach ([
 if (!preg_match('/state\.markers = L\.markerClusterGroup\(\{[\s\S]*?spiderfyDistanceMultiplier: 1\.8/', $source)) {
     throw new RuntimeException('Spiderfied markers must have additional spacing.');
 }
+if (!str_contains($source, '_spiderfyHiddenLayers: []')
+    || !preg_match('/state\.markers\.on\(\'spiderfied\', function \(event\) \{[\s\S]*?state\.map\.closePopup\(\);[\s\S]*?event\.markers[\s\S]*?state\.markers\.eachLayer[\s\S]*?state\.markers\.removeLayer[\s\S]*?\}\);/', $source)
+    || !preg_match('/state\.markers\.on\(\'unspiderfied\', function \(\) \{[\s\S]*?state\._spiderfyHiddenLayers\.forEach[\s\S]*?state\.markers\.addLayer[\s\S]*?state\._spiderfyHiddenLayers = \[\];[\s\S]*?\}\);/', $source)
+    || !preg_match('/state\._spiderfyHiddenLayers = \[\];\s*state\.markers\.clearLayers\(\);/', $source)) {
+    throw new RuntimeException('Non-spiderfied markers must be hidden and restored around spiderfy.');
+}
 foreach (['map-search', 'map-owner-search', 'map-comune-filter', 'map-assigned-filter', 'find-area-comune', 'find-area-foglio', 'find-area-particella', 'find-area-submit', 'refresh-map', 'cadastral-layer-toggle', 'btn-apply-filter', 'map-category-filter-panel', 'map-visible-count', 'map-visible-owners', 'map-visible-owners-help'] as $id) {
     if (substr_count($page, 'id="' . $id . '"') !== 1) {
         throw new RuntimeException('Missing or duplicated map hook: ' . $id);
@@ -108,6 +114,15 @@ const factsStart = card.indexOf('<div class="small mt-1">');
 const headerFacts = card.slice(factsStart, card.indexOf('</div>', factsStart));
 assert.match(headerFacts, /<strong>Subalterno:<\/strong> 41/);
 assert.doesNotMatch(headerFacts, /<strong>(Categoria|Piano):<\/strong>/);
+const emptyHeaderCard = buildPropertyCardHtml({
+    id: 11, indirizzo: 'Via Verdi', foglio: '2', particella: '9', subalterno: '', categoria: '', piano: '',
+    classe: '', rendita: '', consistenza: '', can_edit: false, can_delete: false, owners: [], notes: []
+}, { mapMode: false });
+assert.match(emptyHeaderCard, /Categoria:<\/strong> — · <strong>Piano:<\/strong> —/);
+const emptyFactsStart = emptyHeaderCard.indexOf('<div class="small mt-1">');
+const emptyFacts = emptyHeaderCard.slice(emptyFactsStart, emptyHeaderCard.indexOf('</div>', emptyFactsStart));
+assert.match(emptyFacts, /<strong>Subalterno:<\/strong> —/);
+assert.doesNotMatch(emptyFacts, /<strong>(Categoria|Piano):<\/strong>/);
 const search = new Element('input', 'map-search');
 const ownerSearch = new Element('input', 'map-owner-search');
 const comune = new Element('select', 'map-comune-filter');
