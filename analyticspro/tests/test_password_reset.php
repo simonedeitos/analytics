@@ -161,6 +161,7 @@ foreach ([['short', 'short'], ['NewPassword123', 'different']] as [$password, $c
 foreach ([1, 2, 3] as $id) {
     $resetPdo = new PasswordResetTestPdo();
     $token = analyticspro_create_password_reset_token($resetPdo, $id);
+    $verifiedUser = $resetPdo->query('SELECT * FROM users WHERE id = ' . $id)->fetch();
     $otherBefore = $resetPdo->query('SELECT * FROM users WHERE id <> ' . $id)->fetchAll();
     $resetPdo->exec("INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES ({$id}, 'another-hash', '2099-01-01')");
     analyticspro_reset_password($resetPdo, $token, 'NewPassword123', 'NewPassword123');
@@ -170,6 +171,9 @@ foreach ([1, 2, 3] as $id) {
     reset_check((int) $resetPdo->query('SELECT COUNT(*) FROM user_sessions WHERE user_id = ' . $id)->fetchColumn() === 0, 'all user sessions revoked');
     reset_check((int) $resetPdo->query('SELECT COUNT(*) FROM password_reset_tokens WHERE used_at IS NULL AND user_id = ' . $id)->fetchColumn() === 0, 'all pending reset tokens consumed');
     reset_check($otherBefore === $resetPdo->query('SELECT * FROM users WHERE id <> ' . $id)->fetchAll(), 'other users unchanged');
+    $afterReset = reset_snapshot($resetPdo);
+    reset_reject(fn () => analyticspro_login($verifiedUser), 'stale password/remember authentication cannot create a session after reset');
+    reset_check(reset_snapshot($resetPdo) === $afterReset, 'stale login rolls back without restoring access');
     reset_reject(fn () => analyticspro_reset_password($resetPdo, $token, 'NewPassword456', 'NewPassword456'), 'double use rejected');
     reset_check(count(array_filter($resetPdo->queries, fn ($sql) => str_contains($sql, 'FOR UPDATE'))) >= 3, 'generation and consumption lock user and token');
     $_SESSION['analyticspro_user'] = ['id' => $id];
