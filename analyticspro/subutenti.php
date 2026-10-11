@@ -90,6 +90,11 @@ try {
             analyticspro_set_flash('success', 'Collaboratore disabilitato e assegnazioni aggiornate.');
             analyticspro_redirect('subutenti.php');
         }
+        if ($action === 'reactivate_subuser') {
+            analyticspro_reactivate_subuser($pdo, (int) $user['id'], (int) analyticspro_post('subuser_id'));
+            analyticspro_set_flash('success', 'Collaboratore riabilitato. Dovrà effettuare nuovamente l’accesso.');
+            analyticspro_redirect('subutenti.php');
+        }
     }
 } catch (Throwable $exception) {
     if (isset($pdo) && $pdo->inTransaction()) {
@@ -111,8 +116,8 @@ foreach ($assignmentStmt->fetchAll() as $assignmentCount) {
 analyticspro_render_header('Team', ['body_class' => 'team-page']);
 ?>
 <?= analyticspro_ui_page_header('Il tuo team', 'Invita i tuoi collaboratori e gestisci i permessi di accesso al tuo spazio di lavoro.', '', ['eyebrow' => 'Gestione']) ?>
-<div class="row g-4">
-    <div class="col-lg-5">
+<div class="row g-3">
+    <div class="col-lg-4">
         <div class="card border-0 shadow-sm h-100">
             <div class="card-body">
                 <h2 class="h5 mb-2"><i class="bi bi-person-plus text-primary me-2" aria-hidden="true"></i>Invita un collaboratore</h2>
@@ -137,27 +142,31 @@ analyticspro_render_header('Team', ['body_class' => 'team-page']);
             </div>
         </div>
     </div>
-    <div class="col-lg-7">
+    <div class="col-lg-8">
         <div class="card border-0 shadow-sm">
             <div class="card-body">
-                <h2 class="h5 mb-4">Collaboratori e permessi <span class="badge text-bg-light ms-2"><?= count($subusers) ?></span></h2>
+                <h2 class="h5 mb-3">Collaboratori e permessi <span class="badge text-bg-light ms-2"><?= count($subusers) ?></span></h2>
                 <?php if (!$subusers): ?>
                     <?= analyticspro_ui_empty_state(['icon' => 'bi-people', 'title' => 'Il tuo team parte da qui', 'message' => 'Invita il primo collaboratore per assegnare marker, report e analitiche.']) ?>
                 <?php endif; ?>
+                <div class="row row-cols-1 row-cols-md-2 g-2">
                 <?php foreach ($subusers as $subuser): ?>
-                    <div class="border rounded-4 p-3 mb-3 ap-subtle-block">
-                    <form method="post">
+                    <div class="col">
+                    <div class="border rounded-4 p-2 h-100 ap-subtle-block">
+                    <form method="post" id="subuser-permissions-<?= (int) $subuser['id'] ?>">
                         <input type="hidden" name="csrf_token" value="<?= analyticspro_h(analyticspro_csrf_token()) ?>">
                         <input type="hidden" name="action" value="update_subuser_permissions">
                         <input type="hidden" name="subuser_id" value="<?= analyticspro_h((string) $subuser['id']) ?>">
                         <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
-                            <strong><?= analyticspro_h(analyticspro_full_name($subuser)) ?></strong>
-                            <span class="badge <?= $subuser['status'] === 'active' ? 'text-bg-success' : 'text-bg-secondary' ?>"><?= analyticspro_h(['active' => 'Attivo', 'pending' => 'In attesa', 'disabled' => 'Disabilitato'][$subuser['status']] ?? (string) $subuser['status']) ?></span>
-                            <span class="text-muted small"><?= analyticspro_h((string) $subuser['email']) ?></span>
+                            <div class="me-auto">
+                                <strong><?= analyticspro_h(analyticspro_full_name($subuser)) ?></strong>
+                                <div class="text-muted small"><?= analyticspro_h((string) $subuser['email']) ?></div>
+                            </div>
+                            <span class="badge <?= $subuser['status'] === 'active' ? 'text-bg-success' : ($subuser['status'] === 'disabled' ? 'text-bg-secondary' : 'text-bg-warning') ?>"><?= analyticspro_h(['active' => 'Attivo', 'pending' => 'In attesa', 'disabled' => 'Disabilitato'][$subuser['status']] ?? (string) $subuser['status']) ?></span>
                         </div>
-                        <div class="row g-2 small">
+                        <div class="row row-cols-2 g-1 small">
                             <?php foreach (['can_edit_all_markers' => 'Modifica tutti i marker', 'can_import' => 'Importa dati', 'can_view_analytics' => 'Analitiche', 'can_view_reports' => 'Proprietari', 'can_export' => 'Export'] as $key => $label): ?>
-                                <div class="col-md-6">
+                                <div class="col">
                                     <div class="form-check">
                                         <input class="form-check-input" type="checkbox" id="subuser-<?= (int) $subuser['id'] ?>-<?= analyticspro_h($key) ?>" name="<?= analyticspro_h($key) ?>" value="1" <?= !empty($subuser[$key]) ? 'checked' : '' ?>>
                                         <label class="form-check-label" for="subuser-<?= (int) $subuser['id'] ?>-<?= analyticspro_h($key) ?>"><?= analyticspro_h($label) ?></label>
@@ -165,10 +174,11 @@ analyticspro_render_header('Team', ['body_class' => 'team-page']);
                                 </div>
                             <?php endforeach; ?>
                         </div>
-                        <button class="btn btn-outline-primary btn-sm mt-3" type="submit">Salva permessi</button>
                     </form>
+                    <div class="d-flex flex-wrap gap-2 mt-2">
+                        <button class="btn btn-outline-primary btn-sm" type="submit" form="subuser-permissions-<?= (int) $subuser['id'] ?>">Salva permessi</button>
                     <?php if ($subuser['status'] === 'active'): ?>
-                        <form method="post" class="mt-2" data-team-disable-form>
+                        <form method="post" data-team-disable-form>
                             <input type="hidden" name="csrf_token" value="<?= analyticspro_h(analyticspro_csrf_token()) ?>">
                             <input type="hidden" name="action" value="disable_subuser">
                             <input type="hidden" name="subuser_id" value="<?= (int) $subuser['id'] ?>">
@@ -176,9 +186,21 @@ analyticspro_render_header('Team', ['body_class' => 'team-page']);
                             <input type="hidden" name="recipient_id" value="">
                             <button class="btn btn-outline-danger btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#team-disable-modal" data-team-id="<?= (int) $subuser['id'] ?>" data-team-name="<?= analyticspro_h(analyticspro_full_name($subuser)) ?>" data-team-count="<?= $assignmentCounts[(int) $subuser['id']] ?? 0 ?>">Disabilita collaboratore</button>
                         </form>
+                    <?php else: ?>
+                        <?php if ($subuser['status'] === 'disabled'): ?>
+                            <form method="post">
+                                <input type="hidden" name="csrf_token" value="<?= analyticspro_h(analyticspro_csrf_token()) ?>">
+                                <input type="hidden" name="action" value="reactivate_subuser">
+                                <input type="hidden" name="subuser_id" value="<?= (int) $subuser['id'] ?>">
+                                <button class="btn btn-outline-success btn-sm" type="submit">Riabilita collaboratore</button>
+                            </form>
+                        <?php endif; ?>
                     <?php endif; ?>
                     </div>
+                    </div>
+                    </div>
                 <?php endforeach; ?>
+                </div>
             </div>
         </div>
     </div>
