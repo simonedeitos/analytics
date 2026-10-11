@@ -20,6 +20,7 @@ function analyticspro_h(string $value): string { return htmlspecialchars($value,
 function analyticspro_full_name(array $user): string { return 'UI Test'; }
 
 require_once ANALYTICSPRO_ROOT . '/includes/layout.php';
+require_once ANALYTICSPRO_ROOT . '/includes/ui/helpers.php';
 
 $checks = 0;
 function check_ui(bool $condition, string $message): void
@@ -126,7 +127,32 @@ check_ui(str_contains($authHtml, '</main>'), 'auth layout closes its main elemen
 
 $team = (string) file_get_contents(ANALYTICSPRO_ROOT . '/subutenti.php');
 check_ui(str_contains($team, 'name="action" value="invite_subuser"') && str_contains($team, 'name="action" value="update_subuser_permissions"'), 'team form actions preserved');
-check_ui(substr_count($team, 'name="csrf_token"') === 2, 'both team forms preserve CSRF fields');
+check_ui(substr_count($team, 'name="csrf_token"') === 3, 'invite, permissions and separate disable forms preserve CSRF fields');
+check_ui(substr_count($team, 'analyticspro_save_subuser_permissions($pdo, $subuserId, $_POST)') === 2, 'both team permission paths depend on the shared functions.php helper API');
+check_ui(str_contains($team, '$subusers = analyticspro_fetch_subusers((int) $user[\'id\']);'), 'team retains the full list including disabled users');
+check_ui(str_contains($team, "analyticspro_asset_url('assets/js/team.js')"), 'team script uses the versioned asset helper');
+$subusers = [
+    ['id' => 2, 'email' => 'active@example.test', 'status' => 'active'],
+    ['id' => 3, 'email' => 'disabled@example.test', 'status' => 'disabled'],
+    ['id' => 4, 'email' => 'pending@example.test', 'status' => 'pending'],
+];
+$activeSubusers = [$subusers[0]];
+$assignmentCounts = [2 => 7];
+ob_start();
+eval('?>' . substr($team, strpos($team, '?>') + 2));
+$teamHtml = (string) ob_get_clean();
+$teamDom = new DOMDocument();
+@$teamDom->loadHTML($teamHtml);
+$teamXpath = new DOMXPath($teamDom);
+check_ui($teamXpath->query('//form//form')->length === 0, 'team forms are never nested');
+check_ui($teamXpath->query('//form[@data-team-disable-form]')->length === 1, 'only active collaborators have a disable form');
+check_ui($teamXpath->query('//form[@data-team-disable-form]/input[@name="csrf_token"]')->length === 1, 'disable form has CSRF protection');
+check_ui($teamXpath->query('//form[@data-team-disable-form]/input[@name="subuser_id" and @value="2"]')->length === 1, 'disable form has its own target id');
+check_ui($teamXpath->query('//input[@name="team_assignment_mode"]')->length === 3, 'confirmation modal provides all three assignment choices');
+check_ui($teamXpath->query('//button[@data-team-count="7"]')->length === 1, 'confirmation trigger includes assignment count');
+check_ui($teamXpath->query('//select[@id="team-recipient"]/option[@value="3"]')->length === 0, 'disabled recipients excluded from reassignment');
+check_ui(str_contains($teamHtml, 'In attesa'), 'pending collaborators retain their distinct status label');
+check_ui($teamXpath->query('//div[@id="team-recipient-field"]//*[@id="team-recipient-empty"]')->length === 0, 'no-recipient explanation remains outside the hidden select field');
 check_ui(str_contains($team, 'for="invite-email"') && str_contains($team, 'for="subuser-'), 'team form labels associated with controls');
 check_ui(str_contains($team, 'Può vedere proprietari') && str_contains($team, "'can_view_reports' => 'Proprietari'"), 'existing report permission uses owners label without changing its key');
 $help = (string) file_get_contents(ANALYTICSPRO_ROOT . '/aiuto.php');

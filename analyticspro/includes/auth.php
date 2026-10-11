@@ -4,7 +4,28 @@ declare(strict_types=1);
 
 function analyticspro_current_user(): ?array
 {
-    return $_SESSION['analyticspro_user'] ?? null;
+    $cached = $_SESSION['analyticspro_user'] ?? null;
+    if (!$cached) {
+        return null;
+    }
+    $stmt = analyticspro_db()->prepare("SELECT u.* FROM users u WHERE u.id = :id AND u.status = 'active'
+        AND EXISTS (SELECT 1 FROM user_sessions s WHERE s.id = :session_id AND s.user_id = u.id AND s.expires_at >= NOW())
+        LIMIT 1");
+    $stmt->execute(['id' => (int) ($cached['id'] ?? 0), 'session_id' => session_id()]);
+    $user = $stmt->fetch();
+    if (!$user) {
+        unset($_SESSION['analyticspro_user'], $_COOKIE['analyticspro_remember']);
+        setcookie('analyticspro_remember', '', [
+            'expires' => time() - 3600,
+            'path' => '/',
+            'secure' => (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off'),
+            'httponly' => true,
+            'samesite' => 'Lax',
+        ]);
+        return null;
+    }
+    analyticspro_set_current_user($user);
+    return $user;
 }
 
 function analyticspro_set_current_user(array $user): void
@@ -45,31 +66,52 @@ function analyticspro_find_user_by_email(string $email): ?array
 
 function analyticspro_login(array $user, bool $remember = false): void
 {
-    session_regenerate_id(true);
-    analyticspro_set_current_user($user);
+    $pdo = analyticspro_db();
+    if ($pdo->inTransaction()) {
+        throw new RuntimeException('Accesso non disponibile durante un’altra transazione.');
+    }
+    $pdo->beginTransaction();
+    try {
+        $stmt = $pdo->prepare("SELECT * FROM users WHERE id = :id AND status = 'active' LIMIT 1 FOR UPDATE");
+        $stmt->execute(['id' => (int) ($user['id'] ?? 0)]);
+        $user = $stmt->fetch();
+        if (!$user) {
+            throw new RuntimeException('Account disabilitato.');
+        }
+        session_regenerate_id(true);
 
-    $expiresAt = (new DateTimeImmutable('+10 hours'))->format('Y-m-d H:i:s');
-    $stmt = analyticspro_db()->prepare('REPLACE INTO user_sessions (id, user_id, ip_address, user_agent, expires_at) VALUES (:id, :user_id, :ip_address, :user_agent, :expires_at)');
-    $stmt->execute([
-        'id' => session_id(),
-        'user_id' => $user['id'],
-        'ip_address' => analyticspro_client_ip(),
-        'user_agent' => substr((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 255),
-        'expires_at' => $expiresAt,
-    ]);
-
-    $clearRemember = analyticspro_db()->prepare('UPDATE users SET remember_token = NULL, remember_token_expires_at = NULL WHERE id = :id');
-    $clearRemember->execute(['id' => $user['id']]);
-
-    if ($remember) {
-        $rawToken = bin2hex(random_bytes(32));
-        $hash = password_hash($rawToken, PASSWORD_BCRYPT);
-        $stmt = analyticspro_db()->prepare('UPDATE users SET remember_token = :token, remember_token_expires_at = :expires_at WHERE id = :id');
+        $expiresAt = (new DateTimeImmutable('+10 hours'))->format('Y-m-d H:i:s');
+        $stmt = $pdo->prepare('REPLACE INTO user_sessions (id, user_id, ip_address, user_agent, expires_at) VALUES (:id, :user_id, :ip_address, :user_agent, :expires_at)');
         $stmt->execute([
-            'token' => $hash,
+            'id' => session_id(),
+            'user_id' => $user['id'],
+            'ip_address' => analyticspro_client_ip(),
+            'user_agent' => substr((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 255),
             'expires_at' => $expiresAt,
-            'id' => $user['id'],
         ]);
+
+        $clearRemember = $pdo->prepare('UPDATE users SET remember_token = NULL, remember_token_expires_at = NULL WHERE id = :id');
+        $clearRemember->execute(['id' => $user['id']]);
+
+        if ($remember) {
+            $rawToken = bin2hex(random_bytes(32));
+            $hash = password_hash($rawToken, PASSWORD_BCRYPT);
+            $stmt = $pdo->prepare('UPDATE users SET remember_token = :token, remember_token_expires_at = :expires_at WHERE id = :id');
+            $stmt->execute([
+                'token' => $hash,
+                'expires_at' => $expiresAt,
+                'id' => $user['id'],
+            ]);
+        }
+        $pdo->commit();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        throw $exception;
+    }
+    analyticspro_set_current_user($user);
+    if ($remember) {
         setcookie('analyticspro_remember', $user['id'] . ':' . $rawToken, [
             'expires' => strtotime($expiresAt),
             'path' => '/',

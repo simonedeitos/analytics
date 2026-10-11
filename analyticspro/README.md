@@ -320,6 +320,9 @@ Le hit di cache non sono soggette a questo ritardo.
 - CSRF su form e API JSON
 - Il telefono resta nascosto se `can_view_phone = 0` per il tenant
 - I subutenti non possono eliminare dati e, senza `can_edit_all_markers`, possono modificare solo immobili assegnati
+- Da **Team**, la disabilitazione di un collaboratore revoca sessioni e remember-token e consente di mantenere, riassegnare a un altro subutente attivo dello stesso tenant o rimuovere le sue assegnazioni. Eventuali altri assegnatari restano invariati.
+- I collaboratori disabilitati restano visibili nello storico; i picker consentono nuove assegnazioni solo a subutenti attivi. Il permesso Export si applica anche alla tabella **Assegnati a me**.
+- Non sono necessarie query o migration per questa funzionalità: viene utilizzata la colonna `users.status` già presente.
 
 ## Import ADE: caricamento via FTP / file manager
 

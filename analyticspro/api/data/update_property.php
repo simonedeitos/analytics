@@ -278,8 +278,6 @@ try {
         $updatePropertyStmt = $pdo->prepare('UPDATE properties SET stato = :stato, stato_personalizzato = :stato_personalizzato, colore_marker = :colore_marker WHERE id = :id');
         $statusHistoryStmt = $pdo->prepare('INSERT INTO property_status_history (property_id, changed_by, stato_precedente, stato_nuovo) VALUES (:property_id, :changed_by, :stato_precedente, :stato_nuovo)');
         $noteStmt = $pdo->prepare('INSERT INTO property_notes (property_id, author_id, author_name_snapshot, testo) VALUES (:property_id, :author_id, :author_name_snapshot, :testo)');
-        $deleteAssignmentsStmt = $pdo->prepare('DELETE FROM property_assignments WHERE property_id = :property_id');
-        $insertAssignmentStmt = $pdo->prepare('INSERT INTO property_assignments (property_id, subuser_id, assigned_by) VALUES (:property_id, :subuser_id, :assigned_by)');
 
         $stateOptions = analyticspro_state_options();
         $stateLabel = $newState !== null ? ($stateOptions[$newState] ?? $newState) : 'Non impostato';
@@ -287,7 +285,12 @@ try {
         $note = analyticspro_note_log_manual_note((string) ($input['note'] ?? ''));
         $customState = trim((string) ($input['stato_personalizzato'] ?? '')) ?: null;
 
-        $incomingAssignments = null;
+        if (array_key_exists('assignments', $input) && !is_array($input['assignments'])) {
+            throw new RuntimeException('Elenco destinatari non valido.');
+        }
+        if (($user['role'] ?? '') === 'subuser' && is_array($input['assignments'] ?? null)) {
+            throw new RuntimeException('Non puoi modificare le assegnazioni.');
+        }
         if (($user['role'] ?? '') !== 'subuser' && is_array($input['assignments'] ?? null)) {
             $tenantOwnerId = (int) $property['user_id'];
             foreach ($validatedProperties as $validatedProperty) {
@@ -295,10 +298,7 @@ try {
                     throw new RuntimeException('Le assegnazioni del gruppo devono appartenere allo stesso tenant.');
                 }
             }
-            $tenantSubusers = analyticspro_fetch_subusers($tenantOwnerId);
-            $allowedSubusers = array_map(static fn ($subuser) => (int) $subuser['id'], $tenantSubusers);
-            $incomingAssignments = array_values(array_unique(array_map('intval', $input['assignments'])));
-            $incomingAssignments = array_values(array_filter($incomingAssignments, static fn ($subuserId) => in_array($subuserId, $allowedSubusers, true)));
+            analyticspro_replace_active_property_assignments($pdo, $tenantOwnerId, $propertyIds, $input['assignments'], (int) $user['id']);
         }
 
         foreach ($validatedProperties as $validatedProperty) {
@@ -340,17 +340,6 @@ try {
                     'author_name_snapshot' => analyticspro_full_name($user),
                     'testo' => $note,
                 ]);
-            }
-
-            if (is_array($incomingAssignments)) {
-                $deleteAssignmentsStmt->execute(['property_id' => $validatedPropertyId]);
-                foreach ($incomingAssignments as $subuserId) {
-                    $insertAssignmentStmt->execute([
-                        'property_id' => $validatedPropertyId,
-                        'subuser_id' => $subuserId,
-                        'assigned_by' => $user['id'],
-                    ]);
-                }
             }
         }
 

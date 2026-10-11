@@ -13,8 +13,8 @@ final class MapPayloadDatabase
     {
         $this->pdo = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]);
         $this->pdo->sqliteCreateFunction('CONCAT', static fn (...$values): string => implode('', $values));
-        $this->pdo->exec("CREATE TABLE users (id INTEGER PRIMARY KEY, nome TEXT, cognome TEXT);
-            INSERT INTO users VALUES (7, 'Tenant', 'Uno'), (8, 'Altro', 'Tenant'), (10, 'Sub', 'Utente');
+        $this->pdo->exec("CREATE TABLE users (id INTEGER PRIMARY KEY, nome TEXT, cognome TEXT, status TEXT);
+            INSERT INTO users VALUES (7, 'Tenant', 'Uno', 'active'), (8, 'Altro', 'Tenant', 'active'), (10, 'Sub', 'Utente', 'disabled');
             CREATE TABLE properties (
                 id INTEGER PRIMARY KEY, user_id INTEGER, provincia TEXT, comune TEXT, cod_catastale TEXT,
                 sezione TEXT, foglio TEXT, particella TEXT, subalterno TEXT, rendita TEXT, categoria TEXT, indirizzo TEXT, civico TEXT,
@@ -86,6 +86,7 @@ check($permissionCalls === 1 && $visibilityCalls === 1, 'Permessi e visibilità 
 
 $db->queries = [];
 $details = analyticspro_fetch_properties_payload($user, 'all', null, [1, 1, 3]);
+check($details['properties'][0]['assignments'][0]['subuser_status'] === 'disabled', 'Le assegnazioni storiche includono e distinguono i subutenti disabilitati.');
 check(count($details['properties']) === 1, 'Gli ID richiesti non devono aggirare il tenant.');
 check(str_contains($db->queries[0], 'p.id IN (:property_id_0,:property_id_1)'), 'Query limitata agli ID richiesti e deduplicati.');
 check($details['properties'][0]['owners'][0]['nome'] === 'Nome', 'Dettagli decifrati on-demand.');
