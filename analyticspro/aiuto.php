@@ -91,6 +91,9 @@ analyticspro_render_header('Aiuto', ['body_class' => 'help-page']);
                                 <h6 class="mt-3">Sono un subutente: come accedo la prima volta?</h6>
                                 <p>Riceverai una email con un link e una password provvisoria. Clicca il link, accedi con quella password e il sistema ti chiederà subito di impostarne una nuova, tutta tua.</p>
 
+                                <h6 class="mt-3">Ho dimenticato la password</h6>
+                                <p>Dalla pagina di login clicca <strong>Ho dimenticato la password</strong> e inserisci la tua email. Se il tuo account è attivo, riceverai un link valido per <strong>un’ora</strong> e utilizzabile una sola volta. Funziona anche per i subutenti. Imposta e conferma una password di almeno 8 caratteri, poi accedi con la nuova password: tutte le sessioni precedenti vengono revocate. Una nuova richiesta annulla i link precedenti. Se non ricevi l’email, controlla lo spam o contatta l’amministratore; gli account in attesa o disabilitati non possono effettuare il reset.</p>
+
                                 <h6 class="mt-3">Chi può fare cosa</h6>
                                 <ul>
                                     <li><strong>Utente principale</strong>: può fare tutto, vede tutti i dati della propria azienda e può invitare altre persone (subutenti).</li>

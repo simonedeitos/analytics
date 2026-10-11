@@ -21,6 +21,33 @@ Webapp PHP/PDO multi-tenant per importare dati catastali, salvarli su MySQL/Mari
    - `admin_notification_email`
    - eventuale `system_config.encryption_key` se vuoi sostituire la chiave bootstrap da `.env`
 
+## Recupero password: migration obbligatoria
+
+Prima di usare `forgot_password.php`, applicare manualmente
+`sql/migrations/018_create_password_reset_tokens.sql` (anche sulle nuove installazioni
+dopo `schema.sql`). Configurare SMTP e `APP_URL` con l’URL assoluto **HTTPS**
+dell’app: i link email non vengono costruiti dall’header Host della richiesta.
+Solo gli account attivi possono effettuare il reset; i token scadono dopo un’ora,
+sono monouso e una nuova richiesta sostituisce quelli precedenti. Il reset revoca
+tutte le sessioni e i token Ricordami, senza effettuare login automatico.
+
+**Query SQL esatta da eseguire manualmente sul database di produzione prima del rilascio:**
+
+```sql
+CREATE TABLE password_reset_tokens (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    user_id INT UNSIGNED NOT NULL,
+    token_hash VARCHAR(255) NOT NULL,
+    expires_at DATETIME NOT NULL,
+    used_at DATETIME NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    UNIQUE KEY uq_password_reset_token_hash (token_hash),
+    INDEX idx_user_id (user_id),
+    INDEX idx_expires_at (expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+```
+
 ## Sicurezza API e deterrente DevTools
 
 I payload immobili/dashboard espongono solo campi esplicitamente consentiti dei

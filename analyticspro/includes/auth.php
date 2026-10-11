@@ -72,11 +72,15 @@ function analyticspro_login(array $user, bool $remember = false): void
     }
     $pdo->beginTransaction();
     try {
+        $verifiedPasswordHash = (string) ($user['password_hash'] ?? '');
         $stmt = $pdo->prepare("SELECT * FROM users WHERE id = :id AND status = 'active' LIMIT 1 FOR UPDATE");
         $stmt->execute(['id' => (int) ($user['id'] ?? 0)]);
         $user = $stmt->fetch();
         if (!$user) {
             throw new RuntimeException('Account disabilitato.');
+        }
+        if (!hash_equals($verifiedPasswordHash, (string) ($user['password_hash'] ?? ''))) {
+            throw new RuntimeException('Credenziali modificate. Effettua nuovamente il login.');
         }
         session_regenerate_id(true);
 

@@ -68,6 +68,7 @@ analyticspro_render_header('Login', ['body_class' => 'bg-auth', 'auth_page' => t
                     </div>
                     <button class="btn btn-primary w-100" type="submit">Login</button>
                 </form>
+                <p class="text-center small mt-3 mb-0"><a href="<?= analyticspro_h(analyticspro_base_url('forgot_password.php')) ?>">Ho dimenticato la password</a></p>
                 <p class="text-center small mt-4 mb-0">Non hai un account? <a href="<?= analyticspro_h(analyticspro_base_url('register.php')) ?>">Registrati</a></p>
             </div>
         </div>
