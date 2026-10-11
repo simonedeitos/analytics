@@ -52,7 +52,7 @@
         tenantId: root.dataset.tenantId || '',
         selectedTenant: root.dataset.selectedTenant || '',
         canImport: root.dataset.canImport === '1',
-        canExport: root.dataset.canExport === '0',
+        canExport: root.dataset.canExport === '1',
         canViewReports: root.dataset.canViewReports === '1',
         canViewAnalytics: root.dataset.canViewAnalytics === '1',
         canViewPhone: root.dataset.canViewPhone === '1',
@@ -1050,7 +1050,9 @@
     }
 
     function assignmentNames(property) {
-        return (property.assignments || []).map(function (a) { return a.subuser_name; }).filter(Boolean);
+        return (property.assignments || []).map(function (a) {
+            return a.subuser_name ? a.subuser_name + (a.subuser_status === 'disabled' ? ' (disabilitato)' : '') : '';
+        }).filter(Boolean);
     }
 
     function assignmentNamesLabel(property) {
@@ -1060,7 +1062,7 @@
 
     function buildAssignmentSummary(property) {
         var names = assignmentNames(property);
-        var canManage = state.role !== 'subuser' && state.subusers.length > 0;
+        var canManage = state.role !== 'subuser' && (state.subusers.length > 0 || (property.assignments || []).length > 0);
         var action = canManage
             ? '<button type="button" class="btn btn-outline-secondary btn-sm ms-1 assignment-picker-btn" data-property-id="' + property.id + '" title="Assegna/Modifica assegnazioni"><i class="bi bi-person-plus"></i></button>'
             : '';
@@ -1252,7 +1254,7 @@
         initDataTable(
     '#assigned-table',
     buildTableData(grouped, 'assigned'),
-    false,
+    state.canExport,
     'assigned'
 );
     }
@@ -5142,11 +5144,16 @@
         setModalError('assignment-picker-error', '');
         var selected = new Set((property.assignments || []).map(function (item) { return Number(item.subuser_id); }));
         metaEl.textContent = (property.comune || '') + ' \u00B7 ' + unitLabel(property);
-        listEl.innerHTML = state.subusers.length
-            ? state.subusers.map(function (subuser) {
+        var activeSubusers = state.subusers.filter(function (subuser) { return subuser.status === 'active'; });
+        var inactiveAssignments = (property.assignments || []).filter(function (assignment) { return assignment.subuser_status !== 'active'; });
+        listEl.innerHTML = (activeSubusers.length
+            ? activeSubusers.map(function (subuser) {
                 return '<label class="form-check"><input class="form-check-input assignment-picker-check" type="checkbox" value="' + subuser.id + '"' + (selected.has(Number(subuser.id)) ? ' checked' : '') + '><span class="form-check-label">' + escapeHtml(subuser.nome + ' ' + subuser.cognome) + '</span></label>';
             }).join('')
-            : '<div class="text-muted small">Nessun subutente disponibile.</div>';
+            : '<div class="text-muted small">Nessun subutente attivo disponibile.</div>')
+            + inactiveAssignments.map(function (assignment) {
+                return '<label class="form-check text-muted"><input class="form-check-input" type="checkbox" checked disabled><span class="form-check-label">' + escapeHtml(assignment.subuser_name) + ' (disabilitato, assegnato)</span></label>';
+            }).join('');
         saveBtn.dataset.propertyId = String(property.id);
         bootstrap.Modal.getOrCreateInstance(modalEl).show();
     }

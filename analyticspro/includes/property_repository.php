@@ -2,6 +2,32 @@
 
 declare(strict_types=1);
 
+function analyticspro_replace_active_property_assignments(PDO $pdo, int $tenantId, array $propertyIds, array $assignments, int $assignedBy): void
+{
+    $ownerLock = $pdo->prepare('SELECT id FROM users WHERE id = :id FOR UPDATE');
+    $ownerLock->execute(['id' => $tenantId]);
+    $candidates = $pdo->prepare("SELECT id FROM users WHERE parent_user_id = :tenant_id AND role = 'subuser' AND status = 'active' FOR UPDATE");
+    $candidates->execute(['tenant_id' => $tenantId]);
+    $allowedIds = array_map('intval', $candidates->fetchAll(PDO::FETCH_COLUMN));
+    $ids = [];
+    foreach ($assignments as $value) {
+        $id = filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        if ($id === false || !in_array($id, $allowedIds, true)) {
+            throw new RuntimeException('Destinatario non valido: scegli un subutente attivo dello stesso tenant.');
+        }
+        $ids[$id] = $id;
+    }
+
+    $delete = $pdo->prepare("DELETE pa FROM property_assignments pa JOIN users u ON u.id = pa.subuser_id WHERE pa.property_id = :property_id AND u.parent_user_id = :tenant_id AND u.role = 'subuser' AND u.status = 'active'");
+    $insert = $pdo->prepare('INSERT INTO property_assignments (property_id, subuser_id, assigned_by) VALUES (:property_id, :subuser_id, :assigned_by)');
+    foreach ($propertyIds as $propertyId) {
+        $delete->execute(['property_id' => $propertyId, 'tenant_id' => $tenantId]);
+        foreach ($ids as $id) {
+            $insert->execute(['property_id' => $propertyId, 'subuser_id' => $id, 'assigned_by' => $assignedBy]);
+        }
+    }
+}
+
 function analyticspro_visible_property_scope(array $user, string $mode, ?int $filterSubuserId = null): array
 {
     $joins = [];
@@ -111,7 +137,7 @@ function analyticspro_fetch_properties_payload(array $user, string $mode = 'all'
         }
     }
 
-    $assignStmt = analyticspro_db()->prepare("SELECT pa.property_id, pa.subuser_id, CONCAT(u.nome, ' ', u.cognome) AS subuser_name FROM property_assignments pa JOIN users u ON u.id = pa.subuser_id WHERE pa.property_id IN ($placeholders) ORDER BY subuser_name");
+    $assignStmt = analyticspro_db()->prepare("SELECT pa.property_id, pa.subuser_id, u.status AS subuser_status, CONCAT(u.nome, ' ', u.cognome) AS subuser_name FROM property_assignments pa JOIN users u ON u.id = pa.subuser_id WHERE pa.property_id IN ($placeholders) ORDER BY subuser_name");
     $assignStmt->execute($propertyIds);
     $assignmentsByProperty = [];
     foreach ($assignStmt->fetchAll() as $assignment) {
@@ -121,7 +147,7 @@ function analyticspro_fetch_properties_payload(array $user, string $mode = 'all'
     $subusers = [];
     $tenantIds = array_values(array_unique(array_map(static fn ($property) => (int) $property['user_id'], $properties)));
     if ($requestedIds === null && count($tenantIds) === 1) {
-        $subusers = analyticspro_fetch_subusers($tenantIds[0]);
+        $subusers = analyticspro_fetch_subusers($tenantIds[0], true);
     }
 
     $payload = [];
@@ -164,6 +190,7 @@ function analyticspro_fetch_properties_payload(array $user, string $mode = 'all'
         $assignments = array_map(static fn ($assignment) => [
             'subuser_id' => (int) $assignment['subuser_id'],
             'subuser_name' => $assignment['subuser_name'],
+            'subuser_status' => $assignment['subuser_status'],
         ], $assignmentsByProperty[$propertyId] ?? []);
 
         $record = $property;

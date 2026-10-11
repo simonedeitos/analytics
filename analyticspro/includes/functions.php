@@ -350,19 +350,35 @@ function analyticspro_tenant_phone_visibility(?int $tenantId = null): bool
     return (bool) $stmt->fetchColumn();
 }
 
+function analyticspro_normalize_subuser_permissions(array $values, bool $useDefaults = true): array
+{
+    $defaults = [
+        'can_edit_all_markers' => 0,
+        'can_import' => 0,
+        'can_view_analytics' => 0,
+        'can_view_reports' => 0,
+        'can_export' => 1,
+    ];
+    foreach ($defaults as $key => $default) {
+        $value = $values[$key] ?? ($useDefaults ? $default : 0);
+        $defaults[$key] = in_array($value, [1, '1', true], true) ? 1 : 0;
+    }
+    return $defaults;
+}
+
+function analyticspro_save_subuser_permissions(PDO $pdo, int $subuserId, array $input): void
+{
+    $pdo->prepare('INSERT INTO subuser_permissions (subuser_id, can_edit_all_markers, can_import, can_view_analytics, can_view_reports, can_export) VALUES (:subuser_id, :can_edit_all_markers, :can_import, :can_view_analytics, :can_view_reports, :can_export) ON DUPLICATE KEY UPDATE can_edit_all_markers = VALUES(can_edit_all_markers), can_import = VALUES(can_import), can_view_analytics = VALUES(can_view_analytics), can_view_reports = VALUES(can_view_reports), can_export = VALUES(can_export)')
+        ->execute(['subuser_id' => $subuserId] + analyticspro_normalize_subuser_permissions($input, false));
+}
+
 function analyticspro_get_subuser_permissions(int $subuserId): array
 {
     $stmt = analyticspro_db()->prepare('SELECT can_edit_all_markers, can_import, can_view_analytics, can_view_reports, can_export FROM subuser_permissions WHERE subuser_id = :id LIMIT 1');
     $stmt->execute(['id' => $subuserId]);
     $permissions = $stmt->fetch() ?: [];
 
-    return array_merge([
-        'can_edit_all_markers' => 0,
-        'can_import' => 0,
-        'can_view_analytics' => 0,
-        'can_view_reports' => 0,
-        'can_export' => 1,
-    ], $permissions);
+    return analyticspro_normalize_subuser_permissions($permissions);
 }
 
 function analyticspro_require_permission(string $permission): void
@@ -388,11 +404,12 @@ function analyticspro_fetch_tenants(): array
     return $stmt->fetchAll();
 }
 
-function analyticspro_fetch_subusers(int $tenantId): array
+function analyticspro_fetch_subusers(int $tenantId, bool $activeOnly = false): array
 {
-    $stmt = analyticspro_db()->prepare("SELECT u.id, u.parent_user_id, u.role, u.nome, u.cognome, u.email, u.status, u.can_view_phone, p.can_edit_all_markers, p.can_import, p.can_view_analytics, p.can_view_reports, p.can_export FROM users u LEFT JOIN subuser_permissions p ON p.subuser_id = u.id WHERE u.parent_user_id = :tenant_id AND u.role = 'subuser' ORDER BY u.cognome, u.nome");
+    $activeFilter = $activeOnly ? " AND u.status = 'active'" : '';
+    $stmt = analyticspro_db()->prepare("SELECT u.id, u.parent_user_id, u.role, u.nome, u.cognome, u.email, u.status, u.can_view_phone, p.can_edit_all_markers, p.can_import, p.can_view_analytics, p.can_view_reports, p.can_export FROM users u LEFT JOIN subuser_permissions p ON p.subuser_id = u.id WHERE u.parent_user_id = :tenant_id AND u.role = 'subuser'{$activeFilter} ORDER BY u.cognome, u.nome");
     $stmt->execute(['tenant_id' => $tenantId]);
-    return $stmt->fetchAll();
+    return array_map(static fn (array $subuser): array => array_replace($subuser, analyticspro_normalize_subuser_permissions($subuser)), $stmt->fetchAll());
 }
 
 function analyticspro_lookup_cod_catastale(string $comune, string $provincia): ?string

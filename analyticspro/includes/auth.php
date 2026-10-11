@@ -4,7 +4,26 @@ declare(strict_types=1);
 
 function analyticspro_current_user(): ?array
 {
-    return $_SESSION['analyticspro_user'] ?? null;
+    $cached = $_SESSION['analyticspro_user'] ?? null;
+    if (!$cached) {
+        return null;
+    }
+    $stmt = analyticspro_db()->prepare("SELECT * FROM users WHERE id = :id AND status = 'active' LIMIT 1");
+    $stmt->execute(['id' => (int) ($cached['id'] ?? 0)]);
+    $user = $stmt->fetch();
+    if (!$user) {
+        unset($_SESSION['analyticspro_user'], $_COOKIE['analyticspro_remember']);
+        setcookie('analyticspro_remember', '', [
+            'expires' => time() - 3600,
+            'path' => '/',
+            'secure' => (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off'),
+            'httponly' => true,
+            'samesite' => 'Lax',
+        ]);
+        return null;
+    }
+    analyticspro_set_current_user($user);
+    return $user;
 }
 
 function analyticspro_set_current_user(array $user): void
@@ -45,8 +64,19 @@ function analyticspro_find_user_by_email(string $email): ?array
 
 function analyticspro_login(array $user, bool $remember = false): void
 {
+    $pdo = analyticspro_db();
+    if ($pdo->inTransaction()) {
+        throw new RuntimeException('Accesso non disponibile durante un’altra transazione.');
+    }
+    $pdo->beginTransaction();
+    try {
+    $stmt = $pdo->prepare("SELECT * FROM users WHERE id = :id AND status = 'active' LIMIT 1 FOR UPDATE");
+    $stmt->execute(['id' => (int) ($user['id'] ?? 0)]);
+    $user = $stmt->fetch();
+    if (!$user) {
+        throw new RuntimeException('Account disabilitato.');
+    }
     session_regenerate_id(true);
-    analyticspro_set_current_user($user);
 
     $expiresAt = (new DateTimeImmutable('+10 hours'))->format('Y-m-d H:i:s');
     $stmt = analyticspro_db()->prepare('REPLACE INTO user_sessions (id, user_id, ip_address, user_agent, expires_at) VALUES (:id, :user_id, :ip_address, :user_agent, :expires_at)');
@@ -70,6 +100,16 @@ function analyticspro_login(array $user, bool $remember = false): void
             'expires_at' => $expiresAt,
             'id' => $user['id'],
         ]);
+    }
+    $pdo->commit();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        throw $exception;
+    }
+    analyticspro_set_current_user($user);
+    if ($remember) {
         setcookie('analyticspro_remember', $user['id'] . ':' . $rawToken, [
             'expires' => strtotime($expiresAt),
             'path' => '/',

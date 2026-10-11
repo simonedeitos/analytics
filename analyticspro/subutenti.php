@@ -5,6 +5,7 @@ declare(strict_types=1);
 require __DIR__ . '/includes/bootstrap.php';
 require_once __DIR__ . '/includes/layout.php';
 require_once __DIR__ . '/includes/ui/helpers.php';
+require_once __DIR__ . '/includes/team_service.php';
 
 analyticspro_require_auth();
 $user = analyticspro_current_user();
@@ -47,15 +48,7 @@ try {
                     'password_hash'  => password_hash($temporaryPassword, PASSWORD_BCRYPT),
                 ]);
             $subuserId = (int) $pdo->lastInsertId();
-            $pdo->prepare('INSERT INTO subuser_permissions (subuser_id, can_edit_all_markers, can_import, can_view_analytics, can_view_reports, can_export) VALUES (:subuser_id, :can_edit_all_markers, :can_import, :can_view_analytics, :can_view_reports, :can_export)')
-                ->execute([
-                    'subuser_id'           => $subuserId,
-                    'can_edit_all_markers' => analyticspro_post('can_edit_all_markers') === '1' ? 1 : 0,
-                    'can_import'           => analyticspro_post('can_import') === '1' ? 1 : 0,
-                    'can_view_analytics'   => analyticspro_post('can_view_analytics') === '1' ? 1 : 0,
-                    'can_view_reports'     => analyticspro_post('can_view_reports') === '1' ? 1 : 0,
-                    'can_export'           => analyticspro_post('can_export') === '1' ? 1 : 0,
-                ]);
+            analyticspro_save_subuser_permissions($pdo, $subuserId, $_POST);
             $pdo->prepare('INSERT INTO subuser_invitations (subuser_id, invited_by, token, expires_at) VALUES (:subuser_id, :invited_by, :token, :expires_at)')
                 ->execute([
                     'subuser_id' => $subuserId,
@@ -82,25 +75,38 @@ try {
             if (!$ownerCheck->fetch()) {
                 throw new RuntimeException('Subutente non valido.');
             }
-            $pdo->prepare('UPDATE subuser_permissions SET can_edit_all_markers = :can_edit_all_markers, can_import = :can_import, can_view_analytics = :can_view_analytics, can_view_reports = :can_view_reports, can_export = :can_export WHERE subuser_id = :subuser_id')
-                ->execute([
-                    'subuser_id'           => $subuserId,
-                    'can_edit_all_markers' => analyticspro_post('can_edit_all_markers') === '1' ? 1 : 0,
-                    'can_import'           => analyticspro_post('can_import') === '1' ? 1 : 0,
-                    'can_view_analytics'   => analyticspro_post('can_view_analytics') === '1' ? 1 : 0,
-                    'can_view_reports'     => analyticspro_post('can_view_reports') === '1' ? 1 : 0,
-                    'can_export'           => analyticspro_post('can_export') === '1' ? 1 : 0,
-                ]);
+            analyticspro_save_subuser_permissions($pdo, $subuserId, $_POST);
             analyticspro_set_flash('success', 'Permessi subutente aggiornati.');
+            analyticspro_redirect('subutenti.php');
+        }
+        if ($action === 'disable_subuser') {
+            analyticspro_disable_subuser(
+                $pdo,
+                (int) $user['id'],
+                (int) analyticspro_post('subuser_id'),
+                (string) analyticspro_post('assignment_mode'),
+                analyticspro_post('recipient_id') ? (int) analyticspro_post('recipient_id') : null
+            );
+            analyticspro_set_flash('success', 'Collaboratore disabilitato e assegnazioni aggiornate.');
             analyticspro_redirect('subutenti.php');
         }
     }
 } catch (Throwable $exception) {
+    if (isset($pdo) && $pdo->inTransaction()) {
+        $pdo->rollBack();
+    }
     analyticspro_set_flash('danger', $exception->getMessage());
     analyticspro_redirect('subutenti.php');
 }
 
 $subusers = analyticspro_fetch_subusers((int) $user['id']);
+$activeSubusers = array_values(array_filter($subusers, static fn (array $subuser): bool => ($subuser['status'] ?? '') === 'active'));
+$assignmentStmt = analyticspro_db()->prepare('SELECT pa.subuser_id, COUNT(*) AS assignment_count FROM property_assignments pa INNER JOIN properties p ON p.id = pa.property_id WHERE p.user_id = :owner_id GROUP BY pa.subuser_id');
+$assignmentStmt->execute(['owner_id' => (int) $user['id']]);
+$assignmentCounts = [];
+foreach ($assignmentStmt->fetchAll() as $assignmentCount) {
+    $assignmentCounts[(int) $assignmentCount['subuser_id']] = (int) $assignmentCount['assignment_count'];
+}
 
 analyticspro_render_header('Team', ['body_class' => 'team-page']);
 ?>
@@ -139,12 +145,14 @@ analyticspro_render_header('Team', ['body_class' => 'team-page']);
                     <?= analyticspro_ui_empty_state(['icon' => 'bi-people', 'title' => 'Il tuo team parte da qui', 'message' => 'Invita il primo collaboratore per assegnare marker, report e analitiche.']) ?>
                 <?php endif; ?>
                 <?php foreach ($subusers as $subuser): ?>
-                    <form method="post" class="border rounded-4 p-3 mb-3 ap-subtle-block">
+                    <div class="border rounded-4 p-3 mb-3 ap-subtle-block">
+                    <form method="post">
                         <input type="hidden" name="csrf_token" value="<?= analyticspro_h(analyticspro_csrf_token()) ?>">
                         <input type="hidden" name="action" value="update_subuser_permissions">
                         <input type="hidden" name="subuser_id" value="<?= analyticspro_h((string) $subuser['id']) ?>">
                         <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
                             <strong><?= analyticspro_h(analyticspro_full_name($subuser)) ?></strong>
+                            <span class="badge <?= $subuser['status'] === 'active' ? 'text-bg-success' : 'text-bg-secondary' ?>"><?= analyticspro_h(['active' => 'Attivo', 'pending' => 'In attesa', 'disabled' => 'Disabilitato'][$subuser['status']] ?? (string) $subuser['status']) ?></span>
                             <span class="text-muted small"><?= analyticspro_h((string) $subuser['email']) ?></span>
                         </div>
                         <div class="row g-2 small">
@@ -159,9 +167,58 @@ analyticspro_render_header('Team', ['body_class' => 'team-page']);
                         </div>
                         <button class="btn btn-outline-primary btn-sm mt-3" type="submit">Salva permessi</button>
                     </form>
+                    <?php if ($subuser['status'] === 'active'): ?>
+                        <form method="post" class="mt-2" data-team-disable-form>
+                            <input type="hidden" name="csrf_token" value="<?= analyticspro_h(analyticspro_csrf_token()) ?>">
+                            <input type="hidden" name="action" value="disable_subuser">
+                            <input type="hidden" name="subuser_id" value="<?= (int) $subuser['id'] ?>">
+                            <input type="hidden" name="assignment_mode" value="keep">
+                            <input type="hidden" name="recipient_id" value="">
+                            <button class="btn btn-outline-danger btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#team-disable-modal" data-team-id="<?= (int) $subuser['id'] ?>" data-team-name="<?= analyticspro_h(analyticspro_full_name($subuser)) ?>" data-team-count="<?= $assignmentCounts[(int) $subuser['id']] ?? 0 ?>">Disabilita collaboratore</button>
+                        </form>
+                    <?php endif; ?>
+                    </div>
                 <?php endforeach; ?>
             </div>
         </div>
     </div>
 </div>
+<div class="modal fade" id="team-disable-modal" tabindex="-1" aria-labelledby="team-disable-title" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title fs-5" id="team-disable-title">Disabilita collaboratore</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button>
+            </div>
+            <div class="modal-body">
+                <p><strong id="team-disable-name"></strong> non potrà più accedere. Le sessioni attive saranno revocate.</p>
+                <p>Marker assegnati: <strong id="team-disable-count">0</strong></p>
+                <fieldset>
+                    <legend class="fs-6">Come gestire le assegnazioni?</legend>
+                    <?php foreach (['keep' => 'Mantieni le assegnazioni', 'reassign' => 'Riassegna a un altro collaboratore', 'unassign' => 'Rimuovi le assegnazioni'] as $mode => $label): ?>
+                        <div class="form-check mb-2">
+                            <input class="form-check-input" type="radio" name="team_assignment_mode" id="team-mode-<?= $mode ?>" value="<?= $mode ?>" <?= $mode === 'keep' ? 'checked' : '' ?>>
+                            <label class="form-check-label" for="team-mode-<?= $mode ?>"><?= analyticspro_h($label) ?></label>
+                        </div>
+                    <?php endforeach; ?>
+                </fieldset>
+                <p class="text-muted small mt-2" id="team-recipient-empty" hidden>Non ci sono altri collaboratori attivi a cui riassegnare i marker.</p>
+                <div id="team-recipient-field" hidden>
+                    <label class="form-label" for="team-recipient">Collaboratore destinatario</label>
+                    <select class="form-select" id="team-recipient" disabled>
+                        <option value="">Seleziona un collaboratore</option>
+                        <?php foreach ($activeSubusers as $recipient): ?>
+                            <option value="<?= (int) $recipient['id'] ?>"><?= analyticspro_h(analyticspro_full_name($recipient)) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annulla</button>
+                <button type="button" class="btn btn-danger" id="team-disable-confirm" disabled>Conferma disabilitazione</button>
+            </div>
+        </div>
+    </div>
+</div>
+<script defer src="<?= analyticspro_h(analyticspro_asset_url('assets/js/team.js')) ?>"></script>
 <?php analyticspro_render_footer(); ?>
