@@ -10,8 +10,8 @@ require_once ANALYTICSPRO_ROOT . '/includes/maintenance_service.php';
 analyticspro_api_guard();
 analyticspro_api_require_auth();
 
-if (!analyticspro_maintenance_access_allowed()) {
-    analyticspro_json(['ok' => false, 'error' => 'Accesso consentito solo all\'utente principale.'], 403);
+if (!analyticspro_maintenance_migration_access_allowed()) {
+    analyticspro_json(['ok' => false, 'error' => 'Solo gli amministratori possono eseguire migrazioni globali. Contatta un amministratore per richiedere accesso.', 'error_code' => 'forbidden'], 403);
 }
 
 try {
@@ -26,7 +26,7 @@ try {
         'error_code' => $exception->errorCode(),
         'blocked_by_duplicates' => $exception->errorCode() === 'migration_016_duplicates_blocked',
         'section_hint' => $exception->errorCode() === 'migration_016_duplicates_blocked' ? 'duplicates' : null,
-    ], 422);
+    ], $exception->errorCode() === 'forbidden' ? 403 : 422);
 } catch (Throwable $exception) {
     analyticspro_json([
         'ok' => false,

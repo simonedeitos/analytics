@@ -10,8 +10,8 @@ require_once ANALYTICSPRO_ROOT . '/includes/maintenance_service.php';
 analyticspro_api_guard();
 analyticspro_api_require_auth();
 
-if (!analyticspro_maintenance_access_allowed()) {
-    analyticspro_json(['ok' => false, 'error' => 'Accesso consentito solo all\'utente principale.'], 403);
+if (!analyticspro_maintenance_migration_access_allowed()) {
+    analyticspro_json(['ok' => false, 'error' => 'Le migrazioni globali sono riservate agli amministratori.', 'error_code' => 'forbidden'], 403);
 }
 
 try {

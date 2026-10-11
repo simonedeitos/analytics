@@ -280,6 +280,10 @@ function analyticspro_render_footer(bool $includeAppAssets = false): void
     <?php endif; ?>
     <?php if ($user): ?>
     <script>
+    window.ANALYTICSPRO_DEVTOOLS_GUARD_ENABLED = <?= filter_var($_ENV['ANALYTICSPRO_DEVTOOLS_GUARD_ENABLED'] ?? $_SERVER['ANALYTICSPRO_DEVTOOLS_GUARD_ENABLED'] ?? 'true', FILTER_VALIDATE_BOOLEAN) ? 'true' : 'false' ?>;
+    </script>
+    <script src="<?= analyticspro_h(analyticspro_asset_url('assets/js/devtools-guard.js')) ?>"></script>
+    <script>
     (function () {
         var root = document.documentElement;
         var body = document.body;

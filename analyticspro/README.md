@@ -21,6 +21,37 @@ Webapp PHP/PDO multi-tenant per importare dati catastali, salvarli su MySQL/Mari
    - `admin_notification_email`
    - eventuale `system_config.encryption_key` se vuoi sostituire la chiave bootstrap da `.env`
 
+## Sicurezza API e deterrente DevTools
+
+I payload immobili/dashboard espongono solo campi esplicitamente consentiti dei
+collaboratori, senza hash password o remember token. Le colonne testuali delle
+tabelle vengono escaped solo in visualizzazione: gli indirizzi importati restano
+inalterati nel DB, anche con apostrofi, `&` o il testo letterale `&amp;`.
+
+L'esecuzione e l'elenco delle migrazioni globali sono riservati agli **admin**;
+gli altri ruoli ricevono HTTP **403**. La manutenzione duplicati limitata al
+proprio tenant rimane disponibile agli utenti principali.
+
+Il footer autenticato carica `assets/js/devtools-guard.js`: dopo tre rilevamenti
+consecutivi di una differenza dimensionale superiore a 200 px su un solo asse,
+mostra un overlay bloccante fino alla chiusura degli strumenti. Il controllo è
+periodico (1 secondo), attende 2 secondi dopo resize e viene escluso per viewport
+sotto 768 px, dispositivi touch, fullscreen e zoom visualViewport non standard.
+Le soglie sono personalizzabili tramite `window.ANALYTICSPRO_DEVTOOLS_GUARD_CONFIG`
+(`threshold`, `minViewportWidth`, `confirmations`, `resizeGraceMs`) prima dello script.
+
+Per disattivarlo senza release, impostare
+`ANALYTICSPRO_DEVTOOLS_GUARD_ENABLED=false` nel `.env` sul server e ricaricare la
+pagina; anche `window.ANALYTICSPRO_DEVTOOLS_GUARD_ENABLED = false` disattiva un
+overlay già attivo al controllo successivo.
+
+**È un deterrente UX, non una misura di sicurezza**: DevTools separati dalla
+finestra possono non essere rilevati; zoom desktop, sidebar o configurazioni
+browser particolari possono causare falsi positivi. Non usa trappole `debugger`.
+È aggirabile e non impedisce richieste API esterne: autenticazione, permessi e
+isolamento tenant lato server restano indispensabili. Verificare in staging sui
+browser usati prima del rilascio.
+
 ## Logo della piattaforma
 
 Dalla panoramica amministrativa (`analyticspro/admin/index.php`), un amministratore

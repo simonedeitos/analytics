@@ -390,7 +390,7 @@ function analyticspro_fetch_tenants(): array
 
 function analyticspro_fetch_subusers(int $tenantId): array
 {
-    $stmt = analyticspro_db()->prepare("SELECT u.*, p.can_edit_all_markers, p.can_import, p.can_view_analytics, p.can_view_reports, p.can_export FROM users u LEFT JOIN subuser_permissions p ON p.subuser_id = u.id WHERE u.parent_user_id = :tenant_id AND u.role = 'subuser' ORDER BY u.cognome, u.nome");
+    $stmt = analyticspro_db()->prepare("SELECT u.id, u.parent_user_id, u.role, u.nome, u.cognome, u.email, u.status, u.can_view_phone, p.can_edit_all_markers, p.can_import, p.can_view_analytics, p.can_view_reports, p.can_export FROM users u LEFT JOIN subuser_permissions p ON p.subuser_id = u.id WHERE u.parent_user_id = :tenant_id AND u.role = 'subuser' ORDER BY u.cognome, u.nome");
     $stmt->execute(['tenant_id' => $tenantId]);
     return $stmt->fetchAll();
 }

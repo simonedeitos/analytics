@@ -20,6 +20,11 @@ function analyticspro_maintenance_access_allowed(): bool
     return !analyticspro_is_subuser();
 }
 
+function analyticspro_maintenance_migration_access_allowed(): bool
+{
+    return analyticspro_is_admin();
+}
+
 
 function analyticspro_maintenance_resolve_requested_tenant_id(mixed $requestedTenantId = null): ?int
 {
@@ -528,6 +533,10 @@ function analyticspro_maintenance_assert_migration_prerequisites(array $migratio
 
 function analyticspro_maintenance_run_migration(string $filename): array
 {
+    if (!analyticspro_maintenance_migration_access_allowed()) {
+        throw new AnalyticsproMaintenanceException('Solo gli amministratori possono eseguire migrazioni globali. Contatta un amministratore per richiedere accesso.', 'forbidden');
+    }
+
     $migration = analyticspro_maintenance_find_migration($filename);
     $statusBefore = analyticspro_maintenance_get_migration_status($migration);
     if (($statusBefore['status'] ?? '') === 'applied') {

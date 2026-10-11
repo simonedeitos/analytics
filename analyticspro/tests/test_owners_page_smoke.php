@@ -111,7 +111,7 @@ const context = {
 context.$.fn = { dataTable: { util: { escapeRegex: value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') } } };
 vm.createContext(context);
 for (const name of ['propertyCanViewPhone', 'splitPhoneNumbers', 'buildPhoneChips', 'buildOwnerSearchText',
-    'buildOwnersTableHtml', 'unitLabel', 'buildTableData', 'initDataTable', 'reportStatusBadge', 'buildReportTableData',
+    'buildOwnersTableHtml', 'unitLabel', 'buildTableData', 'renderTableText', 'initDataTable', 'reportStatusBadge', 'buildReportTableData',
     'ownerGroupKey', 'editorOwnerSelectionKey', 'buildReportContactsHtml',
     'colorOptionTextColor', 'colorOptionLabel', 'colorIdentifier', 'colorOptionHtml', 'propertyHeaderFacts',
     'updateColorSelectAppearance', 'updateReportFilterColorPreview',
