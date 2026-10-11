@@ -1973,34 +1973,47 @@
                     layer.zoomToBounds({ padding: [40, 40] });
                 }
             });
-            state.markers.on('spiderfied', function (event) {
+            var activeSpiderfyEvent = null;
+            function hideNonSpiderfiedMarkers(event) {
+                activeSpiderfyEvent = event;
                 state.map.closePopup();
                 var spiderfiedMarkers = new Set(event && event.markers ? event.markers : []);
-                var hiddenLayers = new Set(state._spiderfyHiddenLayers.map(function (entry) { return entry.layer; }));
+                var hiddenLayers = new Map(state._spiderfyHiddenLayers.map(function (entry) { return [entry.layer, entry]; }));
                 state.markers.eachLayer(function (layer) {
                     if (spiderfiedMarkers.has(layer)) return;
                     var visibleParent = state.markers.getVisibleParent(layer);
                     [layer, visibleParent].forEach(function (target) {
-                        if (!target || hiddenLayers.has(target)) return;
-                        hiddenLayers.add(target);
-                        var entry = {
-                            layer: target,
-                            previousOpacity: target.options && target.options.opacity !== undefined ? target.options.opacity : 1,
-                            usesOpacity: typeof target.setOpacity === 'function',
-                            elements: [target._icon, target._path, target._shadow].filter(Boolean).map(function (element) {
-                                return { element: element, visibility: element.style.visibility, pointerEvents: element.style.pointerEvents };
-                            })
-                        };
-                        state._spiderfyHiddenLayers.push(entry);
-                        if (entry.usesOpacity) target.setOpacity(0);
+                        if (!target) return;
+                        var entry = hiddenLayers.get(target);
+                        if (!entry) {
+                            entry = {
+                                layer: target,
+                                previousOpacity: target.options && target.options.opacity !== undefined ? target.options.opacity : 1,
+                                usesOpacity: typeof target.setOpacity === 'function',
+                                elements: []
+                            };
+                            hiddenLayers.set(target, entry);
+                            state._spiderfyHiddenLayers.push(entry);
+                            if (entry.usesOpacity) target.setOpacity(0);
+                        }
+                        [target._icon, target._path, target._shadow].filter(Boolean).forEach(function (element) {
+                            if (!entry.elements.some(function (item) { return item.element === element; })) {
+                                entry.elements.push({ element: element, visibility: element.style.visibility, pointerEvents: element.style.pointerEvents });
+                            }
+                        });
                         entry.elements.forEach(function (item) {
                             item.element.style.visibility = 'hidden';
                             item.element.style.pointerEvents = 'none';
                         });
                     });
                 });
+            }
+            state.markers.on('spiderfied', hideNonSpiderfiedMarkers);
+            state.map.on('moveend', function () {
+                if (activeSpiderfyEvent && state._spiderfyHiddenLayers.length) hideNonSpiderfiedMarkers(activeSpiderfyEvent);
             });
             state.markers.on('unspiderfied', function () {
+                activeSpiderfyEvent = null;
                 state._spiderfyHiddenLayers.forEach(function (entry) {
                     if (!entry.layer) return;
                     var isPresent = typeof entry.layer.getAllChildMarkers === 'function'

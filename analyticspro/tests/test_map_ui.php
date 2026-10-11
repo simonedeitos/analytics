@@ -16,7 +16,7 @@ if (!preg_match('/state\.markers = L\.markerClusterGroup\(\{[\s\S]*?spiderfyDist
     throw new RuntimeException('Spiderfied markers must have additional spacing.');
 }
 if (!str_contains($source, '_spiderfyHiddenLayers: []')
-    || !preg_match('/            state\.markers\.on\(\'spiderfied\'[\s\S]*?(?=            state\.map\.addLayer\(state\.markers\);)/', $source, $spiderfyHandlers)
+    || !preg_match('/            var activeSpiderfyEvent = null;[\s\S]*?(?=            state\.map\.addLayer\(state\.markers\);)/', $source, $spiderfyHandlers)
     || preg_match('/state\.markers\.(?:removeLayer|addLayer)\(/', $spiderfyHandlers[0])
     || !preg_match('/state\._spiderfyHiddenLayers = \[\];\s*state\.markers\.clearLayers\(\);/', $source)) {
     throw new RuntimeException('Spiderfy must hide and restore markers without changing cluster membership.');
@@ -123,7 +123,7 @@ otherCluster.getAllChildMarkers = () => [clusterChild, otherMarker];
 const markerLayers = new Set([spiderMarker, otherMarker, circle, defaultMarker, detachedMarker, clusterChild]);
 let popupClosed = 0;
 state._spiderfyHiddenLayers = [];
-state.map = { closePopup() { popupClosed++; } };
+state.map = { closePopup() { popupClosed++; }, on(name, handler) { handlers['map:' + name] = handler; } };
 state.markers = {
     on(name, handler) { handlers[name] = handler; },
     eachLayer(fn) { markerLayers.forEach(fn); },
@@ -150,6 +150,13 @@ assert.equal(otherCluster._icon.style.visibility, 'hidden', 'Other visible clust
 const hiddenCount = state._spiderfyHiddenLayers.length;
 handlers.spiderfied({ markers: [spiderMarker] });
 assert.equal(state._spiderfyHiddenLayers.length, hiddenCount, 'Repeated events preserve original styles');
+const oldPath = circle._path;
+circle._path = element('', 'visiblePainted');
+const oldClusterIcon = otherCluster._icon;
+otherCluster._icon = element();
+handlers['map:moveend']();
+assert.equal(circle._path.style.visibility, 'hidden', 'New SVG paths remain hidden after panning');
+assert.equal(otherCluster._icon.style.visibility, 'hidden', 'New cluster DOM remains hidden after panning');
 markerLayers.delete(detachedMarker);
 markerLayers.delete(clusterChild);
 detachedMarker.setOpacity = () => { throw new Error('Do not restore a removed/replaced layer'); };
@@ -159,12 +166,14 @@ assert.equal(otherMarker._icon.style.visibility, 'collapse');
 assert.equal(otherMarker._icon.style.pointerEvents, 'auto');
 assert.equal(otherMarker._shadow.style.visibility, '');
 assert.equal(circle._path.style.visibility, '');
+assert.equal(oldPath.style.visibility, '');
 assert.equal(circle._path.style.pointerEvents, 'visiblePainted');
 assert.equal(circle.options.opacity, 0.3);
 assert.equal(circle.options.fillOpacity, 0.6);
 assert.equal(defaultMarker.options.opacity, 1);
 assert.equal(otherCluster.options.opacity, 0.9);
 assert.equal(otherCluster._icon.style.visibility, '');
+assert.equal(oldClusterIcon.style.visibility, '');
 assert.deepEqual(state._spiderfyHiddenLayers, []);
 handlers.unspiderfied();
 handlers.spiderfied({ markers: [spiderMarker] });
