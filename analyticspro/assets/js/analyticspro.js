@@ -1973,24 +1973,62 @@
                     layer.zoomToBounds({ padding: [40, 40] });
                 }
             });
-            state.markers.on('spiderfied', function (event) {
+            var activeSpiderfyEvent = null;
+            function hideNonSpiderfiedMarkers(event) {
+                activeSpiderfyEvent = event;
                 state.map.closePopup();
                 var spiderfiedMarkers = new Set(event && event.markers ? event.markers : []);
-                state._spiderfyHiddenLayers = [];
+                var hiddenLayers = new Map(state._spiderfyHiddenLayers.map(function (entry) { return [entry.layer, entry]; }));
                 state.markers.eachLayer(function (layer) {
-                    if (!spiderfiedMarkers.has(layer)) state._spiderfyHiddenLayers.push(layer);
+                    if (spiderfiedMarkers.has(layer)) return;
+                    var visibleParent = state.markers.getVisibleParent(layer);
+                    [layer, visibleParent].forEach(function (target) {
+                        if (!target) return;
+                        var entry = hiddenLayers.get(target);
+                        if (!entry) {
+                            entry = {
+                                layer: target,
+                                previousOpacity: target.options && target.options.opacity !== undefined ? target.options.opacity : 1,
+                                usesOpacity: typeof target.setOpacity === 'function',
+                                elements: []
+                            };
+                            hiddenLayers.set(target, entry);
+                            state._spiderfyHiddenLayers.push(entry);
+                            if (entry.usesOpacity) target.setOpacity(0);
+                        }
+                        [target._icon, target._path, target._shadow].filter(Boolean).forEach(function (element) {
+                            if (!entry.elements.some(function (item) { return item.element === element; })) {
+                                entry.elements.push({ element: element, visibility: element.style.visibility, pointerEvents: element.style.pointerEvents });
+                            }
+                        });
+                        entry.elements.forEach(function (item) {
+                            item.element.style.visibility = 'hidden';
+                            item.element.style.pointerEvents = 'none';
+                        });
+                    });
                 });
-                state._spiderfyHiddenLayers.forEach(function (layer) {
-                    state.markers.removeLayer(layer);
-                });
-            });
+            }
+            state.markers.on('spiderfied', hideNonSpiderfiedMarkers);
             state.markers.on('unspiderfied', function () {
-                state._spiderfyHiddenLayers.forEach(function (layer) {
-                    state.markers.addLayer(layer);
+                activeSpiderfyEvent = null;
+                state._spiderfyHiddenLayers.forEach(function (entry) {
+                    if (!entry.layer) return;
+                    var isPresent = typeof entry.layer.getAllChildMarkers === 'function'
+                        ? entry.layer.getAllChildMarkers().some(function (layer) { return state.markers.hasLayer(layer); })
+                        : state.markers.hasLayer(entry.layer);
+                    if (!isPresent) return;
+                    if (entry.usesOpacity) entry.layer.setOpacity(entry.previousOpacity);
+                    entry.elements.forEach(function (item) {
+                        item.element.style.visibility = item.visibility;
+                        item.element.style.pointerEvents = item.pointerEvents;
+                    });
                 });
                 state._spiderfyHiddenLayers = [];
             });
             state.map.addLayer(state.markers);
+            state.map.on('moveend', function () {
+                if (activeSpiderfyEvent && state._spiderfyHiddenLayers.length) hideNonSpiderfiedMarkers(activeSpiderfyEvent);
+            });
             if (document.getElementById('map-visible-area')) initializeMapPresentation();
             setCadastralLayerEnabled(state.cadastralLayerEnabled);
             window.setTimeout(function () {
@@ -4121,7 +4159,7 @@
         document.getElementById('map-editor-comune').textContent = [property.comune, property.provincia].filter(Boolean).join(' · ');
         document.getElementById('property-editor-meta').textContent = unitLabel(property);
         document.getElementById('map-editor-cadastral-summary').innerHTML = [
-            ['Foglio', property.foglio], ['Particella', property.particella], ['Categoria', property.categoria]
+            ['Foglio', property.foglio], ['Particella', property.particella], ['Subalterno', property.subalterno]
         ].map(function (field) {
             return '<div><span>' + escapeHtml(field[0]) + '</span><strong>' + escapeHtml(field[1] === null || field[1] === undefined || field[1] === '' ? '—' : String(field[1])) + '</strong></div>';
         }).join('');

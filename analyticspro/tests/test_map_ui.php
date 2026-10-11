@@ -16,10 +16,10 @@ if (!preg_match('/state\.markers = L\.markerClusterGroup\(\{[\s\S]*?spiderfyDist
     throw new RuntimeException('Spiderfied markers must have additional spacing.');
 }
 if (!str_contains($source, '_spiderfyHiddenLayers: []')
-    || !preg_match('/state\.markers\.on\(\'spiderfied\', function \(event\) \{[\s\S]*?state\.map\.closePopup\(\);[\s\S]*?event\.markers[\s\S]*?state\.markers\.eachLayer[\s\S]*?state\.markers\.removeLayer[\s\S]*?\}\);/', $source)
-    || !preg_match('/state\.markers\.on\(\'unspiderfied\', function \(\) \{[\s\S]*?state\._spiderfyHiddenLayers\.forEach[\s\S]*?state\.markers\.addLayer[\s\S]*?state\._spiderfyHiddenLayers = \[\];[\s\S]*?\}\);/', $source)
+    || !preg_match('/            var activeSpiderfyEvent = null;[\s\S]*?(?=            if \(document\.getElementById\(\'map-visible-area\'\)\) initializeMapPresentation)/', $source, $spiderfyHandlers)
+    || preg_match('/state\.markers\.(?:removeLayer|addLayer)\(/', $spiderfyHandlers[0])
     || !preg_match('/state\._spiderfyHiddenLayers = \[\];\s*state\.markers\.clearLayers\(\);/', $source)) {
-    throw new RuntimeException('Non-spiderfied markers must be hidden and restored around spiderfy.');
+    throw new RuntimeException('Spiderfy must hide and restore markers without changing cluster membership.');
 }
 foreach (['map-search', 'map-owner-search', 'map-comune-filter', 'map-assigned-filter', 'find-area-comune', 'find-area-foglio', 'find-area-particella', 'find-area-submit', 'refresh-map', 'cadastral-layer-toggle', 'btn-apply-filter', 'map-category-filter-panel', 'map-visible-count', 'map-visible-owners', 'map-visible-owners-help'] as $id) {
     if (substr_count($page, 'id="' . $id . '"') !== 1) {
@@ -101,6 +101,95 @@ const bootstrap = { Tab: { getOrCreateInstance: node => ({ show() { selectedTab 
 const state = { properties: [], role: 'tenant', subusers: [] };
 JS;
 $test .= "\n" . $functions . "\n";
+$test .= <<<'JS'
+const handlers = {};
+const element = (visibility = '', pointerEvents = '') => ({ style: { visibility, pointerEvents } });
+function opacityMarker(opacity = 1) {
+    return {
+        options: { opacity }, _icon: element(), _shadow: element(),
+        setOpacity(value) { this.options.opacity = value; }
+    };
+}
+const spiderMarker = opacityMarker(0.8);
+const otherMarker = opacityMarker(0.4);
+otherMarker._icon.style.visibility = 'collapse';
+otherMarker._icon.style.pointerEvents = 'auto';
+const circle = { options: { opacity: 0.3, fillOpacity: 0.6 }, _path: element('', 'visiblePainted') };
+const defaultMarker = opacityMarker(); delete defaultMarker.options.opacity;
+const detachedMarker = opacityMarker(0.2);
+const clusterChild = opacityMarker(0.7); delete clusterChild._icon; delete clusterChild._shadow;
+const otherCluster = opacityMarker(0.9);
+otherCluster.getAllChildMarkers = () => [clusterChild, otherMarker];
+const markerLayers = new Set([spiderMarker, otherMarker, circle, defaultMarker, detachedMarker, clusterChild]);
+let popupClosed = 0;
+state._spiderfyHiddenLayers = [];
+let groupAdded = false;
+state.map = {
+    closePopup() { popupClosed++; },
+    addLayer() { groupAdded = true; },
+    on(name, handler) {
+        assert.ok(groupAdded, 'Visibility refresh must register after cluster moveend rendering');
+        handlers['map:' + name] = handler;
+    }
+};
+state.markers = {
+    on(name, handler) { handlers[name] = handler; },
+    eachLayer(fn) { markerLayers.forEach(fn); },
+    getVisibleParent(layer) { return layer === clusterChild ? otherCluster : layer; },
+    hasLayer(layer) { return markerLayers.has(layer); },
+    removeLayer() { throw new Error('Removing a layer collapses spiderfy'); },
+    addLayer() { throw new Error('Adding a layer collapses spiderfy'); }
+};
+JS;
+$test .= "\n" . $spiderfyHandlers[0] . "\n";
+$test .= <<<'JS'
+handlers.spiderfied({ markers: [spiderMarker] });
+assert.equal(popupClosed, 1);
+assert.equal(markerLayers.size, 6, 'All markers remain in the cluster tree');
+assert.equal(spiderMarker.options.opacity, 0.8);
+assert.equal(spiderMarker._icon.style.visibility, '', 'Spiderfied markers stay visible and interactive');
+assert.equal(otherMarker.options.opacity, 0);
+assert.equal(otherMarker._icon.style.visibility, 'hidden');
+assert.equal(otherMarker._icon.style.pointerEvents, 'none');
+assert.equal(otherMarker._shadow.style.visibility, 'hidden');
+assert.equal(circle._path.style.visibility, 'hidden', 'SVG paths use the DOM fallback');
+assert.equal(circle._path.style.pointerEvents, 'none');
+assert.equal(otherCluster._icon.style.visibility, 'hidden', 'Other visible clusters are hidden too');
+const hiddenCount = state._spiderfyHiddenLayers.length;
+handlers.spiderfied({ markers: [spiderMarker] });
+assert.equal(state._spiderfyHiddenLayers.length, hiddenCount, 'Repeated events preserve original styles');
+const oldPath = circle._path;
+circle._path = element('', 'visiblePainted');
+const oldClusterIcon = otherCluster._icon;
+otherCluster._icon = element();
+handlers['map:moveend']();
+assert.equal(circle._path.style.visibility, 'hidden', 'New SVG paths remain hidden after panning');
+assert.equal(otherCluster._icon.style.visibility, 'hidden', 'New cluster DOM remains hidden after panning');
+markerLayers.delete(detachedMarker);
+markerLayers.delete(clusterChild);
+detachedMarker.setOpacity = () => { throw new Error('Do not restore a removed/replaced layer'); };
+handlers.unspiderfied();
+assert.equal(otherMarker.options.opacity, 0.4);
+assert.equal(otherMarker._icon.style.visibility, 'collapse');
+assert.equal(otherMarker._icon.style.pointerEvents, 'auto');
+assert.equal(otherMarker._shadow.style.visibility, '');
+assert.equal(circle._path.style.visibility, '');
+assert.equal(oldPath.style.visibility, '');
+assert.equal(circle._path.style.pointerEvents, 'visiblePainted');
+assert.equal(circle.options.opacity, 0.3);
+assert.equal(circle.options.fillOpacity, 0.6);
+assert.equal(defaultMarker.options.opacity, 1);
+assert.equal(otherCluster.options.opacity, 0.9);
+assert.equal(otherCluster._icon.style.visibility, '');
+assert.equal(oldClusterIcon.style.visibility, '');
+assert.deepEqual(state._spiderfyHiddenLayers, []);
+handlers.unspiderfied();
+handlers.spiderfied({ markers: [spiderMarker] });
+state._spiderfyHiddenLayers = [];
+markerLayers.clear();
+handlers.unspiderfied();
+assert.deepEqual(state._spiderfyHiddenLayers, [], 'Rerender discards stale references without restoration');
+JS;
 $test .= <<<'JS'
 assert.equal(matchesMapToolbarFilters({}), true, 'No map filters on other pages');
 const card = buildPropertyCardHtml({
@@ -212,6 +301,16 @@ assert.ok(nodes.get('map-editor-pane-cadastral').innerHTML.includes('&lt;Via>') 
 assert.ok(nodes.get('map-editor-pane-cadastral').innerHTML.includes('<dd>34</dd>'));
 assert.ok(nodes.get('map-editor-pane-cadastral').innerHTML.includes('<dd>—</dd>'));
 assert.ok(nodes.get('map-editor-cadastral-summary').innerHTML.includes('<span>Foglio</span><strong>34</strong>'));
+assert.match(nodes.get('map-editor-cadastral-summary').innerHTML, /<span>Subalterno<\/span><strong>—<\/strong>/);
+for (const subalterno of ['2', '', null, undefined, 0, '<2>']) {
+    updateMapEditorPresentation({ foglio: '2', particella: '632', categoria: 'A07', subalterno });
+    const summary = nodes.get('map-editor-cadastral-summary').innerHTML;
+    const expected = subalterno === '' || subalterno == null ? '—' : escapeHtml(subalterno);
+    assert.ok(summary.includes('<span>Subalterno</span><strong>' + expected + '</strong>'));
+    assert.doesNotMatch(summary, /Categoria/);
+    assert.match(nodes.get('map-editor-pane-cadastral').innerHTML, /<dt>Categoria<\/dt><dd>A07<\/dd>/);
+    assert.ok(nodes.get('map-editor-pane-cadastral').innerHTML.includes('<dt>Subalterno</dt><dd>' + expected + '</dd>'));
+}
 assert.equal(nodes.get('map-editor-pane-activity').innerHTML, 'Nessuna nota', 'Only render existing notes, no fabricated timeline');
 (async () => {
     function marker(property) {
