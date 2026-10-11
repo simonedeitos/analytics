@@ -122,6 +122,7 @@
     display: inline-flex !important;
     align-items: center;
     justify-content: center;
+    line-height: 1;
 
     width: 1.8rem;
     height: 1.8rem;
@@ -144,24 +145,22 @@
 /* Pallino colore */
 .owners-page .owners-color-filter .dropdown-item .color-dot,
 .owners-page .owners-color-filter .dropdown-item span {
+    display: block;
     width: .9rem;
     height: .9rem;
 
     flex: 0 0 .9rem;
 
+    margin: 0;
     border-radius: 50%;
 }
 
-/* Eventuale voce "Tutti" */
-.owners-page .owners-color-filter .dropdown-item:first-child {
-    border-right: 1px solid var(--owners-border);
-    padding-right: .5rem !important;
-    margin-right: .15rem !important;
-    border-radius: 0;
+.owners-page .owners-color-filter .dropdown-item .bi {
+    font-size: .9rem;
 }
 
 .owners-page .owners-color-filter .dropdown-toggle { width: 100%; text-align: left; background: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.owners-page .owners-color-filter .dropdown-item { display: flex; align-items: center; gap: .5rem; font-size: .78rem; }
+.owners-page .owners-color-filter .dropdown-item { display: inline-flex; align-items: center; justify-content: center; }
 .owners-page .owners-filter-reset { min-height: 2.1rem; padding: .25rem .2rem; color: var(--ap-blue); font-size: .78rem; white-space: nowrap; }
 .owners-page .owners-filter-reset:hover { color: var(--ap-blue); }
 .owners-page .owners-extra-filters { margin-top: .75rem; color: var(--ap-muted); font-size: .8rem; }

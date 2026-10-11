@@ -67,6 +67,21 @@ analyticspro_render_header('Importa dati', ['app_assets' => true]);
         </div>
     </div>
 
+    <div id="enrichment-status-container" class="card border-0 shadow-sm mb-4" style="display:none">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                <h2 class="h5 mb-0">Stato import</h2>
+                <span id="import-phase" class="badge bg-primary">In attesa</span>
+            </div>
+            <div class="progress mb-2" style="height:8px">
+                <div id="import-progress-bar" class="progress-bar bg-primary progress-bar-striped progress-bar-animated" style="width:0%"></div>
+            </div>
+            <p id="import-progress-text" class="small mb-2 text-muted">Preparazione import...</p>
+            <pre id="import-log-console" class="bg-dark text-light small p-3 rounded-4 mb-2" style="max-height:220px;overflow:auto;white-space:pre-wrap;"></pre>
+            <div id="enrichment-report" class="small d-none"></div>
+        </div>
+    </div>
+
     <div class="card border-0 shadow-sm mb-4">
         <div class="card-body">
             <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
@@ -128,21 +143,6 @@ analyticspro_render_header('Importa dati', ['app_assets' => true]);
                 </div>
             </div>
         </div>
-    </div>
-</div>
-
-<div id="enrichment-status-container" class="card border-0 shadow-sm mb-4" style="display:none">
-    <div class="card-body">
-        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
-            <h2 class="h5 mb-0">Stato import</h2>
-            <span id="import-phase" class="badge bg-primary">In attesa</span>
-        </div>
-        <div class="progress mb-2" style="height:8px">
-            <div id="import-progress-bar" class="progress-bar bg-primary progress-bar-striped progress-bar-animated" style="width:0%"></div>
-        </div>
-        <p id="import-progress-text" class="small mb-2 text-muted">Preparazione import...</p>
-        <pre id="import-log-console" class="bg-dark text-light small p-3 rounded-4 mb-2" style="max-height:220px;overflow:auto;white-space:pre-wrap;"></pre>
-        <div id="enrichment-report" class="small d-none"></div>
     </div>
 </div>
 

@@ -230,6 +230,7 @@ function analyticspro_state_colors(): array
 function analyticspro_marker_color_palette(): array
 {
     return [
+        'Non impostato' => '#2A519F',
         'Rosso' => '#dc3545',
         'Arancio' => '#fd7e14',
         'Giallo' => '#ffc107',

@@ -74,8 +74,13 @@ ob_start();
     <div class="analyticspro-map-toolbar-primary">
         <div class="analyticspro-map-search">
             <i class="bi bi-search" aria-hidden="true"></i>
-            <label for="map-search" class="visually-hidden">Cerca indirizzo, comune o proprietario</label>
-            <input id="map-search" type="search" class="form-control form-control-sm" placeholder="Cerca indirizzo, comune o proprietario...">
+            <label for="map-search" class="visually-hidden">Cerca indirizzo</label>
+            <input id="map-search" type="search" class="form-control form-control-sm" placeholder="Cerca indirizzo...">
+        </div>
+        <div class="analyticspro-map-search">
+            <i class="bi bi-person" aria-hidden="true"></i>
+            <label for="map-owner-search" class="visually-hidden">Cerca proprietario</label>
+            <input id="map-owner-search" type="search" class="form-control form-control-sm" placeholder="Cerca proprietario...">
         </div>
         <div class="analyticspro-map-field">
             <i class="bi bi-geo-alt" aria-hidden="true"></i>

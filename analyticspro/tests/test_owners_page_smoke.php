@@ -6,6 +6,7 @@ $root = dirname(__DIR__);
 $page = (string) file_get_contents($root . '/report.php');
 $source = (string) file_get_contents($root . '/assets/js/analyticspro.js');
 $styles = (string) file_get_contents($root . '/assets/css/owners.css');
+$importPage = (string) file_get_contents($root . '/importa.php');
 $errors = [];
 
 foreach ([
@@ -13,7 +14,6 @@ foreach ([
     "analyticspro_asset_url('assets/css/owners.css')",
     'analyticspro_require_auth()',
     "empty(\$subuserPermissions['can_view_reports'])",
-    'report-export-actions',
     'Apri mappa',
     'report-search',
     'report-summary-properties',
@@ -36,7 +36,6 @@ foreach ([
     'owners-filter-row',
     'owners-cadastral-filter',
     'report-filters-toggle',
-    'dropdown-menu dropdown-menu-end',
     'api/data/properties.php',
     'api/data/update_property.php',
     'api/data/delete_property.php',
@@ -47,6 +46,18 @@ foreach ([
 }
 if (str_contains($page, 'Report in griglia')) {
     $errors[] = 'La pagina deve chiamarsi Proprietari.';
+}
+if (strpos($importPage, 'id="enrichment-status-container"') > strpos($importPage, '>Coordinate mancanti</h2>')) {
+    $errors[] = 'Lo stato import deve precedere la sezione delle coordinate mancanti.';
+}
+require_once $root . '/includes/functions.php';
+if ((analyticspro_marker_color_palette()['Non impostato'] ?? null) !== '#2A519F') {
+    $errors[] = 'Il colore marker Non impostato deve essere disponibile lato server.';
+}
+foreach (['justify-content: center', 'align-items: center', 'line-height: 1', '.owners-color-filter .dropdown-item .bi'] as $contract) {
+    if (!str_contains($styles, $contract)) {
+        $errors[] = 'Allineamento/icona del filtro colore mancante: ' . $contract;
+    }
 }
 foreach (['background: var(--owners-status-dot-color, #0d6efd)', 'background: var(--owners-status-background, #dbebff)', 'color: #212529'] as $contract) {
     if (!str_contains($styles, $contract)) {
@@ -80,6 +91,7 @@ const context = {
         };
     },
     STATE_OPTIONS: { '': 'Non impostato', da_contattare: 'Da contattare', contattato: 'Contattato', non_raggiungibile: 'Non Raggiungibile', interessato: 'Interessato', non_interessato: 'Non Interessato', altro: 'Altro (specificare)' },
+    MARKER_COLOR_PALETTE: [{ label: 'Non impostato', value: '#2A519F' }, { label: 'Rosso', value: '#dc3545' }],
     paletteEntryByColor() { return null; },
     escapeHtml(value) { return String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;'); },
     ownerQuotaLabel(owner) { return owner.quota || ''; },
@@ -98,7 +110,7 @@ vm.createContext(context);
 for (const name of ['propertyCanViewPhone', 'splitPhoneNumbers', 'buildPhoneChips', 'buildOwnerSearchText',
     'buildOwnersTableHtml', 'unitLabel', 'buildTableData', 'initDataTable', 'reportStatusBadge', 'buildReportTableData',
     'ownerGroupKey', 'editorOwnerSelectionKey', 'buildReportContactsHtml',
-    'colorOptionTextColor', 'colorOptionLabel', 'colorIdentifier', 'colorOptionHtml',
+    'colorOptionTextColor', 'colorOptionLabel', 'colorIdentifier', 'colorOptionHtml', 'propertyHeaderFacts',
     'updateColorSelectAppearance', 'updateReportFilterColorPreview',
     'updateReportSummary', 'applyReportFilters', 'renderReportTable', 'hydrateReportFilters']) {
     const start = source.indexOf('    function ' + name + '(');
@@ -113,6 +125,8 @@ const property = {
     assignments: [{ subuser_name: 'Agente' }],
     owners: [{ nome: 'Mario', cognome: 'Rossi', telefono: '123;456', email: '<mail@example.test>', quota: '1/2', luogo_nascita: 'Roma' }],
 };
+assert.deepEqual(Array.from(context.propertyHeaderFacts(property), fact => fact.label), ['Classe', 'Rendita', 'Subalterno', 'Consistenza']);
+assert.equal(context.propertyHeaderFacts(property)[2].value, '1');
 let row = context.buildReportTableData([property])[0];
 assert.match(row.propertyHtml, /&lt;Milano&gt;/);
 assert.match(row.propertyHtml, /F\.10 P\.42\/1/);
@@ -199,6 +213,8 @@ state.properties = [property, { colore_marker: '#123456' }, { colore_marker: '#f
 context.hydrateReportFilters();
 assert.equal((colorSelect.innerHTML.match(/value="#ff9900"/g) || []).length, 1);
 assert.match(colorMenu.innerHTML, /data-report-color="#123456".*class="color-dot" style="background:#123456;/);
+assert.match(colorMenu.innerHTML, /data-report-color=""[^>]*>.*bi-x-lg/);
+assert.match(colorMenu.innerHTML, /data-report-color="#2A519F"/, 'Non impostato can be selected in the color filter');
 assert.match(colorMenu.innerHTML, /data-report-color="#ff9900".*class="color-dot" style="background:#ff9900;/);
 assert.equal(preview.style.backgroundColor, '#ff9900');
 assert.equal(colorSelect.style.color, '#212529');

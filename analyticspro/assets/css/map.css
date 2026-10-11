@@ -35,8 +35,8 @@
 
 .map-page .analyticspro-map-search {
     position: relative;
-    flex: 1 1 280px;
-    min-width: 180px;
+    flex: 1 1 140px;
+    min-width: 130px;
     max-width: none;
 }
 

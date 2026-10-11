@@ -6,27 +6,29 @@ $source = file_get_contents(__DIR__ . '/../assets/js/analyticspro.js');
 $page = file_get_contents(__DIR__ . '/../mappa.php');
 $css = file_get_contents(__DIR__ . '/../assets/css/map.css');
 foreach ([
-    '/            state.markers = L.markerClusterGroup\([\s\S]*?            state.map.addLayer\(state.markers\);/' => '851bc998c431d9d892a91c24fe3f604672ee6acca53e7f7118c72e5f5751c533',
     '/    function createMapMarker\([\s\S]*?(?=\n    (?:async )?function )/' => 'e1cced27fb843eadf84d340cce6491111d2521b5d1077aa5f44beaa079c33bb1',
 ] as $pattern => $hash) {
     if (!preg_match($pattern, $source, $match) || hash('sha256', $match[0]) !== $hash) {
         throw new RuntimeException('Cluster creation/options/events and marker rendering must remain unchanged.');
     }
 }
-foreach (['map-search', 'map-comune-filter', 'map-assigned-filter', 'find-area-comune', 'find-area-foglio', 'find-area-particella', 'find-area-submit', 'refresh-map', 'cadastral-layer-toggle', 'btn-apply-filter', 'map-category-filter-panel', 'map-visible-count', 'map-visible-owners', 'map-visible-owners-help'] as $id) {
+if (!preg_match('/state\.markers = L\.markerClusterGroup\(\{[\s\S]*?spiderfyDistanceMultiplier: 1\.8/', $source)) {
+    throw new RuntimeException('Spiderfied markers must have additional spacing.');
+}
+foreach (['map-search', 'map-owner-search', 'map-comune-filter', 'map-assigned-filter', 'find-area-comune', 'find-area-foglio', 'find-area-particella', 'find-area-submit', 'refresh-map', 'cadastral-layer-toggle', 'btn-apply-filter', 'map-category-filter-panel', 'map-visible-count', 'map-visible-owners', 'map-visible-owners-help'] as $id) {
     if (substr_count($page, 'id="' . $id . '"') !== 1) {
         throw new RuntimeException('Missing or duplicated map hook: ' . $id);
     }
-    foreach (["analyticspro_render_header('Mappa del territorio'", "'topbar_content' => \$mapHeaderActions", "'topbar_after' => \$mapTopbarControls", 'Cerca indirizzo, comune o proprietario...'] as $contract) {
+    foreach (["analyticspro_render_header('Mappa del territorio'", "'topbar_content' => \$mapHeaderActions", "'topbar_after' => \$mapTopbarControls", 'Cerca indirizzo...', 'Cerca proprietario...'] as $contract) {
         if (!str_contains($page, $contract)) {
             throw new RuntimeException('Missing two-row map header: ' . $contract);
         }
     }
-    if (hash('sha256', substr($page, strpos($page, '<div id="analyticspro-app"'))) !== '9a124ad1d2ec145acb0f37c5b026e6af5da0f43a229b8d07452191bdc7411d68') {
+    if (hash('sha256', substr($page, strpos($page, '<div id="analyticspro-app"'))) !== 'bc46562aca46dcc4c0376399493d90a7e8e8b787223830cc01ea7517a14e0a96') {
         throw new RuntimeException('Map overlays and controls below the header must remain unchanged.');
     }
 }
-foreach (['Non contattato', 'Contattato', 'Da ricontattare', 'Non raggiungibile', 'Colori di riferimento; i marker mantengono i colori personalizzati.', 'Layer catastale', 'title="Proprietari"', 'analyticspro-map-actions', 'Disponibile dopo aver aperto i dettagli', 'aria-describedby="map-visible-owners-help"', 'report.php', "analyticspro_asset_url('assets/css/map.css')"] as $text) {
+foreach (['Non contattato', 'Contattato', 'Da ricontattare', 'Non raggiungibile', 'Layer catastale', 'title="Proprietari"', 'analyticspro-map-actions', 'Disponibile dopo aver aperto i dettagli', 'aria-describedby="map-visible-owners-help"', 'report.php', "analyticspro_asset_url('assets/css/map.css')"] as $text) {
     if (!str_contains($page, $text)) {
         throw new RuntimeException('Missing map presentation: ' . $text);
     }
@@ -36,7 +38,7 @@ if (!str_contains($css, '.analyticspro-map-drawer .modal-dialog') || !str_contai
 }
 
 $functions = '';
-foreach (['refreshMapToolbarFilters', 'matchesMapToolbarFilters', 'normalizedPropertyGroupIds', 'updateMapVisibleArea', 'bindMapEditorDrawer', 'prepareMapEditorDrawer', 'updateMapEditorPresentation'] as $name) {
+foreach (['refreshMapToolbarFilters', 'buildOwnerSearchText', 'matchesMapToolbarFilters', 'normalizedPropertyGroupIds', 'updateMapVisibleArea', 'bindMapEditorDrawer', 'prepareMapEditorDrawer', 'updateMapEditorPresentation'] as $name) {
     if (!preg_match('/    function ' . $name . '\(.*?(?=\n    (?:async )?function )/s', $source, $match)) {
         throw new RuntimeException('Missing function: ' . $name);
     }
@@ -87,6 +89,7 @@ $test .= "\n" . $functions . "\n";
 $test .= <<<'JS'
 assert.equal(matchesMapToolbarFilters({}), true, 'No map filters on other pages');
 const search = new Element('input', 'map-search');
+const ownerSearch = new Element('input', 'map-owner-search');
 const comune = new Element('select', 'map-comune-filter');
 const assigned = new Element('select', 'map-assigned-filter');
 state.properties = [
@@ -97,11 +100,18 @@ comune.value = 'Milano'; assigned.value = '7';
 refreshMapToolbarFilters();
 assert.equal(comune.value, 'Milano'); assert.equal(assigned.value, '7');
 assert.ok(assigned.innerHTML.includes('&lt;Alice>')); assert.ok(!assigned.innerHTML.includes('<Alice>'));
-const property = { comune: 'Milano', indirizzo: 'Via Roma', foglio: '34', assignments: [{ subuser_id: 7 }] };
+const property = { comune: 'Milano', indirizzo: 'Via Roma', foglio: '34', owners: [{ nome: 'Mario', cognome: 'Rossi' }], assignments: [{ subuser_id: 7 }] };
 assert.equal(matchesMapToolbarFilters(property), true);
 search.value = 'VIA ROMA'; assert.equal(matchesMapToolbarFilters(property), true);
 search.value = '34'; assert.equal(matchesMapToolbarFilters(property), true);
 search.value = 'inesistente'; assert.equal(matchesMapToolbarFilters(property), false);
+search.value = '';
+ownerSearch.value = 'ROSSI'; assert.equal(matchesMapToolbarFilters(property), true, 'Owner search matches owner surname independently');
+ownerSearch.value = 'inesistente'; assert.equal(matchesMapToolbarFilters(property), false);
+ownerSearch.value = 'Mario'; search.value = 'Via Roma'; assert.equal(matchesMapToolbarFilters(property), true, 'Address and owner filters combine in AND');
+search.value = 'inesistente'; assert.equal(matchesMapToolbarFilters(property), false, 'Address and owner filters both constrain results');
+search.value = '';
+ownerSearch.value = '';
 search.value = ''; comune.value = 'Roma'; assert.equal(matchesMapToolbarFilters(property), false);
 comune.value = ''; assigned.value = '8'; assert.equal(matchesMapToolbarFilters(property), false);
 assigned.value = ''; assert.equal(matchesMapToolbarFilters(property), true);
