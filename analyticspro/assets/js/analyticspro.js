@@ -18,6 +18,7 @@
     };
 
     const MARKER_COLOR_PALETTE = [
+        { label: 'Non impostato', value: '#2A519F' },
         { label: 'Rosso · P1', value: '#dc3545' },
         { label: 'Arancio · P2', value: '#fd7e14' },
         { label: 'Giallo · P3', value: '#ffc107' },
@@ -809,10 +810,9 @@
 
     function propertyHeaderFacts(property) {
         return [
-            { label: 'Categoria', value: property.categoria || '—' },
             { label: 'Classe', value: property.classe || '—' },
             { label: 'Rendita', value: property.rendita || '—' },
-            { label: 'Piano', value: property.piano || '—' },
+            { label: 'Subalterno', value: property.subalterno || '—' },
             { label: 'Consistenza', value: property.consistenza || '—' }
         ];
     }
@@ -1105,7 +1105,7 @@
                 particellaFilter: property.particella || '',
                 categoriaFilter: property.categoria || '',
                 stato: STATE_OPTIONS[property.stato !== null && property.stato !== undefined ? property.stato : ''] || (property.stato || ''),
-                colore: '<span class="color-dot" style="background:' + escapeHtml(property.colore_marker || '#0d6efd') + '"></span>',
+                colore: '<span class="color-dot" style="background:' + escapeHtml(property.colore_marker || '#2A519F') + '"></span>',
                 owners: buildOwnersTableHtml(property),
                 ownerSearch: buildOwnerSearchText(property),
                 assignmentsText: escapeHtml(assignmentNamesLabel(property)),
@@ -1132,7 +1132,7 @@
             { title: 'Stato', data: 'stato', name: 'stato', reportExport: true, render: function (data, type, row) { return type === 'display' ? reportStatusBadge(data, row.raw) : data; } },
             { title: 'Assegnato a', data: 'assignmentsText', name: 'assigned', reportExport: true, render: function (data, type, row) { return type === 'display' ? '<span class="owners-assignment' + ((row.raw.assignments || []).length ? '' : ' text-muted') + '"><i class="bi bi-person" aria-hidden="true"></i>' + data + '</span>' : data; } },
             { title: 'Dettaglio', data: 'actionsHtml' },
-            { title: 'Colore', data: 'colore', name: 'color', visible: false, reportExport: true, render: function (data, type, row) { return type === 'filter' || type === 'sort' || type === 'export' ? (row.raw.colore_marker || '') : data; } },
+            { title: 'Colore', data: 'colore', name: 'color', visible: false, reportExport: true, render: function (data, type, row) { return type === 'filter' || type === 'sort' || type === 'export' ? (row.raw.colore_marker || '#2A519F') : data; } },
             { title: 'Comune', data: 'comune', name: 'comune', visible: false, reportExport: true },
             { title: 'Foglio/Particella/Sub', data: 'unita', visible: false, reportExport: true },
             { title: 'Indirizzo', data: 'indirizzo', name: 'indirizzo', visible: false, reportExport: true },
@@ -1442,7 +1442,8 @@
         }
         if (colorSelect) {
             var selectedColor = colorSelect.value;
-            var colors = [], seen = {};
+            var colors = [MARKER_COLOR_PALETTE[0].value], seen = {};
+            seen[MARKER_COLOR_PALETTE[0].value] = true;
             state.properties.forEach(function (p) { if (p.colore_marker && !seen[p.colore_marker]) { seen[p.colore_marker] = true; colors.push(p.colore_marker); } });
             colorSelect.innerHTML = '<option value="">Tutti</option>' + colors.map(function (c) {
                 return colorOptionHtml(c, colorOptionLabel(c, 'Colore personalizzato ' + colorIdentifier(c)), false);
@@ -1450,7 +1451,7 @@
             colorSelect.value = (selectedColor && seen[selectedColor]) ? selectedColor : '';
             var colorMenu = document.getElementById('report-filter-color-menu');
             if (colorMenu) {
-                colorMenu.innerHTML = '<li><button type="button" class="dropdown-item" data-report-color="">Tutti</button></li>' + colors.map(function (color) {
+                colorMenu.innerHTML = '<li><button type="button" class="dropdown-item" data-report-color="" aria-label="Azzera filtro colore"><i class="bi bi-x-lg" aria-hidden="true"></i></button></li>' + colors.map(function (color) {
                     var swatch = /^#[0-9a-f]{6}$/i.test(color) ? color : '#0d6efd';
                     return '<li><button type="button" class="dropdown-item" data-report-color="' + escapeHtml(color) + '"><span class="color-dot" style="background:' + swatch + ';" aria-hidden="true"></span>'
                         + escapeHtml(colorOptionLabel(color, 'Colore personalizzato ' + colorIdentifier(color))) + '</button></li>';
@@ -1765,17 +1766,23 @@
 
     function matchesMapToolbarFilters(property) {
         var search = document.getElementById('map-search');
-        if (!search) return true;
-        var comune = document.getElementById('map-comune-filter').value;
-        var assigned = document.getElementById('map-assigned-filter').value;
+        var ownerSearch = document.getElementById('map-owner-search');
+        var comuneFilter = document.getElementById('map-comune-filter');
+        var assignedFilter = document.getElementById('map-assigned-filter');
+        var comune = comuneFilter ? comuneFilter.value : '';
+        var assigned = assignedFilter ? assignedFilter.value : '';
         var members = property._groupProperties || [property];
-        var query = search.value.trim().toLocaleLowerCase('it');
+        var query = search ? search.value.trim().toLocaleLowerCase('it') : '';
+        var ownerQuery = ownerSearch ? ownerSearch.value.trim().toLocaleLowerCase('it') : '';
         if (comune && !members.some(function (member) { return member.comune === comune; })) return false;
         if (assigned && !(property.assignments || []).some(function (assignment) { return String(assignment.subuser_id) === assigned; })) return false;
-        return !query || members.some(function (member) {
+        if (query && !members.some(function (member) {
             return ['indirizzo', 'civico', 'comune', 'foglio', 'particella', 'subalterno', 'cod_catastale'].map(function (key) {
                 return member[key] || '';
             }).join(' ').toLocaleLowerCase('it').indexOf(query) !== -1;
+        })) return false;
+        return !ownerQuery || members.some(function (member) {
+            return buildOwnerSearchText(member).toLocaleLowerCase('it').indexOf(ownerQuery) !== -1;
         });
     }
 
@@ -1851,16 +1858,17 @@
         if (!document.getElementById('map-visible-area')) return;
         state.map.on('moveend', scheduleMapVisibleArea);
         state.markers.on('layeradd layerremove', scheduleMapVisibleArea);
-        ['map-search', 'map-comune-filter', 'map-assigned-filter'].forEach(function (id) {
+        ['map-search', 'map-owner-search', 'map-comune-filter', 'map-assigned-filter'].forEach(function (id) {
             var control = document.getElementById(id);
             if (!control) return;
             var timer;
-            control.addEventListener(id === 'map-search' ? 'input' : 'change', function () {
+            var isSearch = id === 'map-search' || id === 'map-owner-search';
+            control.addEventListener(isSearch ? 'input' : 'change', function () {
                 window.clearTimeout(timer);
                 timer = window.setTimeout(function () {
                     state.pendingMapView = captureMapView();
                     renderMap();
-                }, id === 'map-search' ? 180 : 0);
+                }, isSearch ? 180 : 0);
             });
         });
     }
@@ -1886,6 +1894,7 @@
 
             state.markers = L.markerClusterGroup({
                 spiderfyOnMaxZoom: true,
+                spiderfyDistanceMultiplier: 1.8,
                 zoomToBoundsOnClick: false,
                 showCoverageOnHover: false,
                 maxClusterRadius: 40,
@@ -2126,20 +2135,24 @@
             : '<button type="button" class="btn btn-outline-secondary btn-sm close-detail-modal"><i class="bi bi-x-lg me-1"></i>Chiudi</button>';
         var statoLabel = property.stato ? (STATE_OPTIONS[property.stato] || property.stato) : '';
         var statoBadge = statoLabel
-            ? '<span class="badge ms-1" style="background:' + escapeHtml(property.colore_marker || '#0d6efd') + ';color:#fff;font-size:.65rem;">' + escapeHtml(statoLabel) + '</span>'
+            ? '<span class="badge ms-1" style="background:' + escapeHtml(property.colore_marker || '#2A519F') + ';color:#fff;font-size:.65rem;">' + escapeHtml(statoLabel) + '</span>'
             : '';
         var headerFacts = propertyHeaderFacts(property).map(function (item) {
             return '<span class="me-3"><strong>' + escapeHtml(item.label) + ':</strong> ' + escapeHtml(item.value) + '</span>';
         }).join('');
+        var headerClassification = [
+            '<strong>Categoria:</strong> ' + escapeHtml(property.categoria || '—'),
+            '<strong>Piano:</strong> ' + escapeHtml(property.piano || '—')
+        ].join(' · ');
 
         return '<div class="card map-popup-card mb-2" data-property-id="' + property.id + '">'
             + '<div class="card-header py-2 px-3">'
-            + '<div class="fw-semibold">\uD83C\uDFE0 ' + escapeHtml(addressLabel) + ' \u2013 ' + escapeHtml(unitLabel(property)) + '</div>'
+            + '<div class="fw-semibold">\uD83C\uDFE0 ' + escapeHtml(addressLabel) + ' \u2013 ' + escapeHtml(unitLabel(property)) + ' · ' + headerClassification + '</div>'
             + '<div class="small mt-1">'
             + headerFacts
             + '</div>'
             + '<div class="small mt-1">'
-            + '<span class="color-dot me-1" style="background:' + escapeHtml(property.colore_marker || '#0d6efd') + '"></span>'
+            + '<span class="color-dot me-1" style="background:' + escapeHtml(property.colore_marker || '#2A519F') + '"></span>'
             + escapeHtml(property.comune || '')
             + statoBadge
             + '</div>'
