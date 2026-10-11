@@ -127,7 +127,9 @@ check_ui(str_contains($authHtml, '</main>'), 'auth layout closes its main elemen
 
 $team = (string) file_get_contents(ANALYTICSPRO_ROOT . '/subutenti.php');
 check_ui(str_contains($team, 'name="action" value="invite_subuser"') && str_contains($team, 'name="action" value="update_subuser_permissions"'), 'team form actions preserved');
-check_ui(substr_count($team, 'name="csrf_token"') === 3, 'invite, permissions and separate disable forms preserve CSRF fields');
+check_ui(substr_count($team, 'name="csrf_token"') === 4, 'invite, permissions, disable and reactivate forms preserve CSRF fields');
+check_ui(str_contains($team, 'name="action" value="reactivate_subuser"') && str_contains($team, 'analyticspro_reactivate_subuser($pdo'), 'team reactivation uses its dedicated action and service');
+check_ui(str_contains($team, 'row-cols-md-2') && str_contains($team, 'd-flex flex-wrap gap-2'), 'team cards use responsive columns and compact action rows');
 check_ui(substr_count($team, 'analyticspro_save_subuser_permissions($pdo, $subuserId, $_POST)') === 2, 'both team permission paths depend on the shared functions.php helper API');
 check_ui(str_contains($team, '$subusers = analyticspro_fetch_subusers((int) $user[\'id\']);'), 'team retains the full list including disabled users');
 check_ui(str_contains($team, "analyticspro_asset_url('assets/js/team.js')"), 'team script uses the versioned asset helper');
@@ -148,10 +150,16 @@ check_ui($teamXpath->query('//form//form')->length === 0, 'team forms are never 
 check_ui($teamXpath->query('//form[@data-team-disable-form]')->length === 1, 'only active collaborators have a disable form');
 check_ui($teamXpath->query('//form[@data-team-disable-form]/input[@name="csrf_token"]')->length === 1, 'disable form has CSRF protection');
 check_ui($teamXpath->query('//form[@data-team-disable-form]/input[@name="subuser_id" and @value="2"]')->length === 1, 'disable form has its own target id');
+check_ui($teamXpath->query('//form[.//input[@name="action" and @value="reactivate_subuser"]]')->length === 1, 'only disabled collaborators have a reactivation form');
+check_ui($teamXpath->query('//form[.//input[@name="action" and @value="reactivate_subuser"]]/input[@name="csrf_token"]')->length === 1, 'reactivation form has CSRF protection');
+check_ui($teamXpath->query('//form[.//input[@name="action" and @value="reactivate_subuser"]]/input[@name="subuser_id" and @value="3"]')->length === 1, 'reactivation form has its own target id');
+check_ui($teamXpath->query('//div[contains(@class, "gap-2")]/button[@type="submit" and @form="subuser-permissions-2"]/following-sibling::form[@data-team-disable-form]')->length === 1, 'save and disable controls share an action row');
+check_ui($teamXpath->query('//div[contains(@class, "gap-2")]/button[@type="submit" and @form="subuser-permissions-3"]/following-sibling::form[.//input[@name="action" and @value="reactivate_subuser"]]')->length === 1, 'save and reactivate controls share an action row');
 check_ui($teamXpath->query('//input[@name="team_assignment_mode"]')->length === 3, 'confirmation modal provides all three assignment choices');
 check_ui($teamXpath->query('//button[@data-team-count="7"]')->length === 1, 'confirmation trigger includes assignment count');
 check_ui($teamXpath->query('//select[@id="team-recipient"]/option[@value="3"]')->length === 0, 'disabled recipients excluded from reassignment');
 check_ui(str_contains($teamHtml, 'In attesa'), 'pending collaborators retain their distinct status label');
+check_ui(str_contains($teamHtml, 'Attivo') && str_contains($teamHtml, 'Disabilitato'), 'team cards expose active and disabled status badges');
 check_ui($teamXpath->query('//div[@id="team-recipient-field"]//*[@id="team-recipient-empty"]')->length === 0, 'no-recipient explanation remains outside the hidden select field');
 check_ui(str_contains($team, 'for="invite-email"') && str_contains($team, 'for="subuser-'), 'team form labels associated with controls');
 check_ui(str_contains($team, 'Può vedere proprietari') && str_contains($team, "'can_view_reports' => 'Proprietari'"), 'existing report permission uses owners label without changing its key');

@@ -72,3 +72,34 @@ function analyticspro_disable_subuser(PDO $pdo, int $ownerId, int $targetId, str
         throw $exception;
     }
 }
+
+function analyticspro_reactivate_subuser(PDO $pdo, int $ownerId, int $targetId): void
+{
+    if ($pdo->inTransaction()) {
+        throw new RuntimeException('Riattivazione non disponibile durante un’altra transazione.');
+    }
+
+    $pdo->beginTransaction();
+    try {
+        $ownerStmt = $pdo->prepare("SELECT id FROM users WHERE id = :id AND role = 'user' AND status = 'active' FOR UPDATE");
+        $ownerStmt->execute(['id' => $ownerId]);
+        if (!$ownerStmt->fetch()) {
+            throw new RuntimeException('Accesso non consentito.');
+        }
+
+        $targetStmt = $pdo->prepare("SELECT id FROM users WHERE id = :id AND parent_user_id = :owner_id AND role = 'subuser' AND status = 'disabled' FOR UPDATE");
+        $targetStmt->execute(['id' => $targetId, 'owner_id' => $ownerId]);
+        if (!$targetStmt->fetch()) {
+            throw new RuntimeException('Subutente non valido o non disabilitato.');
+        }
+
+        $pdo->prepare("UPDATE users SET status = 'active' WHERE id = :id")
+            ->execute(['id' => $targetId]);
+        $pdo->commit();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        throw $exception;
+    }
+}

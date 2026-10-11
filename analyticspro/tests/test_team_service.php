@@ -27,7 +27,7 @@ final class TeamTestPdo extends PDO
             2 => ['id' => 2, 'parent_user_id' => 1, 'role' => 'subuser', 'status' => 'active', 'remember_token' => 'old', 'remember_token_expires_at' => '2099-01-01'],
             3 => ['id' => 3, 'parent_user_id' => 1, 'role' => 'subuser', 'status' => 'active'],
             4 => ['id' => 4, 'parent_user_id' => 99, 'role' => 'subuser', 'status' => 'active'],
-            5 => ['id' => 5, 'parent_user_id' => 1, 'role' => 'subuser', 'status' => 'disabled'],
+            5 => ['id' => 5, 'parent_user_id' => 1, 'role' => 'subuser', 'status' => 'disabled', 'remember_token' => null, 'remember_token_expires_at' => null],
             6 => ['id' => 6, 'role' => 'admin', 'status' => 'active'],
         ];
         $this->assignments = [
@@ -85,7 +85,8 @@ final class TeamTestStatement extends PDOStatement
                 return true;
             }
             $user = $this->pdo->users[$params['id']] ?? null;
-            $valid = $user && $user['status'] === 'active';
+            $requiredStatus = str_contains($this->sql, "status = 'disabled'") ? 'disabled' : 'active';
+            $valid = $user && $user['status'] === $requiredStatus;
             if (str_contains($this->sql, 'AND EXISTS')) {
                 $valid = $valid && (bool) array_filter($this->pdo->sessions, static fn (array $session): bool =>
                     $session['user_id'] === $params['id']
@@ -113,6 +114,8 @@ final class TeamTestStatement extends PDOStatement
             $this->pdo->users[$params['id']]['status'] = 'disabled';
             $this->pdo->users[$params['id']]['remember_token'] = null;
             $this->pdo->users[$params['id']]['remember_token_expires_at'] = null;
+        } elseif (str_starts_with($this->sql, "UPDATE users SET status = 'active'")) {
+            $this->pdo->users[$params['id']]['status'] = 'active';
         } elseif (str_starts_with($this->sql, 'DELETE FROM user_sessions')) {
             $this->pdo->sessions = array_values(array_filter($this->pdo->sessions, static fn (array $row): bool => $row['user_id'] !== $params['user_id']));
         } elseif (str_starts_with($this->sql, 'REPLACE INTO user_sessions')) {
@@ -219,6 +222,36 @@ foreach (['reassign', 'unassign'] as $mode) {
 }
 
 $teamPdo = new TeamTestPdo();
+$beforeSessions = $teamPdo->sessions;
+$beforeAssignments = $teamPdo->assignments;
+analyticspro_reactivate_subuser($teamPdo, 1, 5);
+team_check($teamPdo->users[5]['status'] === 'active' && $teamPdo->committed, 'reactivation activates disabled subuser');
+team_check($teamPdo->users[5]['remember_token'] === null && $teamPdo->users[5]['remember_token_expires_at'] === null && $teamPdo->sessions === $beforeSessions, 'reactivation does not restore login credentials or sessions');
+team_check($teamPdo->assignments === $beforeAssignments, 'reactivation leaves assignments unchanged');
+team_check(count($teamPdo->queries) === 3 && !str_contains(implode(' ', $teamPdo->queries), 'user_sessions') && !str_contains(implode(' ', $teamPdo->queries), 'remember_token'), 'reactivation never writes sessions or remember tokens');
+team_check(str_contains($teamPdo->queries[0], "role = 'user'") && str_contains($teamPdo->queries[0], 'FOR UPDATE') && str_contains($teamPdo->queries[1], "status = 'disabled'") && str_contains($teamPdo->queries[1], 'parent_user_id = :owner_id'), 'reactivation locks and scopes owner and disabled subuser');
+
+foreach ([[99, 5], [6, 5], [1, 4], [1, 2], [1, 3], [1, 1], [1, 999]] as [$ownerId, $targetId]) {
+    $teamPdo = new TeamTestPdo();
+    if ($targetId === 4) $teamPdo->users[4]['status'] = 'disabled';
+    if ($ownerId === 1 && $targetId === 2) $teamPdo->users[2]['status'] = 'active';
+    if ($ownerId === 1 && $targetId === 3) $teamPdo->users[3]['status'] = 'pending';
+    $before = [$teamPdo->users, $teamPdo->assignments, $teamPdo->sessions];
+    team_reject(static fn () => analyticspro_reactivate_subuser($teamPdo, $ownerId, $targetId), 'invalid owner or disabled subuser rejected for reactivation');
+    team_check($before === [$teamPdo->users, $teamPdo->assignments, $teamPdo->sessions] && !$teamPdo->inTransaction(), 'reactivation rejection leaves database unchanged');
+}
+foreach (["UPDATE users SET status = 'active'", 'COMMIT'] as $failure) {
+    $teamPdo = new TeamTestPdo();
+    $before = [$teamPdo->users, $teamPdo->assignments, $teamPdo->sessions];
+    $teamPdo->failOn = $failure;
+    team_reject(static fn () => analyticspro_reactivate_subuser($teamPdo, 1, 5), 'reactivation database failures propagate');
+    team_check($teamPdo->rolledBack && $before === [$teamPdo->users, $teamPdo->assignments, $teamPdo->sessions], 'reactivation failure rolls back changes');
+}
+$teamPdo = new TeamTestPdo();
+$teamPdo->users[1]['status'] = 'disabled';
+team_reject(static fn () => analyticspro_reactivate_subuser($teamPdo, 1, 5), 'disabled tenant owner rejected for reactivation');
+
+$teamPdo = new TeamTestPdo();
 $teamPdo->users[1]['status'] = 'disabled';
 team_reject(static fn () => analyticspro_disable_subuser($teamPdo, 1, 2, 'keep'), 'disabled owner rejected');
 $teamPdo = new TeamTestPdo();
@@ -272,7 +305,8 @@ team_check($teamPdo->users[2]['remember_token'] !== null && count($teamPdo->sess
 $teamPdo->sessions[] = ['id' => session_id(), 'user_id' => 2, 'expires_at' => '2099-01-01'];
 team_check(analyticspro_current_user() !== null, 'persisted active session accepted');
 analyticspro_disable_subuser($teamPdo, 1, 2, 'keep');
-$teamPdo->users[2]['status'] = 'active';
+analyticspro_reactivate_subuser($teamPdo, 1, 2);
+team_check($teamPdo->users[2]['status'] === 'active' && $teamPdo->users[2]['remember_token'] === null && $teamPdo->sessions === [['user_id' => 3]], 'reactivation leaves revoked token and sessions revoked');
 team_check(analyticspro_current_user() === null, 'disable then reactivate before next request cannot revive deleted session');
 $_SESSION['analyticspro_user'] = ['id' => 3, 'status' => 'active'];
 $teamPdo->sessions[] = ['id' => session_id(), 'user_id' => 3, 'expires_at' => '2000-01-01'];
@@ -373,7 +407,9 @@ $integrationBackend = $mysqlDsn ? 'MySQL' : 'SQLite';
     analyticspro_disable_subuser($teamPdo, 1, 2, 'keep');
     $revoked = $snapshotMysql();
     team_check(count($revoked[2]) === 1 && $revoked[0][1]['remember_token'] === null && $revoked[0][1]['status'] === 'disabled', 'SQL disable revokes login-created session and remember token');
-    $teamPdo->exec("UPDATE users SET status = 'active' WHERE id = 2");
+    analyticspro_reactivate_subuser($teamPdo, 1, 2);
+    $reactivated = $snapshotMysql();
+    team_check($reactivated[0][1]['status'] === 'active' && $reactivated[0][1]['remember_token'] === null && count($reactivated[2]) === 1, 'SQL reactivation changes only status, not revoked token or sessions');
     team_check(analyticspro_current_user() === null, 'SQL reactivation cannot revive deleted PHP session');
 
     if ($mysqlDsn) {
