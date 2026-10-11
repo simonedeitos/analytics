@@ -36,6 +36,12 @@ foreach (['Non contattato', 'Contattato', 'Da ricontattare', 'Non raggiungibile'
 if (!str_contains($css, '.analyticspro-map-drawer .modal-dialog') || !str_contains($css, 'prefers-reduced-motion')) {
     throw new RuntimeException('Drawer styling and reduced motion support are required.');
 }
+if (!preg_match('/\.analyticspro-map-visible-area\s*\{([^}]*)\}/', $css, $visibleAreaStyles)
+    || !preg_match('/padding:\s*20px\s*;/', $visibleAreaStyles[1])
+    || !preg_match('/\.analyticspro-map-visible-area\s*\{[^}]*padding:\s*16px\s*;/s', $css)
+    || !preg_match('/\.analyticspro-map-owners-help\s*\{[^}]*margin:\s*0 0 12px\s*;/s', $css)) {
+    throw new RuntimeException('Visible area content needs consistent padding without negative child margins.');
+}
 
 $functions = '';
 foreach (['refreshMapToolbarFilters', 'buildOwnerSearchText', 'matchesMapToolbarFilters', 'propertyHeaderFacts', 'buildPropertyCardHtml', 'normalizedPropertyGroupIds', 'updateMapVisibleArea', 'bindMapEditorDrawer', 'prepareMapEditorDrawer', 'updateMapEditorPresentation'] as $name) {
@@ -71,7 +77,7 @@ class Element {
 }
 const document = { getElementById: id => nodes.get(id) || null, createElement: tag => new Element(tag) };
 const escapeHtml = value => String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
-const unitLabel = property => 'Foglio ' + property.foglio;
+const unitLabel = property => 'F.' + property.foglio + ' P.' + property.particella + '/' + property.subalterno;
 const propertyNotesHtml = property => property.notes ? property.notes.map(note => escapeHtml(note.testo)).join(' ') : 'Nessuna nota';
 const ownerDetailRows = () => '';
 const assignmentNames = () => [];
@@ -92,10 +98,11 @@ $test .= "\n" . $functions . "\n";
 $test .= <<<'JS'
 assert.equal(matchesMapToolbarFilters({}), true, 'No map filters on other pages');
 const card = buildPropertyCardHtml({
-    id: 10, indirizzo: 'Via Roma', categoria: 'A/2', piano: '3', subalterno: '41',
+    id: 10, indirizzo: 'Via Roma', foglio: '6', particella: '726', categoria: 'A/2', piano: '3', subalterno: '41',
     classe: '2', rendita: '100', consistenza: '5', can_edit: false,
     can_delete: false, owners: [], notes: []
 }, { mapMode: true });
+assert.match(card, /Via Roma.*F\.6 P\.726\/41 · <strong>Categoria:<\/strong> A\/2 · <strong>Piano:<\/strong> 3/);
 assert.match(card, /Categoria:<\/strong> A\/2 · <strong>Piano:<\/strong> 3/);
 const factsStart = card.indexOf('<div class="small mt-1">');
 const headerFacts = card.slice(factsStart, card.indexOf('</div>', factsStart));
