@@ -129,7 +129,7 @@
 .analyticspro-map-visible-area {
     top: 20px;
     width: 220px;
-    padding: 16px;
+    padding: 20px;
 }
 
 .analyticspro-map-overlay-heading {
@@ -155,7 +155,7 @@
 
 .analyticspro-map-owners-help {
     display: block;
-    margin: -4px 0 12px;
+    margin: 0 0 12px;
     font-size: .65rem;
     line-height: 1.45;
     color: var(--ap-text-muted, #748096);
@@ -376,7 +376,7 @@
     .map-page .analyticspro-map-toolbar-primary { gap: .5rem; }
     .map-page .analyticspro-map-search { max-width: none; flex-basis: 100%; }
     .analyticspro-map-field { min-width: 110px; flex: 1; }
-    .analyticspro-map-visible-area { top: 12px; left: 12px; width: 185px; padding: 12px; }
+    .analyticspro-map-visible-area { top: 12px; left: 12px; width: 185px; padding: 16px; }
     .analyticspro-map-visible-counts { margin: 10px 0; }
     .analyticspro-map-visible-counts strong { font-size: 1.3rem; }
     .analyticspro-map-legend { left: 12px; bottom: 24px; padding: 10px 12px; gap: 6px; font-size: .67rem; }
