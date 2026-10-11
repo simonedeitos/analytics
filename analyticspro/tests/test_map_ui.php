@@ -38,7 +38,7 @@ if (!str_contains($css, '.analyticspro-map-drawer .modal-dialog') || !str_contai
 }
 
 $functions = '';
-foreach (['refreshMapToolbarFilters', 'buildOwnerSearchText', 'matchesMapToolbarFilters', 'normalizedPropertyGroupIds', 'updateMapVisibleArea', 'bindMapEditorDrawer', 'prepareMapEditorDrawer', 'updateMapEditorPresentation'] as $name) {
+foreach (['refreshMapToolbarFilters', 'buildOwnerSearchText', 'matchesMapToolbarFilters', 'propertyHeaderFacts', 'buildPropertyCardHtml', 'normalizedPropertyGroupIds', 'updateMapVisibleArea', 'bindMapEditorDrawer', 'prepareMapEditorDrawer', 'updateMapEditorPresentation'] as $name) {
     if (!preg_match('/    function ' . $name . '\(.*?(?=\n    (?:async )?function )/s', $source, $match)) {
         throw new RuntimeException('Missing function: ' . $name);
     }
@@ -73,6 +73,9 @@ const document = { getElementById: id => nodes.get(id) || null, createElement: t
 const escapeHtml = value => String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
 const unitLabel = property => 'Foglio ' + property.foglio;
 const propertyNotesHtml = property => property.notes ? property.notes.map(note => escapeHtml(note.testo)).join(' ') : 'Nessuna nota';
+const ownerDetailRows = () => '';
+const assignmentNames = () => [];
+const STATE_OPTIONS = {};
 let openedProperty, detailFetches = 0;
 const openEditorModal = id => { openedProperty = id; };
 const fetchMapPropertyDetails = async ids => {
@@ -83,11 +86,21 @@ const showMapFeedback = message => { throw new Error(message); };
 const scheduleMapVisibleArea = () => {};
 let selectedTab;
 const bootstrap = { Tab: { getOrCreateInstance: node => ({ show() { selectedTab = node.id; } }) } };
-const state = { properties: [] };
+const state = { properties: [], role: 'tenant', subusers: [] };
 JS;
 $test .= "\n" . $functions . "\n";
 $test .= <<<'JS'
 assert.equal(matchesMapToolbarFilters({}), true, 'No map filters on other pages');
+const card = buildPropertyCardHtml({
+    id: 10, indirizzo: 'Via Roma', categoria: 'A/2', piano: '3', subalterno: '41',
+    classe: '2', rendita: '100', consistenza: '5', can_edit: false,
+    can_delete: false, owners: [], notes: []
+}, { mapMode: true });
+assert.match(card, /Categoria:<\/strong> A\/2 · <strong>Piano:<\/strong> 3/);
+const factsStart = card.indexOf('<div class="small mt-1">');
+const headerFacts = card.slice(factsStart, card.indexOf('</div>', factsStart));
+assert.match(headerFacts, /<strong>Subalterno:<\/strong> 41/);
+assert.doesNotMatch(headerFacts, /<strong>(Categoria|Piano):<\/strong>/);
 const search = new Element('input', 'map-search');
 const ownerSearch = new Element('input', 'map-owner-search');
 const comune = new Element('select', 'map-comune-filter');
@@ -210,7 +223,7 @@ assert.equal(nodes.get('map-editor-pane-activity').innerHTML, 'Nessuna nota', 'O
     assert.ok(readOnlyPopup.classList.contains('analyticspro-map-readonly-drawer'));
     assert.equal(readOnlyPopup.attributes['aria-label'], 'Dettaglio immobile · sola lettura');
     assert.equal(detailFetches, 1, 'Read-only presentation does not fetch or open an edit drawer');
-    console.log('PASS: map UI counts, direct marker drawer, unchanged clusters/markers and visible contact/note hooks');
+    console.log('PASS: map UI counts, spaced spiderfy, direct marker drawer and visible contact/note hooks');
 })().catch(error => { console.error(error); process.exitCode = 1; });
 JS;
 $process = proc_open(['node'], [0 => ['pipe', 'r'], 1 => STDOUT, 2 => STDERR], $pipes);

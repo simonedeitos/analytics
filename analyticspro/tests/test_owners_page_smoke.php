@@ -54,6 +54,9 @@ require_once $root . '/includes/functions.php';
 if ((analyticspro_marker_color_palette()['Non impostato'] ?? null) !== '#2A519F') {
     $errors[] = 'Il colore marker Non impostato deve essere disponibile lato server.';
 }
+if (!preg_match("/const MARKER_COLOR_PALETTE = \\[\\s*\\{ label: 'Non impostato', value: '#2A519F' \\}/", $source)) {
+    $errors[] = 'Il colore marker Non impostato deve essere la prima scelta client-side.';
+}
 foreach (['justify-content: center', 'align-items: center', 'line-height: 1', '.owners-color-filter .dropdown-item .bi'] as $contract) {
     if (!str_contains($styles, $contract)) {
         $errors[] = 'Allineamento/icona del filtro colore mancante: ' . $contract;
