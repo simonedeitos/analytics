@@ -75,6 +75,8 @@ foreach (['report.php', 'assegnati.php'] as $page) {
 
 $map = (string) file_get_contents(ANALYTICSPRO_ROOT . '/mappa.php');
 $source = (string) file_get_contents(ANALYTICSPRO_ROOT . '/assets/js/analyticspro.js');
+$css = (string) file_get_contents(ANALYTICSPRO_ROOT . '/assets/css/map.css');
+check_controls((bool) preg_match('/\.map-page \.ap-topbar-filters\s*\{[^}]*align-items:\s*flex-start;/s', $css), 'Collapse must measure the full toolbar height even when its wrapper has zero height');
 foreach (['id="toggle-map-filters"', 'aria-expanded="true"', 'aria-controls="map-search-filters"', 'data-bs-target="#map-search-filters"', 'Ricerca e Filtri', 'id="refresh-map"', 'aria-label="Aggiorna dati"', "'topbar_after_id' => 'map-search-filters'", "'topbar_after_class' => 'collapse show'"] as $contract) {
     check_controls(str_contains($map, $contract), 'Map controls contract: ' . $contract);
 }

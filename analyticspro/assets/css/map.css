@@ -14,6 +14,7 @@
 .map-page .ap-topbar-filters {
     flex: 0 0 100%;
     min-width: 0;
+    align-items: flex-start;
 }
 
 .map-page .analyticspro-map-toolbar {
