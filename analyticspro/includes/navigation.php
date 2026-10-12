@@ -4,8 +4,9 @@ declare(strict_types=1);
 
 function analyticspro_page_matches(string $currentPage, array $pages): bool
 {
+    $currentPage = ltrim((string) parse_url(str_replace('\\', '/', $currentPage), PHP_URL_PATH), '/');
     foreach ($pages as $page) {
-        if ($currentPage === $page) {
+        if ($currentPage === ltrim((string) parse_url($page, PHP_URL_PATH), '/')) {
             return true;
         }
     }

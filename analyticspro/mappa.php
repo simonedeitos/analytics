@@ -61,8 +61,13 @@ ob_start();
             </div>
         </div>
     </div>
-    <button class="btn btn-outline-secondary btn-sm" id="refresh-map">
-        <i class="bi bi-arrow-clockwise me-1"></i>Aggiorna dati
+    <button class="btn btn-outline-primary btn-sm active" type="button" id="toggle-map-filters"
+            data-bs-toggle="collapse" data-bs-target="#map-search-filters"
+            aria-expanded="true" aria-controls="map-search-filters">
+        <i class="bi bi-funnel me-1" aria-hidden="true"></i>Ricerca e Filtri
+    </button>
+    <button class="btn btn-outline-secondary btn-sm" type="button" id="refresh-map" title="Aggiorna dati" aria-label="Aggiorna dati">
+        <i class="bi bi-arrow-clockwise" aria-hidden="true"></i>
     </button>
 </div>
 <?php
@@ -140,6 +145,8 @@ analyticspro_render_header('Mappa del territorio', [
     'body_class' => 'map-page',
     'topbar_content' => $mapHeaderActions,
     'topbar_after' => $mapTopbarControls,
+    'topbar_after_id' => 'map-search-filters',
+    'topbar_after_class' => 'collapse show',
     'topbar_class' => 'analyticspro-map-header',
     'extra_head' => '<link rel="stylesheet" href="' . analyticspro_h(analyticspro_asset_url('assets/css/map.css')) . '">',
 ]);

@@ -554,6 +554,36 @@
         }
     }
 
+    function initMapToolbarToggle() {
+        var button = document.getElementById('toggle-map-filters');
+        var toolbar = document.getElementById('map-search-filters');
+        if (!button || !toolbar) return;
+
+        function syncToggle(expanded) {
+            button.classList.toggle('active', expanded);
+            button.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+            toolbar.inert = !expanded;
+        }
+
+        var expanded = !readLocalFlag('map-filters-collapsed');
+        toolbar.classList.toggle('show', expanded);
+        syncToggle(expanded);
+        bootstrap.Collapse.getOrCreateInstance(toolbar, { toggle: false });
+        ['show.bs.collapse', 'hide.bs.collapse'].forEach(function (name) {
+            toolbar.addEventListener(name, function (event) {
+                if (event.target !== toolbar) return;
+                var open = name === 'show.bs.collapse';
+                syncToggle(open);
+                writeLocalFlag('map-filters-collapsed', !open);
+            });
+        });
+        ['shown.bs.collapse', 'hidden.bs.collapse'].forEach(function (name) {
+            toolbar.addEventListener(name, function (event) {
+                if (event.target === toolbar) window.dispatchEvent(new Event('resize'));
+            });
+        });
+    }
+
     function setQueryParam(key, value) {
         var url = new URL(window.location.href);
         if (value === null || value === undefined || value === '') {
@@ -5523,7 +5553,7 @@
             return;
         }
         var saveButton = t.closest('.property-save'); if (saveButton) { event.preventDefault(); saveProperty(saveButton); }
-        if (t.id === 'refresh-map') loadProperties().catch(function (e) { alert(e.message); });
+        if (t.closest('#refresh-map')) loadProperties().catch(function (e) { alert(e.message); });
         if (t.id === 'btn-apply-filter') {
             var cbs = document.querySelectorAll('.map-stato-filter:checked');
             var nf  = Array.from(cbs).map(function (cb) { return cb.value; });
@@ -5643,6 +5673,7 @@
     initManualRecordModal();
     initFindArea();
     initCadastralUi();
+    initMapToolbarToggle();
 
     if (state.propertiesEndpoint) {
         loadProperties().catch(function (error) { alert(error.message); });
