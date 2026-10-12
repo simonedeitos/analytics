@@ -266,6 +266,14 @@ updateMapVisibleArea(); assert.equal(ownerCount.textContent, '—', 'Partial hyd
 state.properties[2].owners = [{}, {}];
 updateMapVisibleArea(); assert.equal(ownerCount.textContent, '5', 'Reuse cached details when present');
 assert.equal(ownerHelp.hidden, true);
+state.properties = [{ id: 1, owners_count: 2 }, { id: 2, owners_count: 0 }, { id: 3, owners_count: 4 }, { id: 4, owners_count: 9 }];
+updateMapVisibleArea(); assert.equal(ownerCount.textContent, '6', 'Use lightweight owners_count from the map summary');
+assert.equal(ownerHelp.hidden, true, 'Help text hidden when owners_count is known');
+state.properties[2].owners = [{}];
+updateMapVisibleArea(); assert.equal(ownerCount.textContent, '3', 'Loaded owners take precedence over owners_count');
+delete state.properties[1].owners_count;
+updateMapVisibleArea(); assert.equal(ownerCount.textContent, '—', 'Unknown when neither owners nor owners_count are available');
+assert.equal(ownerHelp.hidden, false);
 layers = []; updateMapVisibleArea();
 assert.equal(count.textContent, '0'); assert.equal(ownerCount.textContent, '0');
 const modal = new Element('div', 'property-editor-modal', 'modal fade');

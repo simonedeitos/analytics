@@ -123,7 +123,14 @@ function analyticspro_fetch_properties_payload(array $user, string $mode = 'all'
 
     $ownersByProperty = [];
     $notesByProperty = [];
-    if (!$mapSummary) {
+    $ownerCountsByProperty = [];
+    if ($mapSummary) {
+        $ownerCountsStmt = analyticspro_db()->prepare("SELECT property_id, COUNT(*) AS cnt FROM property_owners WHERE property_id IN ($placeholders) AND is_current = 1 GROUP BY property_id");
+        $ownerCountsStmt->execute($propertyIds);
+        foreach ($ownerCountsStmt->fetchAll() as $ownerCount) {
+            $ownerCountsByProperty[(int) $ownerCount['property_id']] = (int) $ownerCount['cnt'];
+        }
+    } else {
         $ownersStmt = analyticspro_db()->prepare("SELECT * FROM property_owners WHERE property_id IN ($placeholders) AND is_current = 1 ORDER BY id ASC");
         $ownersStmt->execute($propertyIds);
         foreach ($ownersStmt->fetchAll() as $owner) {
@@ -204,6 +211,7 @@ function analyticspro_fetch_properties_payload(array $user, string $mode = 'all'
         $record['is_assigned'] = !empty($record['assignments']);
         if ($mapSummary) {
             unset($record['owners'], $record['notes']);
+            $record['owners_count'] = $ownerCountsByProperty[$propertyId] ?? 0;
         }
         $payload[] = $record;
     }

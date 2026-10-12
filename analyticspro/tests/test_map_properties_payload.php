@@ -79,7 +79,11 @@ $summary = analyticspro_fetch_properties_payload($user, 'all', null, null, true)
 check(count($summary['properties']) === 2, 'Il riepilogo deve rispettare il tenant.');
 check($summary['properties'][0]['can_edit'] && !$summary['properties'][1]['can_edit'], 'Permessi per assegnazione preservati.');
 check(!isset($summary['properties'][0]['owners'], $summary['properties'][0]['notes']), 'Nessun dettaglio nel riepilogo.');
-check(count($db->queries) === 2 && $decryptCalls === 0, 'Il riepilogo non deve leggere/decifrare owners o note.');
+check(count($db->queries) === 3 && $decryptCalls === 0, 'Il riepilogo non deve leggere/decifrare owners o note.');
+check($summary['properties'][0]['owners_count'] === 1 && $summary['properties'][1]['owners_count'] === 0, 'Il riepilogo espone il conteggio dei soli intestatari correnti.');
+$ownerCountQueries = array_values(array_filter($db->queries, static fn (string $sql): bool => str_contains($sql, 'property_owners')));
+check(count($ownerCountQueries) === 1, 'Un\'unica query aggregata per il conteggio intestatari (no N+1).');
+check(str_contains($ownerCountQueries[0], 'COUNT(*)') && str_contains($ownerCountQueries[0], 'GROUP BY property_id') && !str_contains($ownerCountQueries[0], '_enc'), 'Il conteggio non seleziona campi sensibili.');
 check(!str_contains($db->queries[0], 'p.*'), 'Colonne esplicite per la mappa.');
 check(!str_contains($db->queries[0], 'DISTINCT'), 'Nessuna deduplicazione SQL non necessaria.');
 check($permissionCalls === 1 && $visibilityCalls === 1, 'Permessi e visibilità recuperati una volta per utente/tenant.');
@@ -90,6 +94,7 @@ check($details['properties'][0]['assignments'][0]['subuser_status'] === 'disable
 check(count($details['properties']) === 1, 'Gli ID richiesti non devono aggirare il tenant.');
 check(str_contains($db->queries[0], 'p.id IN (:property_id_0,:property_id_1)'), 'Query limitata agli ID richiesti e deduplicati.');
 check($details['properties'][0]['owners'][0]['nome'] === 'Nome', 'Dettagli decifrati on-demand.');
+check(!array_key_exists('owners_count', $details['properties'][0]), 'Il payload completo resta invariato.');
 check(count($details['properties'][0]['owners']) === 1, 'Non restituire intestatari storici.');
 check(!isset($details['properties'][0]['owners'][0]['telefono']), 'Visibilità telefono rispettata.');
 check($details['properties'][0]['notes'][0]['testo'] === 'Nota', 'Note disponibili nei dettagli.');
