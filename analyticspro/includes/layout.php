@@ -25,13 +25,19 @@ function analyticspro_layout_check_auth_page(): bool
  */
 function analyticspro_current_page(): string
 {
-    $script = $_SERVER['SCRIPT_FILENAME'] ?? '';
-    $base   = basename(dirname($script));
-    $file   = basename($script);
-    if ($base === 'analyticspro') {
-        return $file;
+    $script = str_replace('\\', '/', $_SERVER['SCRIPT_FILENAME'] ?? '');
+    $root = str_replace('\\', '/', dirname(__DIR__)) . '/';
+    if (str_starts_with($script, $root)) {
+        return (string) parse_url(substr($script, strlen($root)), PHP_URL_PATH);
     }
-    return $base . '/' . $file;
+
+    $path = (string) parse_url($_SERVER['SCRIPT_NAME'] ?? $_SERVER['PHP_SELF'] ?? $_SERVER['REQUEST_URI'] ?? $script, PHP_URL_PATH);
+    $appPrefix = '/analyticspro/';
+    $offset = strpos($path, $appPrefix);
+    if ($offset !== false) {
+        return substr($path, $offset + strlen($appPrefix));
+    }
+    return basename(dirname($path)) === 'admin' ? 'admin/' . basename($path) : basename($path);
 }
 
 function analyticspro_asset_url(string $relative): string
@@ -230,7 +236,8 @@ function analyticspro_render_header(string $title, array $options = []): void
                 <?php endif; ?>
             </div>
             <?php if (!empty($options['topbar_after'])): ?>
-                <div class="ap-topbar-filters"><?= $options['topbar_after'] ?></div>
+                <div class="ap-topbar-filters <?= analyticspro_h((string) ($options['topbar_after_class'] ?? '')) ?>"
+                     <?php if (!empty($options['topbar_after_id'])): ?>id="<?= analyticspro_h((string) $options['topbar_after_id']) ?>"<?php endif; ?>><?= $options['topbar_after'] ?></div>
             <?php endif; ?>
         </header>
 
@@ -377,6 +384,9 @@ function analyticspro_render_footer(bool $includeAppAssets = false): void
             setSidebarCollapsed(readFlag(collapseKey));
         }
         syncTopbarOffset();
+        if (topbar && window.ResizeObserver) {
+            new ResizeObserver(syncTopbarOffset).observe(topbar);
+        }
         window.addEventListener('load', syncTopbarOffset);
         window.addEventListener('resize', function () {
             syncTopbarOffset();
