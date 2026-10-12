@@ -1845,6 +1845,8 @@
             var property = properties.get(id);
             if (property && Array.isArray(property.owners)) {
                 ownerTotal += property.owners.length;
+            } else if (property && typeof property.owners_count === 'number' && isFinite(property.owners_count)) {
+                ownerTotal += property.owners_count;
             } else {
                 ownersKnown = false;
             }
