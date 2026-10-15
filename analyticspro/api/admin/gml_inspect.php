@@ -2,24 +2,35 @@
 
 declare(strict_types=1);
 
-// L'analisi può richiedere alcuni minuti sui comuni grandi — rimuove il limite di esecuzione.
-set_time_limit(0);
-
+require_once dirname(__DIR__, 2) . '/includes/api_bootstrap.php';
+analyticspro_api_guard();
 require dirname(__DIR__, 2) . '/includes/bootstrap.php';
-require_once ANALYTICSPRO_ROOT . '/includes/api_bootstrap.php';
 require_once ANALYTICSPRO_ROOT . '/includes/gml_catalog.php';
 
-analyticspro_api_guard();
 analyticspro_api_require_auth();
 if (!analyticspro_is_admin()) {
     analyticspro_json(['ok' => false, 'error' => 'Accesso negato.'], 403);
 }
+session_write_close();
+register_shutdown_function(static function (): void {
+    $error = error_get_last();
+    if ($error !== null && in_array($error['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) {
+        error_log('[gml_inspect] ' . $error['message']);
+    }
+});
 
 $belfiore = strtoupper(trim((string) ($_GET['belfiore'] ?? $_POST['belfiore'] ?? '')));
 if (!preg_match('/^[A-Z][0-9]{3}$/', $belfiore)) {
     analyticspro_json(['ok' => false, 'error' => 'Codice Belfiore non valido.'], 400);
 }
 
+try {
+$deadline = microtime(true) + 20;
+$checkDeadline = static function () use ($deadline): void {
+    if (microtime(true) >= $deadline) {
+        throw new RuntimeException('Timeout diagnostica: comune troppo grande per una singola richiesta HTTP.');
+    }
+};
 $catalog = analyticspro_gml_build_catalog();
 $entry   = $catalog[$belfiore] ?? null;
 
@@ -42,7 +53,8 @@ if (!empty($entry['ple'])) {
     $fogli          = [];
     $esempi         = [];
 
-    analyticspro_gml_stream_parcels($plePath, static function (array $f) use (&$count, &$fogli, &$esempi): bool {
+    analyticspro_gml_stream_parcels($plePath, static function (array $f) use (&$count, &$fogli, &$esempi, $checkDeadline): bool {
+        $checkDeadline();
         $count++;
         if ($f['codFoglio'] !== '') {
             $fogli[$f['codFoglio']] = true;
@@ -73,7 +85,8 @@ if (!empty($entry['map'])) {
     $fogli         = [];
     $esempi        = [];
 
-    analyticspro_gml_stream_zonings($mapPath, static function (array $f) use (&$count, &$fogli, &$esempi): bool {
+    analyticspro_gml_stream_zonings($mapPath, static function (array $f) use (&$count, &$fogli, &$esempi, $checkDeadline): bool {
+        $checkDeadline();
         $count++;
         if ($f['codFoglio'] !== '') {
             $fogli[$f['codFoglio']] = true;
@@ -97,3 +110,7 @@ if (!empty($entry['map'])) {
 }
 
 analyticspro_json(['ok' => true, 'report' => $report]);
+} catch (Throwable $e) {
+    error_log('[gml_inspect] ' . $belfiore . ': ' . $e->getMessage());
+    analyticspro_json(['ok' => false, 'error' => 'Diagnostica non riuscita: errore di lettura GML o limite di tempo superato. Verificare i file e il log PHP del server.'], 500);
+}

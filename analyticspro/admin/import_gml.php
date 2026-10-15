@@ -35,7 +35,8 @@ require __DIR__ . '/_admin_subnav.php';
      data-gml-upload-endpoint="<?= analyticspro_h(analyticspro_base_url('api/admin/gml_upload.php')) ?>"
      data-gml-catalog-endpoint="<?= analyticspro_h(analyticspro_base_url('api/admin/gml_catalog.php')) ?>"
      data-gml-inspect-endpoint="<?= analyticspro_h(analyticspro_base_url('api/admin/gml_inspect.php')) ?>"
-     data-gml-index-endpoint="<?= analyticspro_h(analyticspro_base_url('api/admin/gml_index_build.php')) ?>">
+     data-gml-index-endpoint="<?= analyticspro_h(analyticspro_base_url('api/admin/gml_index_build.php')) ?>"
+     data-gml-index-step-endpoint="<?= analyticspro_h(analyticspro_base_url('api/admin/gml_index_step.php')) ?>">
 
     <h1 class="h3 mb-4"><i class="bi bi-map me-2"></i>Import GML ADE locale</h1>
 
@@ -120,7 +121,7 @@ require __DIR__ . '/_admin_subnav.php';
                     <hr>
                     <h2 class="h5 mb-3"><i class="bi bi-database me-1"></i>Costruisci indice particelle</h2>
                     <p class="text-muted small">Indicizza tutti i comuni presenti nel catalogo per abilitare il lookup O(1) durante l'import CSV.
-                        L'indicizzazione viene eseguita in background — un log live mostrerà lo stato.</p>
+                        L'indicizzazione procede a step HTTP, senza CLI. Mantieni questa pagina aperta per vedere log e avanzamento.</p>
                     <button id="gml-build-index-btn" class="btn btn-warning btn-sm" type="button">
                         <i class="bi bi-gear me-1"></i>Indicizza tutti i comuni
                     </button>
@@ -132,6 +133,7 @@ require __DIR__ . '/_admin_subnav.php';
                             <small class="text-muted fw-semibold" id="gml-index-log-title">Log indicizzazione</small>
                             <span id="gml-index-log-status" class="badge bg-secondary">in coda</span>
                         </div>
+                        <div id="gml-index-progress" class="small text-muted mb-2" aria-live="polite"></div>
                         <div id="gml-index-log-body"
                              class="border rounded p-2 bg-dark text-white small"
                              style="max-height:200px;overflow-y:auto;font-family:monospace;font-size:.78rem;white-space:pre-wrap"></div>
@@ -224,6 +226,7 @@ require __DIR__ . '/_admin_subnav.php';
     const catalogUrl   = app.dataset.gmlCatalogEndpoint;
     const inspectUrl   = app.dataset.gmlInspectEndpoint;
     const indexUrl     = app.dataset.gmlIndexEndpoint;
+    const indexStepUrl = app.dataset.gmlIndexStepEndpoint;
     const csrfMeta     = document.querySelector('meta[name="csrf-token"]');
     const csrf         = csrfMeta ? csrfMeta.content : '';
 
@@ -522,13 +525,15 @@ require __DIR__ . '/_admin_subnav.php';
     });
 
     function inspectComune(belfiore) {
-        if (!belfiore) return;
         document.getElementById('gml-inspect-belfiore').value = belfiore;
         const div = document.getElementById('gml-inspect-result');
+        if (!/^[A-Z][0-9]{3}$/.test(belfiore)) {
+            div.innerHTML = '<div class="alert alert-danger small py-2">Inserire un codice Belfiore valido.</div>';
+            return;
+        }
         div.innerHTML = '<div class="text-muted small">Analisi in corso…</div>';
 
-        fetch(inspectUrl + '?belfiore=' + encodeURIComponent(belfiore))
-            .then(r => r.json())
+        requestJson(inspectUrl + '?belfiore=' + encodeURIComponent(belfiore))
             .then(data => {
                 if (!data.ok) { div.innerHTML = '<div class="alert alert-danger small py-2">' + escHtml(data.error) + '</div>'; return; }
                 const r = data.report;
@@ -554,11 +559,11 @@ require __DIR__ . '/_admin_subnav.php';
                 }
                 div.innerHTML = html;
             })
-            .catch(() => { div.innerHTML = '<div class="alert alert-danger small py-2">Errore di rete.</div>'; });
+            .catch(error => { div.innerHTML = '<div class="alert alert-danger small py-2">' + escHtml(error.message) + '</div>'; });
     }
 
     // -------------------------------------------------------------------------
-    // Build index (background job con log live)
+    // Build index (step HTTP e polling indipendente dei log)
     // -------------------------------------------------------------------------
 
     document.getElementById('gml-build-index-btn').addEventListener('click', () => buildIndex('ALL'));
@@ -568,8 +573,41 @@ require __DIR__ . '/_admin_subnav.php';
     const indexLogStatus = document.getElementById('gml-index-log-status');
     const indexLogTitle  = document.getElementById('gml-index-log-title');
     let indexPollTimer   = null;
+    let indexActive = false;
+    let indexFinished = false;
+    let indexAfterId = 0;
+    let indexJobId = null;
+    let indexPollPending = null;
+    const indexProgress = document.getElementById('gml-index-progress');
+
+    async function requestJson(url, options = {}) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 45000);
+        try {
+            const response = await fetch(url, { ...options, signal: controller.signal });
+            let data;
+            try {
+                data = await response.json();
+            } catch (_) {
+                throw new Error('Risposta del server non valida (HTTP ' + response.status + '). Possibile timeout: riprovare.');
+            }
+            if (!response.ok || !data.ok) throw new Error(data.error || ('Errore HTTP ' + response.status));
+            return data;
+        } catch (error) {
+            if (error.name === 'AbortError') throw new Error('Timeout della richiesta. Il server potrebbe essere ancora al lavoro.');
+            throw error;
+        } finally {
+            clearTimeout(timer);
+        }
+    }
 
     function buildIndex(belfiore) {
+        if (indexActive) return;
+        indexActive = true;
+        indexFinished = false;
+        indexAfterId = 0;
+        indexJobId = null;
+        indexProgress.textContent = '';
         const div = document.getElementById('gml-build-index-result');
         div.innerHTML = '<div class="text-muted small">Accodamento job in corso…</div>';
 
@@ -587,24 +625,17 @@ require __DIR__ . '/_admin_subnav.php';
         }
 
         const body = new URLSearchParams({ belfiore: belfiore, csrf_token: csrf });
-        fetch(indexUrl, { method: 'POST', body })
-            .then(r => r.json())
+        requestJson(indexUrl, { method: 'POST', body })
             .then(data => {
-                if (!data.ok) {
-                    div.innerHTML = '<div class="alert alert-danger small py-2">' + escHtml(data.error || 'Errore') + '</div>';
-                    if (data.job_id) {
-                        // Mostra il messaggio anche nel log
-                        appendLog('error', data.error || 'Errore avvio worker');
-                        indexLogStatus.className = 'badge bg-danger';
-                        indexLogStatus.textContent = 'failed';
-                    }
-                    return;
-                }
-                div.innerHTML = '<div class="text-muted small">Job #' + data.job_id + ' avviato in background.</div>';
-                pollIndexJob(data.job_id, 0);
+                indexJobId = data.job_id;
+                div.innerHTML = '<div class="text-muted small">Job #' + data.job_id + ': elaborazione HTTP in corso. Mantieni la pagina aperta.</div>';
+                pollIndexJob(data.job_id);
+                runIndexStep(data.job_id);
             })
-            .catch(() => {
-                div.innerHTML = '<div class="alert alert-danger small py-2">Errore di rete.</div>';
+            .catch(error => {
+                indexActive = false;
+                appendLog('error', error.message);
+                div.innerHTML = '<div class="alert alert-danger small py-2">' + escHtml(error.message) + '</div>';
             });
     }
 
@@ -619,24 +650,29 @@ require __DIR__ . '/_admin_subnav.php';
         indexLogBody.scrollTop = indexLogBody.scrollHeight;
     }
 
-    function pollIndexJob(jobId, afterId) {
-        fetch(indexUrl + '?job_id=' + jobId + '&after_id=' + afterId)
-            .then(r => r.json())
+    function pollIndexJob(jobId, failures = 0) {
+        if (jobId !== indexJobId || indexFinished) return Promise.resolve();
+        if (indexPollPending !== null) return indexPollPending;
+        indexPollPending = requestJson(indexUrl + '?job_id=' + jobId + '&after_id=' + indexAfterId)
             .then(data => {
-                if (!data.ok) return;
+                if (jobId !== indexJobId || indexFinished) return;
                 const job  = data.job  || {};
                 const logs = data.logs || [];
-                let lastId = afterId;
                 for (const l of logs) {
+                    if (Number(l.id) <= indexAfterId) continue;
                     appendLog(l.level, l.message);
-                    lastId = Math.max(lastId, l.id);
+                    indexAfterId = Math.max(indexAfterId, Number(l.id));
                 }
                 const status = job.status || 'queued';
                 const statusBadge = { queued: 'bg-secondary', running: 'bg-primary', completed: 'bg-success', failed: 'bg-danger' };
                 indexLogStatus.className = 'badge ' + (statusBadge[status] || 'bg-secondary');
                 indexLogStatus.textContent = status;
+                indexProgress.textContent = 'Comuni: ' + job.processed_comuni + '/' + job.total_comuni
+                    + ' · Particelle: ' + job.processed_particelle + '/' + job.total_particelle;
 
                 if (status === 'completed' || status === 'failed') {
+                    indexFinished = true;
+                    indexActive = false;
                     const div = document.getElementById('gml-build-index-result');
                     if (status === 'completed') {
                         div.innerHTML = '<div class="alert alert-success small py-2">Indicizzazione completata (job #' + jobId + ').</div>';
@@ -647,13 +683,56 @@ require __DIR__ . '/_admin_subnav.php';
                     return; // smetti di fare polling
                 }
 
-                // Continua a fare polling ogni 2 secondi
-                indexPollTimer = setTimeout(() => pollIndexJob(jobId, lastId), 2000);
+                indexPollTimer = setTimeout(() => pollIndexJob(jobId), 1500);
             })
-            .catch(() => {
-                // Riprova dopo 3 secondi in caso di errore di rete
-                indexPollTimer = setTimeout(() => pollIndexJob(jobId, afterId), 3000);
+            .catch(error => {
+                if (jobId !== indexJobId || indexFinished) return;
+                appendLog('warning', 'Lettura log: ' + error.message);
+                if (failures < 4) {
+                    indexPollTimer = setTimeout(() => pollIndexJob(jobId, failures + 1), Math.min(1000 * 2 ** failures, 8000));
+                } else {
+                    document.getElementById('gml-build-index-result').textContent = 'Lettura log interrotta. ' + error.message;
+                }
+            })
+            .finally(() => { indexPollPending = null; });
+        return indexPollPending;
+    }
+
+    async function runIndexStep(jobId, failures = 0) {
+        if (indexFinished || jobId !== indexJobId) return;
+        try {
+            const data = await requestJson(indexStepUrl, {
+                method: 'POST',
+                body: new URLSearchParams({ job_id: jobId, csrf_token: csrf }),
             });
+            if (indexFinished || jobId !== indexJobId) return;
+            if (data.done) {
+                if (indexPollPending !== null) await indexPollPending;
+                clearTimeout(indexPollTimer);
+                await pollIndexJob(jobId);
+                return;
+            }
+            setTimeout(() => runIndexStep(jobId), data.busy ? 1500 : 100);
+        } catch (error) {
+            if (indexFinished || jobId !== indexJobId) return;
+            appendLog('warning', 'Step: ' + error.message);
+            if (failures < 4) {
+                setTimeout(() => runIndexStep(jobId, failures + 1), Math.min(1000 * 2 ** failures, 8000));
+            } else {
+                clearTimeout(indexPollTimer);
+                document.getElementById('gml-build-index-result').textContent = 'Job #' + jobId
+                    + ' sospeso dopo ripetuti errori. Puoi riprendere senza creare un nuovo job.';
+                const retry = document.createElement('button');
+                retry.className = 'btn btn-outline-primary btn-sm ms-2';
+                retry.textContent = 'Riprendi job #' + jobId;
+                retry.onclick = () => {
+                    retry.remove();
+                    pollIndexJob(jobId);
+                    runIndexStep(jobId);
+                };
+                document.getElementById('gml-build-index-result').appendChild(retry);
+            }
+        }
     }
 
     // -------------------------------------------------------------------------
