@@ -13,7 +13,7 @@ foreach (['gml_index_build', 'gml_index_step', 'gml_inspect'] as $endpoint) {
     }
 }
 $start = strpos($source, "    document.getElementById('gml-inspect-btn')");
-$end = strpos($source, '    // Delete comune', $start);
+$end = strpos($source, '    // Util', $start);
 if ($start === false || $end === false) {
     throw new RuntimeException('Funzioni admin GML non trovate.');
 }
@@ -37,7 +37,8 @@ const document = {
     },
     createElement: element,
 };
-const indexUrl = '/index', indexStepUrl = '/step', inspectUrl = '/inspect', csrf = 'test';
+const indexUrl = '/index', indexStepUrl = '/step', inspectUrl = '/inspect', catalogUrl = '/catalog', csrf = 'test';
+const confirm = () => true;
 const escHtml = value => String(value).replace(/</g, '&lt;');
 let catalogLoads = 0;
 const loadCatalog = () => { catalogLoads++; };
@@ -52,6 +53,9 @@ const bootstrap = {Modal: class {
 let status = 'queued', creates = 0, steps = 0, failedJob = false;
 let releaseInitialPoll = null, polls = 0;
 async function fetch(url, options = {}) {
+    if (url === catalogUrl) {
+        return {ok: true, json: async () => ({ok: true})};
+    }
     if (url.startsWith(inspectUrl)) {
         return {ok: false, status: 504, json: async () => { throw new Error('HTML gateway timeout'); }};
     }
@@ -155,6 +159,16 @@ $test .= <<<'JS'
     assert.equal(indexLogTitle.textContent, 'Log indicizzazione (B394)');
     assert.equal(indexLogStatus.textContent, 'failed');
     assert.match(document.getElementById('gml-build-index-result').innerHTML, /Un comune non indicizzato/);
+
+    catalogRows = [{belfiore: 'C123', indexed: false}];
+    let removed = false;
+    deleteComune('C123', {remove() { removed = true; }});
+    await drain();
+    assert.equal(removed, true);
+    choose.click();
+    assert.deepEqual(unindexedCodes(), [], 'Comuni eliminati esclusi dalla selezione');
+    assert.equal(missing.disabled, true);
+    assert.equal(creates, 3, 'Riaprire o annullare la scelta non avvia job');
 
     inspectComune('');
     assert.match(document.getElementById('gml-inspect-result').innerHTML, /Belfiore valido/);

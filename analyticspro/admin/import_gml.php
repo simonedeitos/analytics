@@ -808,6 +808,9 @@ require __DIR__ . '/_admin_subnav.php';
             .then(r => r.json())
             .then(data => {
                 if (data.ok) {
+                    if (catalogRows !== null) {
+                        catalogRows = catalogRows.filter(row => row.belfiore !== belfiore);
+                    }
                     tr.remove();
                 } else {
                     alert('Errore: ' + (data.error || 'sconosciuto'));
