@@ -3977,7 +3977,8 @@
         }
     }
 
-    async function enrichChunkLoop(batchId) {
+    async function enrichChunkLoop(batchId, includeExhausted) {
+        includeExhausted = includeExhausted === true;
         var reportEl = document.getElementById('enrichment-report');
         if (reportEl) { reportEl.className = 'small mt-2 d-none'; reportEl.innerHTML = ''; }
         try {
@@ -3986,13 +3987,19 @@
             var observedTotal = 0;
             var lastProgress = 0;
             var noProgressChunks = 0;
+            var afterPropertyId = 0;
+            var retryUnresolved = 0;
             updateEnrichmentPhase({ processed: 0, total: 0, done: false });
             importLog('info', 'Avvio fallback chunk sincrono');
             while (calls < maxChunks) {
                 calls++;
                 var result;
                 try {
-                    result = await api(withTenant(state.enrichChunkEndpoint + '?batch_id=' + batchId + '&limit=25'), { allowErrorPayload: true });
+                    var chunkUrl = state.enrichChunkEndpoint + '?batch_id=' + batchId + '&limit=25';
+                    if (includeExhausted) {
+                        chunkUrl += '&include_exhausted=1&after_property_id=' + afterPropertyId;
+                    }
+                    result = await api(withTenant(chunkUrl), { allowErrorPayload: true });
                 } catch (chunkError) {
                     importLog('error', 'Errore chiamata chunk: ' + (chunkError.message || 'errore sconosciuto'));
                     await new Promise(function(r){setTimeout(r,2000);});
@@ -4010,12 +4017,16 @@
                     return;
                 }
                 var rawReport = normalizeEnrichmentReport(result.enrichment_report);
+                if (includeExhausted) {
+                    afterPropertyId = Number(result.next_cursor || afterPropertyId);
+                    retryUnresolved += Number(result.unresolved || 0);
+                }
                 var reportForUi = batchId === 0 ? accumulateEnrichmentReport(cumulativeReport, rawReport) : rawReport;
                 var resolved = batchId === 0
                     ? countReportBucket(reportForUi.coord_source)
                     : Number(result.resolved || countReportBucket(reportForUi.coord_source));
                 var unresolved = batchId === 0
-                    ? countReportBucket(reportForUi.failure_codes)
+                    ? (includeExhausted ? retryUnresolved : countReportBucket(reportForUi.failure_codes))
                     : Number(result.unresolved || countReportBucket(reportForUi.failure_codes));
                 var processed = resolved + unresolved;
                 var remaining = Number(result.remaining || 0);
@@ -4032,6 +4043,13 @@
                 if (result.done || result.status === 'completed') {
                     await loadProperties();
                     var terminalState = buildEnrichmentTerminalState(result, reportForUi, resolved, unresolved);
+                    if (includeExhausted && batchId === 0) {
+                        terminalState = {
+                            kind: unresolved > 0 ? 'warning' : 'success',
+                            text: 'Passaggio completato: ' + resolved + ' particelle risolte, ' + unresolved + ' ancora senza coordinate.'
+                                + (unresolved > 0 ? ' I tentativi rimanenti seguiranno il normale recupero automatico.' : '')
+                        };
+                    }
                     finalizeImportUi(terminalState.kind, terminalState.text);
                     importLog(terminalState.kind === 'warning' ? 'warning' : 'info', terminalState.text);
                     return;
@@ -4092,6 +4110,11 @@
     }
 
     function ensureSharedModals() {
+        if (document.getElementById('rigenera-coordinate-btn') && !document.getElementById('coordinate-retry-modal')) {
+            var retryModal = document.createElement('div');
+            retryModal.innerHTML = '<div class="modal fade" id="coordinate-retry-modal" tabindex="-1" aria-labelledby="coordinate-retry-title" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h5 class="modal-title" id="coordinate-retry-title">Rigenera coordinate mancanti</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button></div><div class="modal-body"><p class="mb-0">Vuoi riprovare la geolocalizzazione anche per gli immobili già classificati come “Esauriti” (che hanno già esaurito i tentativi automatici)?</p></div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Annulla</button><button type="button" class="btn btn-primary btn-sm" id="coordinate-retry-recoverable">Solo Recuperabili</button><button type="button" class="btn btn-outline-warning btn-sm" id="coordinate-retry-exhausted">Includi anche gli Esauriti</button></div></div></div></div>';
+            document.body.appendChild(retryModal.firstElementChild);
+        }
         if (!document.getElementById('property-editor-modal')) {
             var editorModal = document.createElement('div');
             editorModal.innerHTML = '<div class="modal fade" id="property-editor-modal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><div class="d-flex align-items-start justify-content-between gap-2 flex-wrap w-100"><h5 class="modal-title mb-0">Modifica marker</h5><div class="d-flex align-items-start gap-2 ms-auto flex-wrap"><div id="editor-owner-select-wrap" class="d-none" style="min-width:260px;"><label for="editor-owner-select" class="form-label small mb-1 text-muted">Intestatario da modificare</label><select id="editor-owner-select" class="form-select form-select-sm"></select></div><button type="button" class="btn-close mt-1" data-bs-dismiss="modal" aria-label="Chiudi"></button></div></div></div><div class="modal-body"><div id="property-editor-meta" class="small text-muted mb-3"></div><div id="property-editor-error" class="alert alert-danger py-2 px-3 small d-none mb-3"></div><div id="editor-owners-block" class="mb-3"><label id="editor-owners-label" class="form-label small mb-1">Intestatari e telefoni</label><div id="editor-owners-content"></div></div><div class="row g-2"><div class="col-md-6"><label class="form-label small mb-1">Stato</label><select id="editor-state" class="form-select form-select-sm"></select></div><div class="col-md-6"><label class="form-label small mb-1">Colore marker</label><div class="d-flex align-items-center gap-2"><span id="editor-color-preview" class="color-dot" style="width:18px;height:18px;"></span><select id="editor-color" class="form-select form-select-sm"></select></div></div><div class="col-12"><label class="form-label small mb-1">Stato personalizzato</label><input id="editor-custom-state" class="form-control form-control-sm" placeholder="Stato personalizzato"></div><div class="col-12"><label class="form-label small mb-1">Assegnazioni</label><div id="editor-assignments-summary" class="small"></div></div><div class="col-12"><button type="button" class="btn btn-outline-secondary btn-sm d-none" id="editor-assignments-open"><i class="bi bi-person-plus me-1"></i>Gestisci assegnazioni</button></div><div class="col-12"><label class="form-label small mb-1">Note (log)</label><div id="editor-note-log" class="border rounded p-2 bg-light-subtle small mb-2" style="max-height:170px;overflow:auto;"></div><input id="editor-note" class="form-control form-control-sm" placeholder="Scrivi una nota (una riga)"></div></div></div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Annulla</button><button type="button" class="btn btn-primary btn-sm" id="editor-save-btn">Salva</button></div></div></div></div>';
@@ -5054,6 +5077,32 @@
         syncCadastralOpacityControl();
     }
 
+    function chooseCoordinateRetryMode() {
+        ensureSharedModals();
+        var modalEl = document.getElementById('coordinate-retry-modal');
+        var recoverableBtn = document.getElementById('coordinate-retry-recoverable');
+        var exhaustedBtn = document.getElementById('coordinate-retry-exhausted');
+        return new Promise(function (resolve) {
+            var choice = null;
+            var modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+            var onRecoverable = function () { choice = false; modal.hide(); };
+            var onExhausted = function () { choice = true; modal.hide(); };
+            var onShown = function () { recoverableBtn.focus(); };
+            var onHidden = function () {
+                recoverableBtn.removeEventListener('click', onRecoverable);
+                exhaustedBtn.removeEventListener('click', onExhausted);
+                modalEl.removeEventListener('shown.bs.modal', onShown);
+                modalEl.removeEventListener('hidden.bs.modal', onHidden);
+                resolve(choice);
+            };
+            recoverableBtn.addEventListener('click', onRecoverable);
+            exhaustedBtn.addEventListener('click', onExhausted);
+            modalEl.addEventListener('shown.bs.modal', onShown);
+            modalEl.addEventListener('hidden.bs.modal', onHidden);
+            modal.show();
+        });
+    }
+
     function confirmOwnerPhoneRemoval(phone) {
         ensureSharedModals();
         if (state.phoneConfirmPending) {
@@ -5711,12 +5760,14 @@
         if (!btn || !state.enrichChunkEndpoint) return;
         btn.addEventListener('click', async function () {
             btn.disabled = true;
-            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>In corso...';
-            importLoggerReset();
-            setWeightedImportPhase('enrich', 0, 'Rigenera coordinate...');
-            importLog('info', 'Rigenera coordinate mancanti avviato.');
             try {
-                await enrichChunkLoop(0);
+                var includeExhausted = await chooseCoordinateRetryMode();
+                if (includeExhausted === null) return;
+                btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>In corso...';
+                importLoggerReset();
+                setWeightedImportPhase('enrich', 0, 'Rigenera coordinate...');
+                importLog('info', 'Rigenera coordinate mancanti avviato (' + (includeExhausted ? 'inclusi immobili esauriti' : 'solo recuperabili') + ').');
+                await enrichChunkLoop(0, includeExhausted);
             } catch (error) {
                 importLog('error', 'Rigenerazione coordinate fallita: ' + (error && error.message ? error.message : 'Errore sconosciuto'));
                 finalizeImportUi('danger', 'Rigenerazione coordinate fallita: ' + (error && error.message ? error.message : 'Errore sconosciuto'));

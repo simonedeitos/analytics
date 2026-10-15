@@ -11,6 +11,8 @@ declare(strict_types=1);
  * Parametri GET:
  *   batch_id  (int, obbligatorio)  — ID del batch da arricchire (0 = modalità globale)
  *   limit     (int, opzionale)     — Numero massimo di particelle per chunk (default: 25, max: 100)
+ *   include_exhausted (0/1)        — Include gli esauriti, solo admin (default: 0)
+ *   after_property_id (int)        — Cursore restituito dal precedente chunk inclusivo
  *
  * Risposta di errore strutturata:
  *   { ok: false, error_code: "...", error: "...", [file, line, trace] }
@@ -54,6 +56,10 @@ try {
     $limit = min(100, max(1, (int) analyticspro_get('limit', '25')));
 
     $isAdmin = analyticspro_is_admin();
+    $includeExhausted = $isAdmin && filter_var(analyticspro_get('include_exhausted', '0'), FILTER_VALIDATE_INT) === 1;
+    $afterPropertyId = $includeExhausted
+        ? max(0, (int) filter_var(analyticspro_get('after_property_id', '0'), FILTER_VALIDATE_INT))
+        : 0;
     $isSubuser = analyticspro_is_subuser();
     $tenantId = analyticspro_current_tenant_id();
     $user = analyticspro_current_user();
@@ -131,7 +137,7 @@ try {
         }
     }
 
-    $result = analyticspro_enrich_batch_coordinates_chunk($batchId, $limit, $chunkTenantId);
+    $result = analyticspro_enrich_batch_coordinates_chunk($batchId, $limit, $chunkTenantId, $includeExhausted, $afterPropertyId);
 
     analyticspro_json([
         'ok' => true,
@@ -143,6 +149,7 @@ try {
         'done' => $result['done'],
         'status' => $result['status'],
         'enrichment_report' => $result['enrichment_report'] ?? null,
+        'next_cursor' => (int) ($result['next_cursor'] ?? $afterPropertyId),
         'total_rows' => (int) ($result['total_rows'] ?? 0),
         'geolocated_rows' => (int) ($result['geolocated_rows'] ?? 0),
         'missing_rows' => (int) ($result['missing_rows'] ?? 0),
