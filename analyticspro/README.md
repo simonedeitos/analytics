@@ -556,7 +556,18 @@ riconciliati dal database (`N/M immobili geolocalizzati, K senza coordinate`).
 
 La pagina **Importa** espone un pulsante **"Rigenera coordinate mancanti"** che richiama
 `api/data/enrich_chunk.php?batch_id=0` (modalità globale, **solo admin**)
-a chunk ripetuti, elaborando tutte le righe con `lat IS NULL`. Utile dopo:
+a chunk ripetuti. Prima dell'avvio, un modal permette di scegliere **Solo Recuperabili**
+(comportamento predefinito), **Includi anche gli Esauriti**, oppure **Annulla**.
+Il parametro GET opzionale `include_exhausted=1` include tutte le righe con `lat IS NULL`;
+assente o `0` mantiene il filtro sui recuperabili. Il parametro è ignorato per i non-admin.
+Nella modalità inclusiva ogni particella viene tentata una volta per passaggio; il frontend
+invia `include_exhausted=1` e il `next_cursor` ricevuto come `after_property_id` in ogni
+chunk successivo, evitando di ritentare indefinitamente gli stessi fallimenti.
+Per le particelle selezionate che contengono esauriti si azzerano contatore e stato
+di errore di tutto il gruppo prima del tentativo (i tentativi sono gestiti per particella):
+un nuovo fallimento consuma il primo tentativo del nuovo ciclo, lasciando gli altri al
+normale recupero automatico; un successo pulisce tutti i metadati dei tentativi.
+Badge e cron mantengono le regole preesistenti. Utile dopo:
 - aver caricato nuovi file GML e costruito l'indice
 - aver configurato Zornade o WFS
 - un arricchimento parziale interrotto

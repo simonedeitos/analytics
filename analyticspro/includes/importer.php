@@ -1573,7 +1573,7 @@ function analyticspro_enrichment_parcel_group_by(bool $globalMode): string
 /**
  * @param array<string,mixed> $params
  */
-function analyticspro_enrichment_scope_where(int $batchId, ?int $tenantId, array &$params, bool $missingOnly = true, bool $eligibleOnly = false): string
+function analyticspro_enrichment_scope_where(int $batchId, ?int $tenantId, array &$params, bool $missingOnly = true, bool $eligibleOnly = false, bool $includeExhausted = false): string
 {
     $globalMode = ($batchId === 0);
     $clauses = [];
@@ -1592,7 +1592,7 @@ function analyticspro_enrichment_scope_where(int $batchId, ?int $tenantId, array
         $clauses[] = 'lat IS NULL';
     }
 
-    if ($eligibleOnly) {
+    if ($eligibleOnly && !$includeExhausted) {
         if (analyticspro_properties_has_coord_source_column()) {
             $clauses[] = "(coord_source IS NULL OR coord_source <> 'unresolved')";
         }
@@ -1605,14 +1605,19 @@ function analyticspro_enrichment_scope_where(int $batchId, ?int $tenantId, array
     return $clauses !== [] ? implode(' AND ', $clauses) : '1=1';
 }
 
-function analyticspro_enrichment_count_unique_parcels(PDO $pdo, int $batchId, ?int $tenantId = null, bool $missingOnly = true, bool $eligibleOnly = false): int
+function analyticspro_enrichment_count_unique_parcels(PDO $pdo, int $batchId, ?int $tenantId = null, bool $missingOnly = true, bool $eligibleOnly = false, bool $includeExhausted = false, int $afterPropertyId = 0): int
 {
     $params = [];
-    $where = analyticspro_enrichment_scope_where($batchId, $tenantId, $params, $missingOnly, $eligibleOnly);
+    $where = analyticspro_enrichment_scope_where($batchId, $tenantId, $params, $missingOnly, $eligibleOnly, $includeExhausted);
+    $having = '';
+    if ($includeExhausted) {
+        $having = ' HAVING MIN(id) > :after_property_id';
+        $params['after_property_id'] = max(0, $afterPropertyId);
+    }
     $sql = 'SELECT COUNT(*) FROM (
         SELECT 1 FROM properties
         WHERE ' . $where . '
-        GROUP BY ' . analyticspro_enrichment_parcel_group_by($batchId === 0) . '
+        GROUP BY ' . analyticspro_enrichment_parcel_group_by($batchId === 0) . $having . '
     ) t';
     analyticspro_debug_assert_sql_params_match($sql, $params);
     $stmt = $pdo->prepare($sql);
@@ -1627,19 +1632,27 @@ function analyticspro_enrichment_count_unique_parcels(PDO $pdo, int $batchId, ?i
 /**
  * @return array<int,array<string,mixed>>
  */
-function analyticspro_enrichment_fetch_unique_parcels(PDO $pdo, int $batchId, int $limit, ?int $tenantId = null, bool $eligibleOnly = true): array
+function analyticspro_enrichment_fetch_unique_parcels(PDO $pdo, int $batchId, int $limit, ?int $tenantId = null, bool $eligibleOnly = true, bool $includeExhausted = false, int $afterPropertyId = 0): array
 {
     $params = [];
-    $where = analyticspro_enrichment_scope_where($batchId, $tenantId, $params, true, $eligibleOnly);
+    $where = analyticspro_enrichment_scope_where($batchId, $tenantId, $params, true, $eligibleOnly, $includeExhausted);
     $globalMode = ($batchId === 0);
     $select = $globalMode
         ? 'user_id, provincia, comune, cod_catastale, sezione, foglio, particella'
         : 'provincia, comune, cod_catastale, sezione, foglio, particella';
+    $having = '';
+    $order = ($globalMode ? 'user_id ASC, ' : '') . 'provincia ASC, comune ASC, foglio ASC, particella ASC';
+    if ($includeExhausted) {
+        $select .= ', MIN(id) AS cursor_id';
+        $having = ' HAVING MIN(id) > :after_property_id';
+        $params['after_property_id'] = max(0, $afterPropertyId);
+        $order = 'MIN(id) ASC';
+    }
     $sql = 'SELECT ' . $select . '
         FROM properties
         WHERE ' . $where . '
-        GROUP BY ' . analyticspro_enrichment_parcel_group_by($globalMode) . '
-        ORDER BY ' . ($globalMode ? 'user_id ASC, ' : '') . 'provincia ASC, comune ASC, foglio ASC, particella ASC
+        GROUP BY ' . analyticspro_enrichment_parcel_group_by($globalMode) . $having . '
+        ORDER BY ' . $order . '
         LIMIT :lim';
     analyticspro_debug_assert_sql_params_match($sql, $params + ['lim' => max(1, $limit)]);
     $stmt = $pdo->prepare($sql);
@@ -1655,7 +1668,7 @@ function analyticspro_enrichment_fetch_unique_parcels(PDO $pdo, int $batchId, in
 /**
  * @return array{processed:int,total:int,remaining:int}
  */
-function analyticspro_enrichment_fetch_progress(PDO $pdo, int $batchId, ?int $tenantId = null): array
+function analyticspro_enrichment_fetch_progress(PDO $pdo, int $batchId, ?int $tenantId = null, bool $includeExhausted = false, int $afterPropertyId = 0): array
 {
     $totalUnique = analyticspro_enrichment_count_unique_parcels(
         $pdo,
@@ -1664,7 +1677,7 @@ function analyticspro_enrichment_fetch_progress(PDO $pdo, int $batchId, ?int $te
         $batchId === 0,
         false
     );
-    $remainingUnique = analyticspro_enrichment_count_unique_parcels($pdo, $batchId, $tenantId, true, true);
+    $remainingUnique = analyticspro_enrichment_count_unique_parcels($pdo, $batchId, $tenantId, true, true, $includeExhausted, $afterPropertyId);
 
     return analyticspro_enrichment_reconcile_progress_values($totalUnique, $remainingUnique);
 }
@@ -1842,18 +1855,57 @@ function analyticspro_fetch_missing_coordinate_stats_for_pdo(PDO $pdo, ?int $ten
     return analyticspro_missing_coordinate_stats_normalize($total, $recoverableCount, $uniqueParcels, $uniqueRecoverable);
 }
 
-function analyticspro_enrichment_recoverable_condition_sql(string $alias = ''): string
+function analyticspro_enrichment_recoverable_condition_sql(string $alias = '', bool $includeExhausted = false): string
 {
     $prefix = $alias !== '' ? rtrim($alias, '.') . '.' : '';
     $clauses = [$prefix . 'lat IS NULL'];
-    if (analyticspro_properties_has_coord_source_column()) {
+    if (!$includeExhausted && analyticspro_properties_has_coord_source_column()) {
         $clauses[] = '(' . $prefix . "coord_source IS NULL OR " . $prefix . "coord_source <> 'unresolved')";
     }
-    if (analyticspro_properties_has_enrichment_attempt_columns()) {
+    if (!$includeExhausted && analyticspro_properties_has_enrichment_attempt_columns()) {
         $clauses[] = 'COALESCE(' . $prefix . 'enrichment_attempts, 0) < ' . (int) ANALYTICSPRO_ENRICH_MAX_ATTEMPTS;
     }
 
     return implode(' AND ', $clauses);
+}
+
+function analyticspro_enrichment_restart_exhausted_parcel(PDO $pdo, int $batchId, array $parcel, ?int $tenantId = null): void
+{
+    $exhausted = [];
+    $sets = [];
+    if (analyticspro_properties_has_coord_source_column()) {
+        $exhausted[] = "coord_source = 'unresolved'";
+        $sets[] = 'coord_source = NULL';
+    }
+    if (analyticspro_properties_has_enrichment_attempt_columns()) {
+        $exhausted[] = 'COALESCE(enrichment_attempts, 0) >= ' . (int) ANALYTICSPRO_ENRICH_MAX_ATTEMPTS;
+        $sets[] = 'enrichment_attempts = 0';
+        $sets[] = 'enrichment_last_attempt_at = NULL';
+        $sets[] = 'enrichment_last_error_code = NULL';
+        $sets[] = 'enrichment_last_error_note = NULL';
+    }
+    if ($exhausted === []) {
+        return;
+    }
+
+    $params = analyticspro_enrichment_parcel_match_params($parcel, $batchId, $tenantId);
+    $where = analyticspro_enrichment_parcel_match_where($batchId, $tenantId, $batchId === 0 && $tenantId === null);
+    $sql = 'SELECT COUNT(*) FROM properties WHERE ' . $where
+        . ' AND (' . implode(' OR ', $exhausted) . ')';
+    analyticspro_debug_assert_sql_params_match($sql, $params);
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    if ((int) $stmt->fetchColumn() === 0) {
+        return;
+    }
+
+    // Se la particella contiene esauriti, il nuovo ciclo riparte per tutto il
+    // gruppo: il conteggio dei fallimenti usa MAX(attempts) e non deve esaurire
+    // subito le righe azzerate per colpa di altre unità con più tentativi.
+    // Il cursore evita nuovi reset nello stesso passaggio; un fallimento consuma
+    // il primo tentativo, lasciando quelli restanti al recupero automatico.
+    $sql = 'UPDATE properties SET ' . implode(', ', $sets) . ' WHERE ' . $where;
+    $pdo->prepare($sql)->execute($params);
 }
 
 function analyticspro_enrichment_unique_parcel_expr(string $alias = ''): string
@@ -3403,10 +3455,13 @@ function analyticspro_enrich_chunk_authorize_scope(int $batchId, bool $isAdmin, 
  *  2. Carica un chunk di particelle con lat IS NULL.
  *  3. Risolve le coordinate e aggiorna properties.
  *  4. Se non rimangono più particelle da risolvere, chiude con 'completed'.
+ * Con includeExhausted il cursore afterPropertyId delimita un singolo passaggio:
+ * done indica che non restano particelle oltre il cursore, non che tutte siano risolte.
+ * Il chiamante deve riutilizzare next_cursor nel chunk successivo.
  *
  * @return array{processed:int,total:int,remaining:int,resolved:int,unresolved:int,done:bool,status:string,enrichment_report:array{coord_source:array<string,int>,attempt_failures:array<string,int>,failure_codes:array<string,int>,unresolved_rows:array<int,string>,truncated:bool,missing_comuni:array<int,array{name:string,provincia:string,belfiore:string}>,missing_comuni_truncated:bool},total_rows?:int,geolocated_rows?:int,missing_rows?:int}
  */
-function analyticspro_enrich_batch_coordinates_chunk(int $batchId, int $limit = 25, ?int $tenantId = null): array
+function analyticspro_enrich_batch_coordinates_chunk(int $batchId, int $limit = 25, ?int $tenantId = null, bool $includeExhausted = false, int $afterPropertyId = 0): array
 {
     require_once __DIR__ . '/wfs_lookup.php';
     require_once __DIR__ . '/zornade_lookup.php';
@@ -3418,7 +3473,7 @@ function analyticspro_enrich_batch_coordinates_chunk(int $batchId, int $limit = 
     $limit = max(1, $limit);
 
     if (!$globalMode) {
-        $initialProgress = analyticspro_enrichment_fetch_progress($pdo, $batchId);
+        $initialProgress = analyticspro_enrichment_fetch_progress($pdo, $batchId, $tenantId, $includeExhausted, $afterPropertyId);
         $initStmt = $pdo->prepare(
             'UPDATE import_batches
              SET enrichment_status = :status,
@@ -3436,11 +3491,11 @@ function analyticspro_enrich_batch_coordinates_chunk(int $batchId, int $limit = 
         ]);
     }
 
-    $parcels = analyticspro_enrichment_fetch_unique_parcels($pdo, $batchId, $limit, $tenantId);
+    $parcels = analyticspro_enrichment_fetch_unique_parcels($pdo, $batchId, $limit, $tenantId, true, $includeExhausted, $afterPropertyId);
     $report = !$globalMode ? analyticspro_enrichment_report_load($pdo, $batchId) : analyticspro_enrichment_report_default();
 
     if (empty($parcels)) {
-        $progress = analyticspro_enrichment_fetch_progress($pdo, $batchId, $tenantId);
+        $progress = analyticspro_enrichment_fetch_progress($pdo, $batchId, $tenantId, $includeExhausted, $afterPropertyId);
         if ($globalMode) {
             $payloadProgress = analyticspro_enrichment_progress_payload($progress['total'], $progress['remaining'], $progress['processed'], 0);
             return [
@@ -3485,10 +3540,13 @@ function analyticspro_enrich_batch_coordinates_chunk(int $batchId, int $limit = 
         ];
     }
 
+    $resetAttemptsSql = analyticspro_properties_has_enrichment_attempt_columns()
+        ? ', enrichment_attempts = 0, enrichment_last_attempt_at = NULL, enrichment_last_error_code = NULL, enrichment_last_error_note = NULL'
+        : '';
     $updateStmt = $pdo->prepare(
         'UPDATE properties
-         SET lat = :lat, lng = :lng, posizione_verificata = :verified, coord_source = :coord_source
-         WHERE ' . analyticspro_enrichment_parcel_match_where($batchId, $tenantId, $globalMode && $tenantId === null)
+         SET lat = :lat, lng = :lng, posizione_verificata = :verified, coord_source = :coord_source'
+         . $resetAttemptsSql . ' WHERE ' . analyticspro_enrichment_parcel_match_where($batchId, $tenantId, $globalMode && $tenantId === null)
     );
 
     $memo              = [];
@@ -3498,6 +3556,10 @@ function analyticspro_enrich_batch_coordinates_chunk(int $batchId, int $limit = 
 
     foreach ($parcels as $parcel) {
         $comune    = (string) ($parcel['comune'] ?? '');
+        if ($includeExhausted) {
+            analyticspro_enrichment_restart_exhausted_parcel($pdo, $batchId, $parcel, $tenantId);
+            $afterPropertyId = (int) $parcel['cursor_id'];
+        }
 
         try {
             $resolvedCore = analyticspro_resolve_parcel_coordinates($parcel, $memo);
@@ -3523,8 +3585,8 @@ function analyticspro_enrich_batch_coordinates_chunk(int $batchId, int $limit = 
                     if ($sqlState === '42S22' || str_contains($dbEx->getMessage(), 'coord_source')) {
                         $fallbackParams = array_diff_key($params, ['coord_source' => true]);
                         $pdo->prepare(
-                            'UPDATE properties SET lat = :lat, lng = :lng, posizione_verificata = :verified
-                             WHERE ' . analyticspro_enrichment_parcel_match_where($batchId, $tenantId, $globalMode && $tenantId === null)
+                            'UPDATE properties SET lat = :lat, lng = :lng, posizione_verificata = :verified'
+                             . $resetAttemptsSql . ' WHERE ' . analyticspro_enrichment_parcel_match_where($batchId, $tenantId, $globalMode && $tenantId === null)
                         )->execute($fallbackParams);
                     } else {
                         throw $dbEx;
@@ -3556,7 +3618,7 @@ function analyticspro_enrich_batch_coordinates_chunk(int $batchId, int $limit = 
         }
     }
 
-    $progress = analyticspro_enrichment_fetch_progress($pdo, $batchId, $tenantId);
+    $progress = analyticspro_enrichment_fetch_progress($pdo, $batchId, $tenantId, $includeExhausted, $afterPropertyId);
     $done = ($progress['remaining'] === 0);
     $unresolvedUnique = $globalMode
         ? $chunkUnresolved
@@ -3567,6 +3629,14 @@ function analyticspro_enrich_batch_coordinates_chunk(int $batchId, int $limit = 
     $payloadProgress = $globalMode
         ? analyticspro_enrichment_progress_payload($chunkResolved + $chunkUnresolved + $progress['remaining'], $progress['remaining'], $chunkResolved, $chunkUnresolved)
         : analyticspro_enrichment_progress_payload($progress['total'], $progress['remaining'], $resolvedUnique, $unresolvedUnique);
+    if ($includeExhausted && $globalMode) {
+        $payloadProgress = analyticspro_enrichment_progress_payload(
+            $chunkProcessed + $progress['remaining'],
+            $progress['remaining'],
+            $chunkResolved,
+            $chunkProcessed - $chunkResolved
+        );
+    }
 
     if ($globalMode) {
         return [
@@ -3578,6 +3648,7 @@ function analyticspro_enrich_batch_coordinates_chunk(int $batchId, int $limit = 
             'done' => $payloadProgress['done'],
             'status' => $done ? 'completed' : 'processing',
             'enrichment_report' => $report,
+            'next_cursor' => $afterPropertyId,
         ];
     }
 
@@ -3607,6 +3678,7 @@ function analyticspro_enrich_batch_coordinates_chunk(int $batchId, int $limit = 
         'done' => $payloadProgress['done'],
         'status' => $done ? 'completed' : 'processing',
         'enrichment_report' => $row['report'],
+        'next_cursor' => $afterPropertyId,
         'total_rows' => $reconciliation['total_rows'],
         'geolocated_rows' => $reconciliation['geolocated_rows'],
         'missing_rows' => $reconciliation['missing_rows'],

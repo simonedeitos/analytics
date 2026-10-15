@@ -119,6 +119,9 @@ analyticspro_render_header('Importa dati', ['app_assets' => true]);
                             <span data-bs-toggle="tooltip" title="Più immobili possono condividere la stessa particella catastale: la geolocalizzazione lavora per particella.">
                                 Più immobili possono condividere la stessa particella catastale: la geolocalizzazione lavora per particella.
                             </span>
+                            <?php if (analyticspro_is_admin()): ?>
+                                Con “Rigenera coordinate mancanti” puoi scegliere se includere anche gli Esauriti.
+                            <?php endif; ?>
                         </p>
                     </div>
                 </div>
