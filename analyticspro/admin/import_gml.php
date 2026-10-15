@@ -707,6 +707,7 @@ require __DIR__ . '/_admin_subnav.php';
             });
             if (indexFinished || jobId !== indexJobId) return;
             if (data.done) {
+                if (indexPollPending !== null) await indexPollPending;
                 clearTimeout(indexPollTimer);
                 await pollIndexJob(jobId);
                 return;

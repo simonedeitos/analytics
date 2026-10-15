@@ -594,9 +594,12 @@ function analyticspro_gml_open_parcel_db(string $belfiore, int $buildId = 0): SQ
 
 /**
  * Costruisce l'indice particelle SQLite per un comune.
- * Esegue una singola scansione completa del _ple.gml.
+ * Esegue una scansione completa o un blocco riprendibile del _ple.gml.
  *
  * @param  callable(int,int):void|null  $progressCb  ($processed, $total)
+ * @param  array|null $state Checkpoint persistente; null a scansione completata.
+ * @param  float $maxSeconds Budget cooperativo; se finito, massimo 1.000 feature.
+ * @param  int $buildId ID job per isolare il temporaneo fino alla pubblicazione.
  */
 function analyticspro_gml_build_parcel_index(string $belfiore, ?callable $progressCb = null, ?array &$state = null, float $maxSeconds = INF, int $buildId = 0): int
 {

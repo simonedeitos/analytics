@@ -35,6 +35,7 @@ const ANALYTICSPRO_GML_CHUNK_SIZE = 1048576; // 1 MB
  * Estrae tutte le particelle catastali (CadastralParcel) in streaming.
  *
  * @param  callable(array):bool  $cb
+ * @param  int|null $offset Cursore in byte aggiornato dopo ogni elemento letto.
  * @return int  Numero di feature elaborate.
  */
 function analyticspro_gml_stream_parcels(string $path, callable $cb, ?int &$offset = null): int

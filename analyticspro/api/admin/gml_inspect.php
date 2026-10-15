@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
+require_once dirname(__DIR__, 2) . '/includes/api_bootstrap.php';
+analyticspro_api_guard();
 require dirname(__DIR__, 2) . '/includes/bootstrap.php';
-require_once ANALYTICSPRO_ROOT . '/includes/api_bootstrap.php';
 require_once ANALYTICSPRO_ROOT . '/includes/gml_catalog.php';
 
-analyticspro_api_guard();
 analyticspro_api_require_auth();
 if (!analyticspro_is_admin()) {
     analyticspro_json(['ok' => false, 'error' => 'Accesso negato.'], 403);

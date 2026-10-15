@@ -4,6 +4,14 @@ declare(strict_types=1);
 
 // Eseguire con: php analyticspro/tests/test_gml_index_ui.php
 $source = file_get_contents(dirname(__DIR__) . '/admin/import_gml.php');
+foreach (['gml_index_build', 'gml_index_step', 'gml_inspect'] as $endpoint) {
+    $api = file_get_contents(dirname(__DIR__) . '/api/admin/' . $endpoint . '.php');
+    $guard = strpos($api, 'analyticspro_api_guard();');
+    $bootstrap = strpos($api, "'/includes/bootstrap.php'");
+    if ($guard === false || $bootstrap === false || $guard > $bootstrap) {
+        throw new RuntimeException($endpoint . ': protezione JSON necessaria prima del bootstrap.');
+    }
+}
 $start = strpos($source, "    document.getElementById('gml-inspect-btn')");
 $end = strpos($source, '    // Delete comune', $start);
 if ($start === false || $end === false) {
@@ -35,6 +43,7 @@ let timers = new Map(), timerId = 0;
 const setTimeout = (fn, delay) => { timers.set(++timerId, {fn, delay}); return timerId; };
 const clearTimeout = id => timers.delete(id);
 let status = 'queued', creates = 0, steps = 0, failedJob = false;
+let releaseInitialPoll = null, polls = 0;
 async function fetch(url, options = {}) {
     if (url.startsWith(inspectUrl)) {
         return {ok: false, status: 504, json: async () => { throw new Error('HTML gateway timeout'); }};
@@ -44,6 +53,10 @@ async function fetch(url, options = {}) {
         if (steps === 1) throw new Error('Errore temporaneo di rete');
         if (steps === 2) return {ok: true, json: async () => ({ok: true, done: false, busy: true})};
         status = failedJob ? 'failed' : 'completed';
+        if (releaseInitialPoll !== null) {
+            releaseInitialPoll();
+            releaseInitialPoll = null;
+        }
         return {ok: true, json: async () => ({ok: true, done: true})};
     }
     if (options.method === 'POST') {
@@ -51,7 +64,7 @@ async function fetch(url, options = {}) {
         return {ok: true, json: async () => ({ok: true, job_id: creates})};
     }
     const afterId = Number(new URL(url, 'http://localhost').searchParams.get('after_id'));
-    return {ok: true, json: async () => ({
+    const snapshot = {
         ok: true,
         job: {status, processed_comuni: status === 'queued' ? 0 : 1, total_comuni: 1,
             processed_particelle: status === 'queued' ? 0 : 3, total_particelle: 3,
@@ -59,7 +72,12 @@ async function fetch(url, options = {}) {
         logs: [{id: 1, level: 'info', message: 'Job accodato'},
             ...(status === 'queued' ? [] : [{id: 2, level: 'info', message: 'Lavoro terminato'}])]
             .filter(log => log.id > afterId),
-    })};
+    };
+    polls++;
+    if (polls === 1) {
+        return {ok: true, json: () => new Promise(resolve => { releaseInitialPoll = () => resolve(snapshot); })};
+    }
+    return {ok: true, json: async () => snapshot};
 }
 async function drain() {
     for (let i = 0; i < 80; i++) {
@@ -81,6 +99,7 @@ $test .= <<<'JS'
     await drain();
     assert.equal(creates, 1, 'Doppio click ignorato');
     assert.equal(steps, 3, 'Retry temporaneo e busy non interrompono il lavoro');
+    assert(polls >= 2, 'Il poll non terminale pendente non sostituisce la lettura finale');
     assert.equal(indexLogStatus.textContent, 'completed');
     assert.match(indexProgress.textContent, /Comuni: 1\/1 · Particelle: 3\/3/);
     assert.equal(indexLogBody.children.filter(line => line.textContent.includes('Job accodato')).length, 1);
