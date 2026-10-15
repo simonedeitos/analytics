@@ -23,7 +23,9 @@ const elements = new Map();
 function element() {
     return {
         innerHTML: '', textContent: '', style: {}, children: [],
-        addEventListener() {},
+        listeners: {},
+        addEventListener(type, callback) { this.listeners[type] = callback; },
+        click() { if (!this.disabled) this.listeners.click(); },
         appendChild(child) { this.children.push(child); },
         remove() {},
     };
@@ -42,6 +44,11 @@ const loadCatalog = () => { catalogLoads++; };
 let timers = new Map(), timerId = 0;
 const setTimeout = (fn, delay) => { timers.set(++timerId, {fn, delay}); return timerId; };
 const clearTimeout = id => timers.delete(id);
+let catalogRows = null, modalShows = 0, modalHides = 0, submittedCodes = [];
+const bootstrap = {Modal: class {
+    show() { modalShows++; }
+    hide() { modalHides++; }
+}};
 let status = 'queued', creates = 0, steps = 0, failedJob = false;
 let releaseInitialPoll = null, polls = 0;
 async function fetch(url, options = {}) {
@@ -61,6 +68,7 @@ async function fetch(url, options = {}) {
     }
     if (options.method === 'POST') {
         creates++;
+        submittedCodes.push(options.body.get('belfiore'));
         return {ok: true, json: async () => ({ok: true, job_id: creates})};
     }
     const afterId = Number(new URL(url, 'http://localhost').searchParams.get('after_id'));
@@ -94,10 +102,28 @@ JS;
 $test .= "\n" . substr($source, $start, $end - $start) . "\n";
 $test .= <<<'JS'
 (async () => {
-    buildIndex('ALL');
+    const choose = document.getElementById('gml-build-index-btn');
+    const missing = document.getElementById('gml-index-missing-btn');
+    choose.click();
+    assert.equal(creates, 0, 'Aprire il modal non avvia job');
+    assert.equal(modalShows, 1);
+    assert.equal(missing.disabled, true, 'Catalogo non caricato');
+    assert.match(indexChoiceInfo.textContent, /Catalogo non disponibile/);
+    catalogRows = [{belfiore: 'B394', indexed: true}];
+    choose.click();
+    assert.equal(missing.disabled, true);
+    assert.match(indexChoiceInfo.textContent, /tutti i comuni sono già indicizzati/);
+    missing.click();
+    assert.equal(creates, 0, 'Nessun job vuoto');
+    catalogRows = [];
+    choose.click();
+    assert.equal(missing.disabled, true, 'Catalogo vuoto');
+    document.getElementById('gml-index-all-btn').click();
     buildIndex('B394');
     await drain();
     assert.equal(creates, 1, 'Doppio click ignorato');
+    assert.equal(submittedCodes[0], 'ALL');
+    assert.equal(modalHides, 1);
     assert.equal(steps, 3, 'Retry temporaneo e busy non interrompono il lavoro');
     assert(polls >= 2, 'Il poll non terminale pendente non sostituisce la lettura finale');
     assert.equal(indexLogStatus.textContent, 'completed');
@@ -106,10 +132,27 @@ $test .= <<<'JS'
     assert(indexLogBody.children.some(line => line.textContent.includes('Errore temporaneo')));
     assert.equal(catalogLoads, 1);
 
+    catalogRows = [
+        {belfiore: 'B394', indexed: false},
+        {belfiore: 'H501', indexed: true},
+        {belfiore: 'C123', indexed: false},
+        {belfiore: 'A001'},
+        {belfiore: 'A002', indexed: 0},
+    ];
+    choose.click();
+    assert.equal(missing.disabled, false);
+    assert.match(indexChoiceInfo.textContent, /2 comuni/);
+    missing.click();
+    assert.equal(indexLogTitle.textContent, 'Log indicizzazione (2 comuni non indicizzati)');
+    await drain();
+    assert.equal(submittedCodes[1], 'B394,C123', 'Solo indexed === false, non gli altri comuni');
+
     failedJob = true;
     status = 'queued';
     buildIndex('B394');
     await drain();
+    assert.equal(submittedCodes[2], 'B394', 'Singolo comune invariato');
+    assert.equal(indexLogTitle.textContent, 'Log indicizzazione (B394)');
     assert.equal(indexLogStatus.textContent, 'failed');
     assert.match(document.getElementById('gml-build-index-result').innerHTML, /Un comune non indicizzato/);
 

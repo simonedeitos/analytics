@@ -105,6 +105,15 @@ step_assert($result['done'] && $result['job']['status'] === 'failed', 'Errori is
 step_assert((int) $result['job']['processed_comuni'] === 3 && (int) $result['job']['processed_particelle'] === 6, 'Gli altri comuni completano con contatori corretti');
 step_assert($result['job']['error_message'] !== null && !$locked, 'Errore visibile e lock rilasciato');
 
+// Lista esplicita: esclude A001 (senza PLE), senza espandersi a tutto il catalogo.
+new_job($pdo, 6, 'C123,B394,C123');
+$result = analyticspro_gml_index_step($pdo, 6, INF);
+step_assert(json_decode($result['job']['comune_codes'], true) === ['B394', 'C123'], 'Snapshot lista ordinato e deduplicato');
+step_assert(!$result['done'] && (int) $result['job']['processed_comuni'] === 1, 'Lista: primo comune completato');
+$result = analyticspro_gml_index_step($pdo, 6, INF);
+step_assert($result['done'] && $result['job']['status'] === 'completed', 'Lista: secondo comune completato');
+step_assert((int) $result['job']['total_comuni'] === 2 && (int) $result['job']['processed_particelle'] === 6, 'Lista: contatori solo dei comuni richiesti');
+
 // Perdita del temporaneo (es. crash dopo publish): ripartenza sicura, non indice tronco.
 new_job($pdo, 3, 'B394');
 analyticspro_gml_index_step($pdo, 3, 0);
