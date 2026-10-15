@@ -6,7 +6,7 @@ declare(strict_types=1);
  * Accoda un job di indicizzazione GML guidato dal browser tramite step HTTP.
  *
  * POST params:
- *   belfiore    = codice Belfiore singolo o "ALL"
+ *   belfiore    = codice Belfiore, lista separata da virgole (max 2000) o "ALL"
  *   csrf_token
  *
  * GET params:
@@ -57,20 +57,30 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 
 analyticspro_verify_csrf($_SERVER['HTTP_X_CSRF_TOKEN'] ?? $_POST['csrf_token'] ?? null);
 
-$rawBelfiore = strtoupper(trim((string) ($_POST['belfiore'] ?? 'ALL')));
+$inputBelfiore = $_POST['belfiore'] ?? 'ALL';
+if (!is_string($inputBelfiore) || strlen($inputBelfiore) > 32000) {
+    analyticspro_json(['ok' => false, 'error' => 'Parametro Belfiore non valido o troppo grande.'], 400);
+}
+$rawBelfiore = strtoupper(trim($inputBelfiore));
 if ($rawBelfiore !== 'ALL') {
     // Valida ogni codice nella lista
-    $codes = array_filter(array_map('trim', explode(',', $rawBelfiore)));
-    if (count($codes) !== 1) {
-        analyticspro_json(['ok' => false, 'error' => 'Specificare un codice Belfiore oppure ALL.'], 400);
+    $codes = explode(',', $rawBelfiore);
+    if (count($codes) > 2000) {
+        analyticspro_json(['ok' => false, 'error' => 'Specificare al massimo 2000 codici Belfiore per richiesta.'], 400);
+    }
+    $codes = array_filter(array_map('trim', $codes), static fn (string $code): bool => $code !== '');
+    if ($codes === []) {
+        analyticspro_json(['ok' => false, 'error' => 'Specificare almeno un codice Belfiore oppure ALL.'], 400);
     }
     foreach ($codes as $c) {
         if (!preg_match('/^[A-Z][0-9]{3}$/', $c)) {
             analyticspro_json(['ok' => false, 'error' => 'Codice Belfiore non valido: ' . $c], 400);
         }
     }
-    $rawBelfiore = (string) reset($codes);
+    $codes = array_values(array_unique($codes));
+    $rawBelfiore = implode(',', $codes);
 }
+$jobScope = $rawBelfiore === 'ALL' ? 'tutti i comuni del catalogo' : count($codes) . ' comuni';
 
 $pdo       = analyticspro_db();
 $userId    = (int) (analyticspro_current_user()['id'] ?? 0);
@@ -80,6 +90,6 @@ $pdo->prepare("INSERT INTO gml_index_jobs (belfiore, status, created_by) VALUES 
 $jobId = (int) $pdo->lastInsertId();
 
 $pdo->prepare('INSERT INTO gml_index_job_log (job_id, level, message) VALUES (:job_id, :level, :message)')
-    ->execute(['job_id' => $jobId, 'level' => 'info', 'message' => 'Job accodato. Il browser avvierà gli step HTTP.']);
+    ->execute(['job_id' => $jobId, 'level' => 'info', 'message' => 'Job accodato per ' . $jobScope . '. Il browser avvierà gli step HTTP.']);
 
 analyticspro_json(['ok' => true, 'job_id' => $jobId]);

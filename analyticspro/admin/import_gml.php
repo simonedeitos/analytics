@@ -186,6 +186,26 @@ require __DIR__ . '/_admin_subnav.php';
     </div>
 </div>
 
+<div class="modal fade" id="gml-index-choice-modal" tabindex="-1" aria-labelledby="gml-index-choice-title" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="gml-index-choice-title">Costruisci indice particelle</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button>
+            </div>
+            <div class="modal-body">
+                <p>Vuoi indicizzare tutti i comuni del catalogo, anche quelli già indicizzati, oppure solo quelli non ancora indicizzati?</p>
+                <p id="gml-index-choice-info" class="small text-muted mb-0" role="status"></p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Annulla</button>
+                <button type="button" class="btn btn-warning btn-sm" id="gml-index-all-btn">Indicizza tutti</button>
+                <button type="button" class="btn btn-outline-warning btn-sm" id="gml-index-missing-btn">Solo non ancora indicizzati</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <template id="tpl-catalog-row">
     <tr data-belfiore="" data-nome="">
         <td class="fw-semibold td-belfiore"></td>
@@ -447,7 +467,10 @@ require __DIR__ . '/_admin_subnav.php';
     // Catalogo
     // -------------------------------------------------------------------------
 
+    let catalogRows = null;
+
     function loadCatalog() {
+        catalogRows = null;
         document.getElementById('gml-catalog-loading').style.display = '';
         document.getElementById('gml-catalog-table').style.display   = 'none';
         document.getElementById('gml-catalog-empty').style.display   = 'none';
@@ -468,6 +491,7 @@ require __DIR__ . '/_admin_subnav.php';
     const tbody = document.getElementById('gml-catalog-body');
 
     function renderCatalog(rows) {
+        catalogRows = rows;
         tbody.innerHTML = '';
         if (rows.length === 0) {
             document.getElementById('gml-catalog-empty').style.display = '';
@@ -566,7 +590,45 @@ require __DIR__ . '/_admin_subnav.php';
     // Build index (step HTTP e polling indipendente dei log)
     // -------------------------------------------------------------------------
 
-    document.getElementById('gml-build-index-btn').addEventListener('click', () => buildIndex('ALL'));
+    let indexChoiceModal = null;
+    const indexChoiceInfo = document.getElementById('gml-index-choice-info');
+    const indexMissingBtn = document.getElementById('gml-index-missing-btn');
+
+    function unindexedCodes() {
+        return (catalogRows || []).filter(row => row.indexed === false).map(row => row.belfiore);
+    }
+
+    function updateIndexChoice() {
+        const codes = unindexedCodes();
+        indexMissingBtn.disabled = catalogRows === null || codes.length === 0;
+        indexChoiceInfo.textContent = catalogRows === null
+            ? 'Catalogo non disponibile: attendere il caricamento o rigenerare il catalogo.'
+            : codes.length > 0
+                ? codes.length + ' comuni non ancora indicizzati nel catalogo.'
+                : 'Nessun comune da indicizzare: il catalogo è vuoto o tutti i comuni sono già indicizzati.';
+    }
+
+    document.getElementById('gml-build-index-btn').addEventListener('click', () => {
+        if (indexActive) return;
+        if (indexChoiceModal === null) {
+            indexChoiceModal = new bootstrap.Modal(document.getElementById('gml-index-choice-modal'));
+        }
+        updateIndexChoice();
+        indexChoiceModal.show();
+    });
+    document.getElementById('gml-index-all-btn').addEventListener('click', () => {
+        indexChoiceModal.hide();
+        buildIndex('ALL');
+    });
+    indexMissingBtn.addEventListener('click', () => {
+        const codes = unindexedCodes();
+        if (catalogRows === null || codes.length === 0) {
+            updateIndexChoice();
+            return;
+        }
+        indexChoiceModal.hide();
+        buildIndex(codes.join(','), codes.length + ' comuni non indicizzati');
+    });
 
     const indexLogWrap   = document.getElementById('gml-index-log-wrap');
     const indexLogBody   = document.getElementById('gml-index-log-body');
@@ -601,7 +663,7 @@ require __DIR__ . '/_admin_subnav.php';
         }
     }
 
-    function buildIndex(belfiore) {
+    function buildIndex(belfiore, logTitle) {
         if (indexActive) return;
         indexActive = true;
         indexFinished = false;
@@ -616,7 +678,7 @@ require __DIR__ . '/_admin_subnav.php';
         indexLogBody.textContent = '';
         indexLogStatus.className = 'badge bg-secondary';
         indexLogStatus.textContent = 'in coda';
-        indexLogTitle.textContent = 'Log indicizzazione (' + belfiore + ')';
+        indexLogTitle.textContent = 'Log indicizzazione (' + (logTitle || belfiore) + ')';
 
         // Ferma eventuale polling precedente
         if (indexPollTimer !== null) {
@@ -746,6 +808,9 @@ require __DIR__ . '/_admin_subnav.php';
             .then(r => r.json())
             .then(data => {
                 if (data.ok) {
+                    if (catalogRows !== null) {
+                        catalogRows = catalogRows.filter(row => row.belfiore !== belfiore);
+                    }
                     tr.remove();
                 } else {
                     alert('Errore: ' + (data.error || 'sconosciuto'));

@@ -617,6 +617,10 @@ analyticspro/storage/gml_index/      ← indici JSON e SQLite (deny HTTP via .ht
    Lo stesso vale per l'indice inverso `comuni_reverse.json` derivato dal catalogo.
 4. Per ogni comune caricato, premere **Indicizza tutti i comuni** (o il pulsante per singolo comune)
    per avviare l'indicizzazione tramite richieste HTTP, senza SSH, cron o processi CLI.
+   Il modal permette di scegliere **Indicizza tutti** (ricostruisce anche gli indici già validi)
+   oppure **Solo non ancora indicizzati**, usando il campo `indexed === false` del catalogo
+   caricato, inclusi gli indici incompleti/invalidati e indipendentemente dal filtro della tabella.
+   Se non ci sono comuni da indicizzare viene mostrato un messaggio senza avviare job.
    **Mantenere aperta la pagina**: il browser elabora un comune per step e riprende
    i comuni grandi in blocchi di massimo 1.000 feature o circa 20 secondi.
    Il log live e i contatori mostrano comuni e particelle elaborati; gli errori temporanei
@@ -705,6 +709,11 @@ I job di indicizzazione GML sono gestiti dalle tabelle `gml_index_jobs` / `gml_i
 (aggiunte dalla migration `005_add_gml_index_jobs.sql`).
 Applicare anche `019_add_gml_index_step_state.sql` prima di usare gli step HTTP:
 memorizza l'elenco ordinato dei comuni, gli errori e il checkpoint delle particelle.
+Applicare inoltre `020_expand_gml_index_job_belfiore.sql`, che amplia `belfiore` a `TEXT`.
+Il POST admin `api/admin/gml_index_build.php` accetta `belfiore=ALL`, un singolo codice
+oppure una lista separata da virgole (massimo 2.000 voci e 32.000 byte per richiesta).
+I codici sono normalizzati in maiuscolo, validati e deduplicati; liste vuote o con codici
+non validi vengono rifiutate con HTTP 400. I job esistenti `ALL`/singolo codice restano compatibili.
 Gli indici temporanei sono separati per job; un lock MySQL impedisce scritture
 concorrenti durante uno step, anche se vengono eseguiti insieme HTTP e CLI.
 Gli errori di un comune non fermano gli altri; al termine il job risulta `failed`
@@ -717,6 +726,7 @@ stessa logica condivisa, ma non è necessario per l'uso dalla pagina admin.
 - `004_add_coord_source_to_properties.sql`
 - `005_add_gml_index_jobs.sql`
 - `019_add_gml_index_step_state.sql`
+- `020_expand_gml_index_job_belfiore.sql`
 - `006_add_enrichment_report.sql`
 - `007_add_enrichment_sync_flag.sql`
 - `012_add_enrichment_attempts.sql`
