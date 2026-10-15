@@ -544,11 +544,11 @@ function analyticspro_gml_norm_particella(string $s): string
  * Se il DB esiste ma manca la colonna `particella_norm`, lo invalida (rimozione)
  * in modo che venga ricostruito dal worker.
  */
-function analyticspro_gml_open_parcel_db(string $belfiore): SQLite3
+function analyticspro_gml_open_parcel_db(string $belfiore, int $buildId = 0): SQLite3
 {
     $belfiore = strtoupper($belfiore);
     analyticspro_gml_ensure_dirs();
-    $dbPath = analyticspro_gml_index_dir() . '/' . $belfiore . '.sqlite';
+    $dbPath = analyticspro_gml_index_dir() . '/' . $belfiore . ($buildId > 0 ? '.job-' . $buildId : '') . '.sqlite';
 
     // Migrazione: se il DB esiste ma non ha particella_norm, lo invalida (cancella)
     // così verrà ricostruito con lo schema aggiornato.
@@ -598,7 +598,7 @@ function analyticspro_gml_open_parcel_db(string $belfiore): SQLite3
  *
  * @param  callable(int,int):void|null  $progressCb  ($processed, $total)
  */
-function analyticspro_gml_build_parcel_index(string $belfiore, ?callable $progressCb = null): int
+function analyticspro_gml_build_parcel_index(string $belfiore, ?callable $progressCb = null, ?array &$state = null, float $maxSeconds = INF, int $buildId = 0): int
 {
     $belfiore = strtoupper($belfiore);
     $catalog  = analyticspro_gml_build_catalog();
@@ -608,17 +608,32 @@ function analyticspro_gml_build_parcel_index(string $belfiore, ?callable $progre
     }
 
     $plePath = $entry['ple'];
-    $db      = analyticspro_gml_open_parcel_db($belfiore);
+    $signature = hash('sha256', $plePath . ':' . filemtime($plePath) . ':' . filesize($plePath));
+    $buildPath = analyticspro_gml_index_dir() . '/' . $belfiore . ($buildId > 0 ? '.job-' . $buildId : '') . '.sqlite';
+    if (($state['signature'] ?? null) !== $signature || !is_file($buildPath)) {
+        $state = ['signature' => $signature, 'offset' => 0, 'count' => 0];
+    }
+    $db      = analyticspro_gml_open_parcel_db($belfiore, $buildId);
+    $db->enableExceptions(true);
+    $deadline = microtime(true) + $maxSeconds;
+    $stopped = false;
+    $features = 0;
+    $offset = (int) $state['offset'];
+    $total = analyticspro_gml_number_matched($plePath) ?? 0;
 
+    try {
     // Cancella il flag 'complete' prima di iniziare: rende l'indice non valido
     // finché la costruzione non è terminata (indicizzazione atomica).
     $db->exec("DELETE FROM meta WHERE key = 'complete'");
 
     $db->exec('BEGIN');
+    if ($offset === 0) {
+        $db->exec('DELETE FROM parcels');
+    }
     $stmt = $db->prepare('INSERT OR REPLACE INTO parcels (cod_foglio, particella, particella_norm, lat, lon, area_mq)
                           VALUES (:cod_foglio, :particella, :particella_norm, :lat, :lon, :area_mq)');
 
-    $count   = 0;
+    $count   = (int) $state['count'];
     $batchSz = 500;
     $buf     = [];
 
@@ -638,21 +653,23 @@ function analyticspro_gml_build_parcel_index(string $belfiore, ?callable $progre
         $db->exec('BEGIN');
     };
 
-    analyticspro_gml_stream_parcels($plePath, static function (array $f) use (&$buf, &$count, $batchSz, $flush, $progressCb): bool {
+    analyticspro_gml_stream_parcels($plePath, static function (array $f) use (&$buf, &$count, $batchSz, $flush, $progressCb, $total, $deadline, &$stopped, &$features): bool {
+        $features++;
+        $stopped = microtime(true) >= $deadline || (is_finite($deadline) && $features >= 1000);
         if ($f['codFoglio'] === '' || $f['particella'] === '') {
-            return false;
+            return $stopped;
         }
 
         $extRings = $f['ext'];
         $intRings = $f['int'];
         if ($extRings === []) {
-            return false;
+            return $stopped;
         }
 
         $exterior = analyticspro_largest_ring($extRings) ?? $extRings[0];
         $pt       = analyticspro_interior_point($exterior, $intRings);
         if ($pt === null) {
-            return false;
+            return $stopped;
         }
 
         $areaMq = analyticspro_ring_area_m2($exterior);
@@ -669,13 +686,21 @@ function analyticspro_gml_build_parcel_index(string $belfiore, ?callable $progre
         if (count($buf) >= $batchSz) {
             $flush();
             if ($progressCb !== null) {
-                $progressCb($count, 0);
+                $progressCb($count, $total);
             }
         }
-        return false;
-    });
+        return $stopped;
+    }, $offset);
 
     $flush();
+    if ($progressCb !== null) {
+        $progressCb($count, $stopped ? $total : $count);
+    }
+    if ($stopped) {
+        $db->exec('COMMIT');
+        $state = ['signature' => $signature, 'offset' => $offset, 'count' => $count];
+        return $count;
+    }
 
     // Aggiorna metadati
     $metaStmt = $db->prepare("INSERT OR REPLACE INTO meta (key,value) VALUES (:key, :value)");
@@ -691,10 +716,17 @@ function analyticspro_gml_build_parcel_index(string $belfiore, ?callable $progre
     $metaStmt->bindValue(':value', '1', SQLITE3_TEXT);
     $metaStmt->execute();
 
-    if ($progressCb !== null) {
-        $progressCb($count, $count);
+    $db->exec('COMMIT');
+    $state = null;
+    } finally {
+        $db->close();
     }
-
+    if ($buildId > 0) {
+        $path = analyticspro_gml_index_dir() . '/' . $belfiore;
+        if (!rename($path . '.job-' . $buildId . '.sqlite', $path . '.sqlite')) {
+            throw new RuntimeException('Impossibile pubblicare l’indice particelle.');
+        }
+    }
     return $count;
 }
 

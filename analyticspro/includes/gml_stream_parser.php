@@ -37,9 +37,9 @@ const ANALYTICSPRO_GML_CHUNK_SIZE = 1048576; // 1 MB
  * @param  callable(array):bool  $cb
  * @return int  Numero di feature elaborate.
  */
-function analyticspro_gml_stream_parcels(string $path, callable $cb): int
+function analyticspro_gml_stream_parcels(string $path, callable $cb, ?int &$offset = null): int
 {
-    return analyticspro_gml_stream_elements($path, 'CadastralParcel', $cb, 'parcel');
+    return analyticspro_gml_stream_elements($path, 'CadastralParcel', $cb, 'parcel', $offset);
 }
 
 /**
@@ -76,13 +76,18 @@ function analyticspro_gml_number_matched(string $path): ?int
 // Implementazione interna
 // ---------------------------------------------------------------------------
 
-function analyticspro_gml_stream_elements(string $path, string $localTag, callable $cb, string $mode): int
+function analyticspro_gml_stream_elements(string $path, string $localTag, callable $cb, string $mode, ?int &$offset = null): int
 {
     $fh = @fopen($path, 'rb');
     if ($fh === false) {
         throw new RuntimeException('Impossibile aprire il file GML: ' . $path);
     }
 
+    $bufferStart = $offset ?? 0;
+    if (fseek($fh, $bufferStart) !== 0) {
+        fclose($fh);
+        throw new RuntimeException('Impossibile riprendere la lettura GML.');
+    }
     $buffer  = '';
     $count   = 0;
     $stopped = false;
@@ -91,6 +96,7 @@ function analyticspro_gml_stream_elements(string $path, string $localTag, callab
     $openPat  = '/<(?:[A-Za-z_][\w.\-]*:)?' . preg_quote($localTag, '/') . '[\s>\/]/i';
     $closePat = '/<\/(?:[A-Za-z_][\w.\-]*:)?' . preg_quote($localTag, '/') . '\s*>/i';
 
+    try {
     while (!$stopped && !feof($fh)) {
         $chunk   = (string) fread($fh, ANALYTICSPRO_GML_CHUNK_SIZE);
         $buffer .= $chunk;
@@ -103,6 +109,7 @@ function analyticspro_gml_stream_elements(string $path, string $localTag, callab
                 // (che potrebbe contenere l'inizio di un tag parziale)
                 $keep = max(0, strlen($buffer) - 200);
                 $buffer = substr($buffer, $keep);
+                $bufferStart += $keep;
                 break;
             }
 
@@ -113,6 +120,7 @@ function analyticspro_gml_stream_elements(string $path, string $localTag, callab
                 // Elemento a cavallo del chunk: aspetta il prossimo chunk
                 // Scarta ciò che precede l'apertura
                 $buffer = substr($buffer, $startPos);
+                $bufferStart += $startPos;
                 break;
             }
 
@@ -121,6 +129,8 @@ function analyticspro_gml_stream_elements(string $path, string $localTag, callab
 
             $xml    = substr($buffer, $startPos, $endPos - $startPos);
             $buffer = substr($buffer, $endPos);
+            $bufferStart += $endPos;
+            $offset = $bufferStart;
 
             $feature = $mode === 'parcel'
                 ? analyticspro_gml_parse_parcel_xml($xml)
@@ -135,7 +145,9 @@ function analyticspro_gml_stream_elements(string $path, string $localTag, callab
         }
     }
 
-    fclose($fh);
+    } finally {
+        fclose($fh);
+    }
     return $count;
 }
 

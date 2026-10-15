@@ -605,12 +605,17 @@ analyticspro/storage/gml_index/      ← indici JSON e SQLite (deny HTTP via .ht
    la directory `storage/gml/` (mtime o numero file `.gml`), evitando cataloghi stale.
    Lo stesso vale per l'indice inverso `comuni_reverse.json` derivato dal catalogo.
 4. Per ogni comune caricato, premere **Indicizza tutti i comuni** (o il pulsante per singolo comune)
-   per avviare l'indicizzazione in background. Un log live mostra il progresso comune per comune.
+   per avviare l'indicizzazione tramite richieste HTTP, senza SSH, cron o processi CLI.
+   **Mantenere aperta la pagina**: il browser elabora un comune per step e riprende
+   i comuni grandi in blocchi di massimo 1.000 feature o circa 20 secondi.
+   Il log live e i contatori mostrano comuni e particelle elaborati; gli errori temporanei
+   vengono ritentati e il pulsante **Riprendi job** consente di riprovare dopo errori persistenti.
    L'indicizzazione è **atomica**: un indice è considerato valido solo se la costruzione
    è terminata con successo (flag `meta['complete']` nel database SQLite).
 5. Usare lo strumento **Diagnostica** per verificare che il numero di feature lette coincida
    con l'attributo `numberMatched` del GML.
-   Nota: l'analisi può richiedere alcuni minuti sui comuni grandi.
+   La diagnostica segnala gli errori di lettura e il superamento del limite di tempo
+   (circa 20 secondi), senza lasciare il pannello vuoto.
 
 ### Catena di risoluzione coordinate (ordine di priorità)
 
@@ -687,11 +692,20 @@ catalogo GML locale.
 
 I job di indicizzazione GML sono gestiti dalle tabelle `gml_index_jobs` / `gml_index_job_log`
 (aggiunte dalla migration `005_add_gml_index_jobs.sql`).
+Applicare anche `019_add_gml_index_step_state.sql` prima di usare gli step HTTP:
+memorizza l'elenco ordinato dei comuni, gli errori e il checkpoint delle particelle.
+Gli indici temporanei sono separati per job; un lock MySQL impedisce scritture
+concorrenti durante uno step, anche se vengono eseguiti insieme HTTP e CLI.
+Gli errori di un comune non fermano gli altri; al termine il job risulta `failed`
+se almeno un comune non è stato indicizzato, con riepilogo in `error_message`.
+Il worker `cron/gml_index_worker.php` resta disponibile come wrapper CLI della
+stessa logica condivisa, ma non è necessario per l'uso dalla pagina admin.
 
 ### Migration rilevanti
 
 - `004_add_coord_source_to_properties.sql`
 - `005_add_gml_index_jobs.sql`
+- `019_add_gml_index_step_state.sql`
 - `006_add_enrichment_report.sql`
 - `007_add_enrichment_sync_flag.sql`
 - `012_add_enrichment_attempts.sql`
