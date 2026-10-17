@@ -16,6 +16,8 @@ declare(strict_types=1);
 require_once __DIR__ . '/gml_stream_parser.php';
 require_once __DIR__ . '/geo_centroid.php';
 
+const ANALYTICSPRO_GML_INDEX_SCHEMA_VERSION = 1;
+
 // ---------------------------------------------------------------------------
 // Directory helper
 // ---------------------------------------------------------------------------
@@ -72,7 +74,14 @@ function analyticspro_gml_decode_catalog_cache(array $decoded): array
 
 function analyticspro_gml_invalidate_catalog_cache(): void
 {
-    @unlink(analyticspro_gml_index_dir() . '/catalogo.json');
+    $cachePath = analyticspro_gml_index_dir() . '/catalogo.json';
+    $decoded = json_decode((string) @file_get_contents($cachePath), true);
+    if (
+        ($decoded['_meta']['generator'] ?? null) !== 'GmlDownloader'
+        || !is_array($decoded['catalog'] ?? null)
+    ) {
+        @unlink($cachePath);
+    }
     @unlink(analyticspro_gml_reverse_index_path());
 }
 
@@ -97,6 +106,9 @@ function analyticspro_gml_invalidate_catalog_cache(): void
  */
 function analyticspro_gml_build_catalog(bool $force = false): array
 {
+    static $externalCache = null;
+    static $externalCacheKey = null;
+
     $indexDir  = analyticspro_gml_index_dir();
     $gmlDir    = analyticspro_gml_dir();
     $cachePath = $indexDir . '/catalogo.json';
@@ -105,21 +117,39 @@ function analyticspro_gml_build_catalog(bool $force = false): array
     analyticspro_gml_ensure_dirs();
     $snapshot = analyticspro_gml_catalog_snapshot($gmlDir);
 
-    if (!$force && is_file($cachePath)) {
+    $externalCatalog = null;
+    if (is_file($cachePath)) {
         $raw = @file_get_contents($cachePath);
         if ($raw !== false) {
             $decoded = json_decode($raw, true);
             if (is_array($decoded)) {
-                $parsed = analyticspro_gml_decode_catalog_cache($decoded);
-                $meta = $parsed['meta'];
                 if (
-                    $meta['file_count'] === $snapshot['file_count']
-                    && $meta['dir_mtime'] >= $snapshot['dir_mtime']
+                    ($decoded['_meta']['generator'] ?? null) === 'GmlDownloader'
+                    && is_array($decoded['catalog'] ?? null)
                 ) {
-                    return $parsed['catalog'];
+                    // Rileggi il manifest anche con mtime invariato dopo un upload FTP.
+                    $externalCatalog = $decoded['catalog'];
+                    $cacheKey = hash('sha256', $raw . serialize($snapshot));
+                    if (!$force && $externalCacheKey === $cacheKey && is_array($externalCache)) {
+                        return $externalCache;
+                    }
+                } elseif (!$force) {
+                    $parsed = analyticspro_gml_decode_catalog_cache($decoded);
+                    $meta = $parsed['meta'];
+                    if (
+                        $meta['file_count'] === $snapshot['file_count']
+                        && $meta['dir_mtime'] >= $snapshot['dir_mtime']
+                    ) {
+                        return $parsed['catalog'];
+                    }
                 }
             }
         }
+    }
+
+    if ($externalCatalog === null) {
+        $externalCache = null;
+        $externalCacheKey = null;
     }
 
     $catalog = [];
@@ -168,6 +198,29 @@ function analyticspro_gml_build_catalog(bool $force = false): array
     }
 
     ksort($catalog);
+    if ($externalCatalog !== null) {
+        foreach ($externalCatalog as $belfiore => $entry) {
+            if (
+                !preg_match('/^[A-Z][0-9]{3}$/', (string) $belfiore)
+                || !is_array($entry)
+                || isset($catalog[$belfiore])
+            ) {
+                continue;
+            }
+            // I percorsi del manifest non sono file locali attendibili.
+            $entry['ple'] = null;
+            $entry['map'] = null;
+            $catalog[$belfiore] = $entry;
+            $catalog[$belfiore]['indexed'] = analyticspro_gml_parcel_index_valid($belfiore, $catalog);
+        }
+        ksort($catalog);
+        @unlink($reversePath);
+        $externalCache = $catalog;
+        $externalCacheKey = $cacheKey;
+        // Non sovrascrivere la fonte esterna con la cache della scansione locale.
+        return $catalog;
+    }
+
     $payload = [
         '_meta' => [
             'file_count' => $snapshot['file_count'],
@@ -736,10 +789,13 @@ function analyticspro_gml_build_parcel_index(string $belfiore, ?callable $progre
 /**
  * Controlla se l'indice SQLite di un comune è valido:
  * - file esiste
- * - non è più vecchio del GML
+ * - non è più vecchio del GML, se presente
  * - contiene il flag meta['complete'] = '1' (scrittura atomica riuscita)
+ * - senza GML, contiene schema_version compatibile e source_signature
+ *
+ * @param array<string,array>|null $catalogOverride Catalogo già letto, evita ricorsione nel merge.
  */
-function analyticspro_gml_parcel_index_valid(string $belfiore): bool
+function analyticspro_gml_parcel_index_valid(string $belfiore, ?array $catalogOverride = null): bool
 {
     $belfiore  = strtoupper($belfiore);
     $dbPath    = analyticspro_gml_index_dir() . '/' . $belfiore . '.sqlite';
@@ -747,17 +803,19 @@ function analyticspro_gml_parcel_index_valid(string $belfiore): bool
         return false;
     }
 
-    $catalog = analyticspro_gml_build_catalog();
+    $catalog = $catalogOverride ?? analyticspro_gml_build_catalog();
     $entry   = $catalog[$belfiore] ?? null;
-    if ($entry === null || empty($entry['ple'])) {
+    if ($entry === null) {
         return false;
     }
 
-    $gmlMtime = @filemtime($entry['ple']) ?: 0;
-    $dbMtime  = @filemtime($dbPath) ?: 0;
+    if (!empty($entry['ple'])) {
+        $gmlMtime = @filemtime($entry['ple']) ?: 0;
+        $dbMtime  = @filemtime($dbPath) ?: 0;
 
-    if ($dbMtime < $gmlMtime) {
-        return false;
+        if ($dbMtime < $gmlMtime) {
+            return false;
+        }
     }
 
     // Verifica flag di completamento atomico
@@ -767,6 +825,20 @@ function analyticspro_gml_parcel_index_valid(string $belfiore): bool
         $complete = ($res !== false && ($row = $res->fetchArray(SQLITE3_NUM)) !== false)
             ? ($row[0] === '1')
             : false;
+        if ($complete && empty($entry['ple'])) {
+            $schemaVersion = $db->querySingle("SELECT value FROM meta WHERE key = 'schema_version' LIMIT 1");
+            $signature = $db->querySingle("SELECT value FROM meta WHERE key = 'source_signature' LIMIT 1");
+            if ($schemaVersion !== (string) ANALYTICSPRO_GML_INDEX_SCHEMA_VERSION) {
+                error_log('[gml_catalog] Comune ' . $belfiore
+                    . ': schema_version assente o non compatibile; rigenerare l’indice con GmlDownloader.');
+                $complete = false;
+            }
+            if (trim((string) $signature) === '') {
+                error_log('[gml_catalog] Comune ' . $belfiore
+                    . ': source_signature assente o vuota; rigenerare l’indice con GmlDownloader.');
+                $complete = false;
+            }
+        }
         $db->close();
         return $complete;
     } catch (Throwable $e) {
@@ -819,6 +891,13 @@ function analyticspro_gml_lookup(
         if (is_file($dbPath)) {
             return analyticspro_gml_lookup_in_index($dbPath, $codFoglio, $particella, $normPart);
         }
+        return null;
+    }
+
+    $catalog = analyticspro_gml_build_catalog();
+    if (empty($catalog[$belfiore]['ple'])) {
+        error_log('[gml_catalog] Comune ' . $belfiore
+            . ' non indicizzato e nessun file GML fisico disponibile: rigenerare l\'indice con GmlDownloader e ricaricarlo.');
         return null;
     }
 
