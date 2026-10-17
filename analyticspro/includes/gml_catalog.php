@@ -214,9 +214,7 @@ function analyticspro_gml_build_catalog(bool $force = false): array
             $catalog[$belfiore]['indexed'] = analyticspro_gml_parcel_index_valid($belfiore, $catalog);
         }
         ksort($catalog);
-        if ($snapshot['file_count'] > 0 || $externalCache !== null) {
-            @unlink($reversePath);
-        }
+        @unlink($reversePath);
         $externalCache = $catalog;
         $externalCacheKey = $cacheKey;
         // Non sovrascrivere la fonte esterna con la cache della scansione locale.

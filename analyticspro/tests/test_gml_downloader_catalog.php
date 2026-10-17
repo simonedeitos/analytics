@@ -100,7 +100,7 @@ $original = $writeManifest();
 $reversePath = analyticspro_gml_reverse_index_path();
 file_put_contents($reversePath, '{"version":1,"exact":{},"compact":{}}');
 $catalog = analyticspro_gml_build_catalog();
-downloader_assert(is_file($reversePath), 'Conservare l’indice inverso caricato quando non ci sono GML locali.');
+downloader_assert(!is_file($reversePath), 'Rigenerare l’indice inverso per non dipendere dal mtime del manifest.');
 downloader_assert(isset($catalog['B394']), 'Il catalogo esterno non deve essere ricostruito dal filesystem vuoto.');
 downloader_assert($catalog['B394']['indexed'] === true, 'Il flag false del manifest deve essere ri-validato.');
 downloader_assert(!isset($catalog['../invalid']) && !isset($catalog['C130']), 'Ignorare voci del manifest non valide.');
@@ -108,6 +108,7 @@ downloader_assert(analyticspro_gml_parcel_index_valid('b394'), 'Indice senza GML
 $result = analyticspro_gml_lookup('B394', '33', '0147');
 downloader_assert($result !== null && $result['lat'] === 45.5 && $result['lon'] === 10.5, 'Coordinate lette da SQLite.');
 downloader_assert($result['area_mq'] === 1200.0 && $result['cod_foglio'] === '003300', 'Output lookup invariato.');
+downloader_assert(analyticspro_gml_lookup('Comune B394', '33', '147')['lat'] === 45.5, 'Risoluzione per nome anche senza GML.');
 downloader_assert(analyticspro_gml_lookup('B394', '33', '999') === null, 'Particella assente: nessun fallback.');
 foreach (['C123', 'C124', 'C125', 'C126', 'C127', 'C128', 'C129'] as $code) {
     downloader_assert($catalog[$code]['indexed'] === false, $code . ': non fidarsi del flag indexed esterno.');
