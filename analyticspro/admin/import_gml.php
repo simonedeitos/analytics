@@ -590,12 +590,22 @@ require __DIR__ . '/_admin_subnav.php';
     // Build index (step HTTP e polling indipendente dei log)
     // -------------------------------------------------------------------------
 
-    let indexChoiceModal = null;
+        let indexChoiceModal = null;
     const indexChoiceInfo = document.getElementById('gml-index-choice-info');
     const indexMissingBtn = document.getElementById('gml-index-missing-btn');
 
+    const BELFIORE_CHUNK_SIZE = 2000; // limite imposto dal backend (gml_index_build.php)
+
     function unindexedCodes() {
         return (catalogRows || []).filter(row => row.indexed === false).map(row => row.belfiore);
+    }
+
+    function chunkArray(arr, size) {
+        const out = [];
+        for (let i = 0; i < arr.length; i += size) {
+            out.push(arr.slice(i, i + size));
+        }
+        return out;
     }
 
     function updateIndexChoice() {
@@ -605,6 +615,9 @@ require __DIR__ . '/_admin_subnav.php';
             ? 'Catalogo non disponibile: attendere il caricamento o rigenerare il catalogo.'
             : codes.length > 0
                 ? codes.length + ' comuni non ancora indicizzati nel catalogo.'
+                    + (codes.length > BELFIORE_CHUNK_SIZE
+                        ? ' (verranno elaborati in ' + Math.ceil(codes.length / BELFIORE_CHUNK_SIZE) + ' gruppi da max ' + BELFIORE_CHUNK_SIZE + ')'
+                        : '')
                 : 'Nessun comune da indicizzare: il catalogo è vuoto o tutti i comuni sono già indicizzati.';
     }
 
@@ -627,8 +640,26 @@ require __DIR__ . '/_admin_subnav.php';
             return;
         }
         indexChoiceModal.hide();
-        buildIndex(codes.join(','), codes.length + ' comuni non indicizzati');
+        const chunks = chunkArray(codes, BELFIORE_CHUNK_SIZE);
+        runChunkQueue(chunks, 0, codes.length);
     });
+
+    // Esegue in sequenza i chunk di codici Belfiore, uno alla volta.
+    // Se un chunk fallisce, si ferma senza avviare i successivi (nessun comune
+    // già completato viene rielaborato: al prossimo click su "Solo non ancora
+    // indicizzati" la lista viene ricalcolata dal catalogo aggiornato).
+    function runChunkQueue(chunks, index, totalCodes) {
+        if (index >= chunks.length) return;
+        const chunk = chunks[index];
+        const label = 'gruppo ' + (index + 1) + '/' + chunks.length
+            + ' (' + chunk.length + ' comuni, totale ' + totalCodes + ')';
+
+        buildIndex(chunk.join(','), label, (success) => {
+            if (success && index + 1 < chunks.length) {
+                runChunkQueue(chunks, index + 1, totalCodes);
+            }
+        });
+    }
 
     const indexLogWrap   = document.getElementById('gml-index-log-wrap');
     const indexLogBody   = document.getElementById('gml-index-log-body');
@@ -640,7 +671,8 @@ require __DIR__ . '/_admin_subnav.php';
     let indexAfterId = 0;
     let indexJobId = null;
     let indexPollPending = null;
-    const indexProgress = document.getElementById('gml-index-progress');
+    let indexCompleteCallback = null;
+    const indexProgress = document.getElementById('gml-index-progress')
 
     async function requestJson(url, options = {}) {
         const controller = new AbortController();
@@ -663,12 +695,13 @@ require __DIR__ . '/_admin_subnav.php';
         }
     }
 
-    function buildIndex(belfiore, logTitle) {
+        function buildIndex(belfiore, logTitle, onComplete) {
         if (indexActive) return;
         indexActive = true;
         indexFinished = false;
         indexAfterId = 0;
         indexJobId = null;
+        indexCompleteCallback = typeof onComplete === 'function' ? onComplete : null;
         indexProgress.textContent = '';
         const div = document.getElementById('gml-build-index-result');
         div.innerHTML = '<div class="text-muted small">Accodamento job in corso…</div>';
@@ -698,6 +731,9 @@ require __DIR__ . '/_admin_subnav.php';
                 indexActive = false;
                 appendLog('error', error.message);
                 div.innerHTML = '<div class="alert alert-danger small py-2">' + escHtml(error.message) + '</div>';
+                const cb = indexCompleteCallback;
+                indexCompleteCallback = null;
+                if (cb) cb(false);
             });
     }
 
@@ -732,7 +768,7 @@ require __DIR__ . '/_admin_subnav.php';
                 indexProgress.textContent = 'Comuni: ' + job.processed_comuni + '/' + job.total_comuni
                     + ' · Particelle: ' + job.processed_particelle + '/' + job.total_particelle;
 
-                if (status === 'completed' || status === 'failed') {
+                                if (status === 'completed' || status === 'failed') {
                     indexFinished = true;
                     indexActive = false;
                     const div = document.getElementById('gml-build-index-result');
@@ -742,6 +778,9 @@ require __DIR__ . '/_admin_subnav.php';
                     } else {
                         div.innerHTML = '<div class="alert alert-danger small py-2">Indicizzazione fallita (job #' + jobId + '): ' + escHtml(job.error_message || '') + '</div>';
                     }
+                    const cb = indexCompleteCallback;
+                    indexCompleteCallback = null;
+                    if (cb) cb(status === 'completed');
                     return; // smetti di fare polling
                 }
 
