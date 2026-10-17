@@ -153,9 +153,13 @@ require __DIR__ . '/_admin_subnav.php';
                         </button>
                     </div>
 
-                    <div class="mb-2">
+                                        <div class="mb-2 d-flex gap-2">
                         <input id="gml-catalog-search" type="text" class="form-control form-control-sm"
                                placeholder="Filtra per Belfiore o nome comune…">
+                        <button id="gml-catalog-missing-filter-btn" type="button"
+                                class="btn btn-outline-warning btn-sm text-nowrap">
+                            <i class="bi bi-exclamation-triangle me-1"></i>File mancanti
+                        </button>
                     </div>
 
                     <div id="gml-catalog-loading" class="text-muted small">Caricamento catalogo…</div>
@@ -502,6 +506,7 @@ require __DIR__ . '/_admin_subnav.php';
             const tr = tpl.content.cloneNode(true).querySelector('tr');
             tr.dataset.belfiore = r.belfiore;
             tr.dataset.nome     = r.nome || '';
+            tr.dataset.missingFiles = (!r.has_ple || !r.has_map) ? '1' : '0';
             tr.querySelector('.td-belfiore').textContent = r.belfiore;
             tr.querySelector('.td-nome').textContent     = r.nome || '—';
             tr.querySelector('.td-ple').innerHTML        = r.has_ple
@@ -522,14 +527,29 @@ require __DIR__ . '/_admin_subnav.php';
 
             tbody.appendChild(tr);
         }
+        applyCatalogFilters();
     }
 
-    document.getElementById('gml-catalog-search').addEventListener('input', function () {
-        const q = this.value.toLowerCase();
+        const catalogSearchInput = document.getElementById('gml-catalog-search');
+    const missingFilterBtn   = document.getElementById('gml-catalog-missing-filter-btn');
+    let missingFilterActive  = false;
+
+    function applyCatalogFilters() {
+        const q = catalogSearchInput.value.toLowerCase();
         tbody.querySelectorAll('tr').forEach(tr => {
-            const match = tr.dataset.belfiore.toLowerCase().includes(q) || tr.dataset.nome.toLowerCase().includes(q);
-            tr.style.display = match ? '' : 'none';
+            const matchesText = tr.dataset.belfiore.toLowerCase().includes(q) || tr.dataset.nome.toLowerCase().includes(q);
+            const matchesMissing = !missingFilterActive || tr.dataset.missingFiles === '1';
+            tr.style.display = (matchesText && matchesMissing) ? '' : 'none';
         });
+    }
+
+    catalogSearchInput.addEventListener('input', applyCatalogFilters);
+
+    missingFilterBtn.addEventListener('click', () => {
+        missingFilterActive = !missingFilterActive;
+        missingFilterBtn.classList.toggle('btn-outline-warning', !missingFilterActive);
+        missingFilterBtn.classList.toggle('btn-warning', missingFilterActive);
+        applyCatalogFilters();
     });
 
     document.getElementById('gml-rebuild-catalog-btn').addEventListener('click', () => {
