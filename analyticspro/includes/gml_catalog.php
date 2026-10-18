@@ -104,7 +104,7 @@ function analyticspro_gml_invalidate_catalog_cache(): void
  *
  * @return array<string,array>
  */
-function analyticspro_gml_build_catalog(bool $force = false): array
+function analyticspro_gml_build_catalog(bool $force = false, bool $validateIndexes = true): array
 {
     static $externalCache = null;
     static $externalCacheKey = null;
@@ -129,7 +129,7 @@ function analyticspro_gml_build_catalog(bool $force = false): array
                 ) {
                     // Rileggi il manifest anche con mtime invariato dopo un upload FTP.
                     $externalCatalog = $decoded['catalog'];
-                    $cacheKey = hash('sha256', $raw . serialize($snapshot));
+                    $cacheKey = hash('sha256', $raw . serialize($snapshot)) . ($validateIndexes ? ':v' : ':n');
                     if (!$force && $externalCacheKey === $cacheKey && is_array($externalCache)) {
                         return $externalCache;
                     }
@@ -211,7 +211,10 @@ function analyticspro_gml_build_catalog(bool $force = false): array
             $entry['ple'] = null;
             $entry['map'] = null;
             $catalog[$belfiore] = $entry;
-            $catalog[$belfiore]['indexed'] = analyticspro_gml_parcel_index_valid($belfiore, $catalog);
+            // Senza validazione non si apre alcun SQLite: il flag esterno non è attendibile.
+            $catalog[$belfiore]['indexed'] = $validateIndexes
+                ? analyticspro_gml_parcel_index_valid($belfiore, $catalog)
+                : false;
         }
         ksort($catalog);
         @unlink($reversePath);
@@ -844,6 +847,158 @@ function analyticspro_gml_parcel_index_valid(string $belfiore, ?array $catalogOv
     } catch (Throwable $e) {
         return false;
     }
+}
+
+// ---------------------------------------------------------------------------
+// Cache conteggi catalogo (particelle / fogli)
+// ---------------------------------------------------------------------------
+
+function analyticspro_gml_counts_cache_path(): string
+{
+    return analyticspro_gml_index_dir() . '/catalogo_counts.json';
+}
+
+/**
+ * Ricostruisce catalogo_counts.json aprendo ogni indice SQLite UNA SOLA VOLTA
+ * (meta count/complete) e contando le voci di ogni {BELFIORE}_fogli.json.
+ *
+ * @return array{generated_at:int,count:int,items:array<string,array{db_mtime:int,n_parcels:int,n_fogli:int,indexed:bool}>}
+ */
+function analyticspro_gml_rebuild_counts_cache(): array
+{
+    $indexDir = analyticspro_gml_index_dir();
+    // Il catalogo viene letto senza validare gli indici: la validazione
+    // avviene qui sotto riusando l'unica connessione SQLite per comune.
+    $catalog = analyticspro_gml_build_catalog(false, false);
+    $items = [];
+
+    foreach ($catalog as $belfiore => $entry) {
+        $belfiore = strtoupper((string) $belfiore);
+        $dbPath = $indexDir . '/' . $belfiore . '.sqlite';
+        $fogliPath = $indexDir . '/' . $belfiore . '_fogli.json';
+        $dbMtime = is_file($dbPath) ? (int) (@filemtime($dbPath) ?: 0) : 0;
+        $nParcels = 0;
+        $nFogli = 0;
+        $indexed = false;
+
+        if ($dbMtime > 0) {
+            try {
+                $db = new SQLite3($dbPath, SQLITE3_OPEN_READONLY);
+                try {
+                    $meta = [];
+                    $res = $db->query("SELECT key, value FROM meta WHERE key IN ('count','complete','schema_version','source_signature')");
+                    while ($res !== false && ($row = $res->fetchArray(SQLITE3_NUM)) !== false) {
+                        $meta[(string) $row[0]] = (string) $row[1];
+                    }
+                    $nParcels = (int) ($meta['count'] ?? 0);
+                    // Stessi criteri di analyticspro_gml_parcel_index_valid().
+                    $indexed = ($meta['complete'] ?? '') === '1';
+                    if ($indexed && !empty($entry['ple'])) {
+                        $gmlMtime = (int) (@filemtime((string) $entry['ple']) ?: 0);
+                        $indexed = $dbMtime >= $gmlMtime;
+                    } elseif ($indexed) {
+                        $indexed = ($meta['schema_version'] ?? '') === (string) ANALYTICSPRO_GML_INDEX_SCHEMA_VERSION
+                            && trim($meta['source_signature'] ?? '') !== '';
+                    }
+                } finally {
+                    $db->close();
+                }
+            } catch (Throwable $e) {
+                // Indice illeggibile: conteggi a zero, non indicizzato.
+            }
+        }
+
+        if (is_file($fogliPath)) {
+            $fogli = json_decode((string) @file_get_contents($fogliPath), true);
+            if (is_array($fogli)) {
+                $nFogli = count($fogli);
+            }
+        }
+
+        $items[$belfiore] = [
+            'db_mtime'  => $dbMtime,
+            'n_parcels' => $nParcels,
+            'n_fogli'   => $nFogli,
+            'indexed'   => $indexed,
+        ];
+    }
+
+    $payload = [
+        'generated_at' => time(),
+        'count'        => count($items),
+        'items'        => $items,
+    ];
+
+    analyticspro_gml_ensure_dirs();
+    $path = analyticspro_gml_counts_cache_path();
+    $tmp = $path . '.tmp-' . getmypid();
+    $json = json_encode($payload, JSON_UNESCAPED_UNICODE);
+    if ($json === false || file_put_contents($tmp, $json) === false || !@rename($tmp, $path)) {
+        @unlink($tmp);
+        throw new RuntimeException('Impossibile scrivere il file dei conteggi catalogo.');
+    }
+
+    return $payload;
+}
+
+/**
+ * Legge catalogo_counts.json senza aprire alcun SQLite.
+ *
+ * @return array{generated_at:int,count:int,items:array<string,array>}|null null se assente o non valido.
+ */
+function analyticspro_gml_load_counts_cache(): ?array
+{
+    $path = analyticspro_gml_counts_cache_path();
+    if (!is_file($path)) {
+        return null;
+    }
+    $decoded = json_decode((string) @file_get_contents($path), true);
+    if (!is_array($decoded) || !is_array($decoded['items'] ?? null)) {
+        return null;
+    }
+
+    return [
+        'generated_at' => (int) ($decoded['generated_at'] ?? 0),
+        'count'        => (int) ($decoded['count'] ?? count($decoded['items'])),
+        'items'        => $decoded['items'],
+    ];
+}
+
+/**
+ * Elenco catalogo per l'endpoint admin: i conteggi provengono esclusivamente
+ * da catalogo_counts.json, nessun SQLite né _fogli.json viene aperto.
+ *
+ * @return array{catalog:array<int,array>,counts_generated:int|null,counts_available:bool}
+ */
+function analyticspro_gml_catalog_list_payload(): array
+{
+    $catalog = analyticspro_gml_build_catalog(false, false);
+    $counts = analyticspro_gml_load_counts_cache();
+    $countItems = $counts['items'] ?? [];
+
+    $result = [];
+    foreach ($catalog as $belfiore => $entry) {
+        $cached = $countItems[$belfiore] ?? null;
+        $cached = is_array($cached) ? $cached : [];
+        $result[] = [
+            'belfiore'  => $belfiore,
+            'nome'      => $entry['nome'] ?? '',
+            'has_ple'   => !empty($entry['ple']),
+            'has_map'   => !empty($entry['map']),
+            'size_ple'  => (int) ($entry['size_ple'] ?? 0),
+            'size_map'  => (int) ($entry['size_map'] ?? 0),
+            'mtime'     => (int) ($entry['mtime'] ?? 0),
+            'indexed'   => (bool) ($cached['indexed'] ?? false),
+            'n_parcels' => (int) ($cached['n_parcels'] ?? 0),
+            'n_fogli'   => (int) ($cached['n_fogli'] ?? 0),
+        ];
+    }
+
+    return [
+        'catalog'          => $result,
+        'counts_generated' => $counts !== null ? $counts['generated_at'] : null,
+        'counts_available' => $counts !== null,
+    ];
 }
 
 // ---------------------------------------------------------------------------

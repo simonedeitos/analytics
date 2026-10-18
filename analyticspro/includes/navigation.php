@@ -97,7 +97,7 @@ function analyticspro_nav_items(?array $user = null, ?array $subuserPermissions 
                     'label' => 'Amministrazione',
                     'icon' => 'bi-shield-check',
                     'url' => analyticspro_base_url('admin/index.php'),
-                    'page' => ['admin/index.php', 'admin/registrazioni.php', 'admin/utenti.php', 'admin/smtp.php', 'admin/import_gml.php', 'admin/import_ade.php', 'admin/diagnostica_import.php', 'admin/diagnostica_enrichment.php'],
+                    'page' => ['admin/index.php', 'admin/registrazioni.php', 'admin/utenti.php', 'admin/smtp.php', 'admin/import_gml.php', 'admin/import_ade.php', 'admin/diagnostica_import.php', 'admin/diagnostica_enrichment.php', 'api/admin/gml_maintenance.php'],
                     'visible' => analyticspro_is_admin(),
                     'badge' => $pendingCount,
                 ],
