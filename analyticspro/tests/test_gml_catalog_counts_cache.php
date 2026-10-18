@@ -136,6 +136,8 @@ try {
     }
     if ($catalogBackup !== null) {
         file_put_contents($catalogPath, $catalogBackup);
+    } else {
+        @unlink($catalogPath);
     }
 }
 

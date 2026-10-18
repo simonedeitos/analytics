@@ -931,7 +931,7 @@ function analyticspro_gml_rebuild_counts_cache(): array
 
     analyticspro_gml_ensure_dirs();
     $path = analyticspro_gml_counts_cache_path();
-    $tmp = $path . '.tmp-' . getmypid();
+    $tmp = $path . '.tmp-' . getmypid() . '-' . bin2hex(random_bytes(4));
     $json = json_encode($payload, JSON_UNESCAPED_UNICODE);
     if ($json === false || file_put_contents($tmp, $json) === false || !@rename($tmp, $path)) {
         @unlink($tmp);
