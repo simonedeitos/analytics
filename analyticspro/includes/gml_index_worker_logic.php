@@ -111,6 +111,13 @@ function analyticspro_gml_index_step(PDO $pdo, int $jobId, float $maxSeconds = 2
                 }
                 $parcels += $n;
                 analyticspro_gml_index_log($pdo, $jobId, 'info', $belfiore . ': ' . $n . ' particelle indicizzate.');
+                // Aggiorna solo la voce del comune in catalogo_counts.json: un
+                // errore qui non deve far fallire l'indicizzazione del comune.
+                try {
+                    analyticspro_gml_update_counts_cache_entry($belfiore);
+                } catch (Throwable $e) {
+                    error_log('[gml_index_worker] ' . $belfiore . ': aggiornamento conteggi fallito: ' . $e->getMessage());
+                }
             } catch (Throwable $e) {
                 $errors++;
                 error_log('[gml_index_worker] ' . $belfiore . ': ' . $e->getMessage());

@@ -114,6 +114,49 @@ try {
         'Il GET deve leggere i conteggi dalla cache, senza aprire SQLite/_fogli.json'
     );
 
+    // 3b. Aggiornamento incrementale: cambia SOLO la voce del comune indicato.
+    $other = ['db_mtime' => 123, 'n_parcels' => 7, 'n_fogli' => 2, 'indexed' => true];
+    file_put_contents($countsPath, json_encode([
+        'generated_at' => 1,
+        'count'        => 2,
+        'items'        => ['Z999' => $other, $code => ['db_mtime' => 1, 'n_parcels' => 1, 'n_fogli' => 1, 'indexed' => false]],
+    ]));
+    @unlink($dbPath);
+    $db = new SQLite3($dbPath);
+    $db->exec('CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT)');
+    $db->exec("INSERT INTO meta (key, value) VALUES ('count', '55'), ('complete', '1')");
+    $db->close();
+    file_put_contents($fogliPath, json_encode(['000100' => '1', '000200' => '2']));
+    clearstatcache();
+    analyticspro_gml_update_counts_cache_entry(strtolower($code));
+    $updated = analyticspro_gml_load_counts_cache();
+    counts_assert($updated !== null, 'Cache non leggibile dopo update incrementale');
+    counts_assert(($updated['items']['Z999'] ?? null) === $other, 'Update incrementale ha alterato altre voci');
+    counts_assert(($updated['count'] ?? 0) === 2, 'count atteso 2 dopo update incrementale');
+    counts_assert(($updated['generated_at'] ?? 0) > 1, 'generated_at non aggiornato');
+    $entry = $updated['items'][$code] ?? [];
+    counts_assert(
+        ($entry['n_parcels'] ?? null) === 55 && ($entry['n_fogli'] ?? null) === 2 && ($entry['indexed'] ?? null) === true
+            && ($entry['db_mtime'] ?? 0) === (int) filemtime($dbPath),
+        'Voce aggiornata incrementalmente non coerente'
+    );
+
+    // 3c. Cache assente: il file viene creato con la sola voce del comune.
+    @unlink($countsPath);
+    analyticspro_gml_update_counts_cache_entry($code);
+    $created = analyticspro_gml_load_counts_cache();
+    counts_assert($created !== null && array_keys($created['items']) === [$code], 'Cache non creata correttamente da update incrementale');
+
+    // 3d. Cache corrotta: nessuna eccezione, file ricostruito.
+    file_put_contents($countsPath, '{corrotto');
+    analyticspro_gml_update_counts_cache_entry($code);
+    $rebuilt = analyticspro_gml_load_counts_cache();
+    counts_assert($rebuilt !== null && isset($rebuilt['items'][$code]), 'Cache corrotta non ricostruita');
+
+    // 3e. Il worker aggiorna la cache conteggi dopo ogni comune indicizzato.
+    $worker = (string) file_get_contents(dirname(__DIR__) . '/includes/gml_index_worker_logic.php');
+    counts_assert(str_contains($worker, 'analyticspro_gml_update_counts_cache_entry($belfiore)'), 'Worker non aggiorna la cache conteggi');
+
     // 4. Il GET dell'endpoint non deve aprire SQLite né _fogli.json.
     $endpoint = (string) file_get_contents(dirname(__DIR__) . '/api/admin/gml_catalog.php');
     $getStart = strpos($endpoint, "if (\$method === 'GET')");
