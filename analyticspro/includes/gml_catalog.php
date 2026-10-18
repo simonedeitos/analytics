@@ -962,31 +962,55 @@ function analyticspro_gml_rebuild_counts_cache(): array
         $items[$belfiore] = analyticspro_gml_counts_entry($belfiore, is_array($entry) ? $entry : null);
     }
 
-    return analyticspro_gml_write_counts_cache($items);
+    analyticspro_gml_ensure_dirs();
+    $lock = @fopen(analyticspro_gml_counts_cache_path() . '.lock', 'c');
+    if ($lock !== false) {
+        @flock($lock, LOCK_EX);
+    }
+    try {
+        return analyticspro_gml_write_counts_cache($items);
+    } finally {
+        if ($lock !== false) {
+            @flock($lock, LOCK_UN);
+            @fclose($lock);
+        }
+    }
 }
 
 /**
  * Aggiorna in catalogo_counts.json SOLO la voce del comune indicato, senza
  * riaprire gli indici degli altri comuni. Pensata per l'indicizzazione
  * incrementale: non solleva mai eccezioni (gli errori vengono loggati).
+ *
+ * @param array|null $entry Voce del catalogo già nota al chiamante; se null
+ *                          viene letta dal catalogo.
  */
-function analyticspro_gml_update_counts_cache_entry(string $belfiore): void
+function analyticspro_gml_update_counts_cache_entry(string $belfiore, ?array $entry = null): void
 {
     $belfiore = strtoupper(trim($belfiore));
     if ($belfiore === '') {
         return;
     }
 
+    $lock = false;
     try {
-        $entry = null;
-        try {
-            $catalog = analyticspro_gml_build_catalog(false, false);
-            $entry = is_array($catalog[$belfiore] ?? null) ? $catalog[$belfiore] : null;
-        } catch (Throwable $e) {
-            error_log('[gml_catalog] Catalogo non leggibile per ' . $belfiore . ': ' . $e->getMessage());
+        if ($entry === null) {
+            try {
+                $catalog = analyticspro_gml_build_catalog(false, false);
+                $entry = is_array($catalog[$belfiore] ?? null) ? $catalog[$belfiore] : null;
+            } catch (Throwable $e) {
+                error_log('[gml_catalog] Catalogo non leggibile per ' . $belfiore . ': ' . $e->getMessage());
+            }
         }
 
         $counts = analyticspro_gml_counts_entry($belfiore, $entry);
+
+        // Serializza la lettura-modifica-scrittura con altri aggiornamenti/rebuild.
+        analyticspro_gml_ensure_dirs();
+        $lock = @fopen(analyticspro_gml_counts_cache_path() . '.lock', 'c');
+        if ($lock !== false) {
+            @flock($lock, LOCK_EX);
+        }
 
         $items = [];
         $path = analyticspro_gml_counts_cache_path();
@@ -1003,6 +1027,11 @@ function analyticspro_gml_update_counts_cache_entry(string $belfiore): void
         analyticspro_gml_write_counts_cache($items);
     } catch (Throwable $e) {
         error_log('[gml_catalog] Aggiornamento conteggi fallito per ' . $belfiore . ': ' . $e->getMessage());
+    } finally {
+        if ($lock !== false) {
+            @flock($lock, LOCK_UN);
+            @fclose($lock);
+        }
     }
 }
 

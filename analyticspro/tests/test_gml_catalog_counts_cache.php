@@ -155,7 +155,7 @@ try {
 
     // 3e. Il worker aggiorna la cache conteggi dopo ogni comune indicizzato.
     $worker = (string) file_get_contents(dirname(__DIR__) . '/includes/gml_index_worker_logic.php');
-    counts_assert(str_contains($worker, 'analyticspro_gml_update_counts_cache_entry($belfiore)'), 'Worker non aggiorna la cache conteggi');
+    counts_assert(str_contains($worker, 'analyticspro_gml_update_counts_cache_entry($belfiore'), 'Worker non aggiorna la cache conteggi');
 
     // 4. Il GET dell'endpoint non deve aprire SQLite né _fogli.json.
     $endpoint = (string) file_get_contents(dirname(__DIR__) . '/api/admin/gml_catalog.php');
@@ -172,6 +172,7 @@ try {
     @unlink($gmlFile);
     @unlink($dbPath);
     @unlink($fogliPath);
+    @unlink($countsPath . '.lock');
     if ($countsBackup !== null) {
         file_put_contents($countsPath, $countsBackup);
     } else {
