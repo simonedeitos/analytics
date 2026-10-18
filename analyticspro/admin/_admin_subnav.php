@@ -7,6 +7,8 @@ $adminPages = [
     'utenti.php'       => ['icon' => 'bi-people',          'label' => 'Utenti',         'badge' => 0],
     'smtp.php'         => ['icon' => 'bi-envelope-gear',   'label' => 'SMTP',           'badge' => 0],
     'import_gml.php'   => ['icon' => 'bi-map',             'label' => 'Import GML',     'badge' => 0],
+    // Il file fisico è in api/admin/: URL esplicito invece del pattern admin/<file>.
+    'gml_maintenance.php' => ['icon' => 'bi-tools',        'label' => 'Maintenance',    'badge' => 0, 'url' => 'api/admin/gml_maintenance.php'],
 ];
 ?>
 <nav class="mb-4">
@@ -15,7 +17,7 @@ $adminPages = [
             <li class="nav-item">
                 <a class="nav-link<?= $currentPage === $file ? ' active' : '' ?>"
                    <?= $currentPage === $file ? 'aria-current="page"' : '' ?>
-                   href="<?= analyticspro_h(analyticspro_base_url('admin/' . $file)) ?>">
+                   href="<?= analyticspro_h(analyticspro_base_url($meta['url'] ?? ('admin/' . $file))) ?>">
                     <i class="bi <?= analyticspro_h($meta['icon']) ?> me-1"></i>
                     <?= analyticspro_h($meta['label']) ?>
                     <?php if ($meta['badge'] > 0): ?>

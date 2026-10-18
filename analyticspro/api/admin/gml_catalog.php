@@ -15,52 +15,15 @@ if (!analyticspro_is_admin()) {
 $method = $_SERVER['REQUEST_METHOD'];
 
 if ($method === 'GET') {
-    // Lista catalogo
-    $catalog = analyticspro_gml_build_catalog();
-
-    // Arricchisce con conteggi dall'indice SQLite
-    $result = [];
-    foreach ($catalog as $belfiore => $entry) {
-        $item = [
-            'belfiore'  => $belfiore,
-            'nome'      => $entry['nome'] ?? '',
-            'has_ple'   => !empty($entry['ple']),
-            'has_map'   => !empty($entry['map']),
-            'size_ple'  => (int) ($entry['size_ple'] ?? 0),
-            'size_map'  => (int) ($entry['size_map'] ?? 0),
-            'mtime'     => (int) ($entry['mtime'] ?? 0),
-            'indexed'   => analyticspro_gml_parcel_index_valid($belfiore),
-            'n_parcels' => 0,
-            'n_fogli'   => 0,
-        ];
-
-        // Conta particelle nell'indice SQLite se disponibile
-        $dbPath = analyticspro_gml_index_dir() . '/' . $belfiore . '.sqlite';
-        if (is_file($dbPath)) {
-            try {
-                $db = new SQLite3($dbPath, SQLITE3_OPEN_READONLY);
-                $row = $db->querySingle('SELECT value FROM meta WHERE key = "count"');
-                if ($row !== false && $row !== null) {
-                    $item['n_parcels'] = (int) $row;
-                }
-            } catch (Throwable $e) {
-                // ignora
-            }
-        }
-
-        // Conta fogli
-        $fogliPath = analyticspro_gml_index_dir() . '/' . $belfiore . '_fogli.json';
-        if (is_file($fogliPath)) {
-            $fogli = json_decode((string) file_get_contents($fogliPath), true);
-            if (is_array($fogli)) {
-                $item['n_fogli'] = count($fogli);
-            }
-        }
-
-        $result[] = $item;
-    }
-
-    analyticspro_json(['ok' => true, 'catalog' => $result]);
+    // Lista catalogo: i conteggi arrivano solo da catalogo_counts.json
+    // (generato da rebuild_counts / pagina manutenzione), nessun SQLite aperto.
+    $payload = analyticspro_gml_catalog_list_payload();
+    analyticspro_json([
+        'ok'               => true,
+        'catalog'          => $payload['catalog'],
+        'counts_generated' => $payload['counts_generated'],
+        'counts_available' => $payload['counts_available'],
+    ]);
 }
 
 if ($method === 'POST') {
@@ -71,6 +34,17 @@ if ($method === 'POST') {
     if ($action === 'rebuild') {
         analyticspro_gml_build_catalog(true);
         analyticspro_json(['ok' => true, 'message' => 'Catalogo rigenerato.']);
+    }
+
+    if ($action === 'rebuild_counts') {
+        @set_time_limit(300);
+        $counts = analyticspro_gml_rebuild_counts_cache();
+        analyticspro_json([
+            'ok'           => true,
+            'message'      => 'Conteggi catalogo rigenerati.',
+            'generated_at' => $counts['generated_at'],
+            'count'        => $counts['count'],
+        ]);
     }
 
     if ($action === 'delete') {

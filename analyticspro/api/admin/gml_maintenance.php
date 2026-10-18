@@ -10,14 +10,16 @@ declare(strict_types=1);
  *    Se dopo la normalizzazione si genera un conflitto con un file già esistente,
  *    il file con spazi nel nome viene eliminato (si tiene quello senza conflitto).
  *  - Rigenera il catalogo comuni (storage/gml_index/catalogo.json).
+ *  - Genera/aggiorna i conteggi catalogo (storage/gml_index/catalogo_counts.json).
  *
- * Pagina pensata per essere chiamata a mano da un amministratore: nessun link
- * in navigazione, nessuna chiamata AJAX, solo form POST classici e log minimale.
+ * Pagina pensata per essere chiamata a mano da un amministratore (link
+ * "Maintenance" nel menu amministrazione): nessuna chiamata AJAX, solo form
+ * POST classici e log minimale.
  */
 
-require __DIR__ . '/../includes/bootstrap.php';
-require_once __DIR__ . '/../includes/layout.php';
-require __DIR__ . '/_admin_check.php';
+require dirname(__DIR__, 2) . '/includes/bootstrap.php';
+require_once ANALYTICSPRO_ROOT . '/includes/layout.php';
+require ANALYTICSPRO_ROOT . '/admin/_admin_check.php';
 require_once ANALYTICSPRO_ROOT . '/includes/gml_catalog.php';
 
 /**
@@ -95,12 +97,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $log = analyticspro_gml_normalize_filenames();
         $catalog = analyticspro_gml_build_catalog(true);
         $log[] = 'Catalogo comuni rigenerato: ' . count($catalog) . ' comuni trovati.';
+    } elseif ($action === 'rebuild_counts') {
+        @set_time_limit(300);
+        $counts = analyticspro_gml_rebuild_counts_cache();
+        $log[] = 'Conteggi catalogo generati: ' . $counts['count'] . ' comuni, generato il '
+            . date('d/m/Y H:i:s', $counts['generated_at']) . '.';
     } else {
         $log[] = 'Azione non riconosciuta.';
     }
 }
 
+$countsCache = analyticspro_gml_load_counts_cache();
+
 analyticspro_render_header('Manutenzione GML');
+require ANALYTICSPRO_ROOT . '/admin/_admin_subnav.php';
 ?>
 <div class="container py-4" style="max-width:700px">
     <h1 class="h4 mb-4">Manutenzione file GML</h1>
@@ -126,6 +136,31 @@ analyticspro_render_header('Manutenzione GML');
         <input type="hidden" name="action" value="normalize_and_rebuild">
         <button type="submit" class="btn btn-primary btn-sm">
             Normalizza nomi file + rigenera catalogo
+        </button>
+    </form>
+
+    <h2 class="h6 mb-2">Conteggi catalogo (particelle / fogli)</h2>
+    <p class="small text-muted mb-2">
+        La pagina Import GML legge il numero di particelle e fogli di ogni comune dal file
+        <code>catalogo_counts.json</code>, senza aprire gli indici SQLite. Rigenerare i conteggi
+        dopo aver indicizzato, aggiunto o rimosso comuni.
+    </p>
+    <?php if ($countsCache !== null): ?>
+        <p class="small mb-2">
+            Ultima generazione: <?= analyticspro_h(date('d/m/Y H:i:s', $countsCache['generated_at'])) ?>
+            (<?= (int) $countsCache['count'] ?> comuni).
+        </p>
+    <?php else: ?>
+        <div class="alert alert-warning small py-2 mb-2">
+            Il file dei conteggi non esiste ancora: in Import GML particelle e fogli risulteranno a 0.
+        </div>
+    <?php endif; ?>
+
+    <form method="post" class="mb-4">
+        <input type="hidden" name="csrf_token" value="<?= analyticspro_h(analyticspro_csrf_token()) ?>">
+        <input type="hidden" name="action" value="rebuild_counts">
+        <button type="submit" class="btn btn-primary btn-sm">
+            Genera/aggiorna conteggi
         </button>
     </form>
 
