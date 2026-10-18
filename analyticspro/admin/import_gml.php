@@ -136,7 +136,7 @@ require __DIR__ . '/_admin_subnav.php';
                         <div id="gml-index-progress" class="small text-muted mb-2" aria-live="polite"></div>
                         <div id="gml-index-log-body"
                              class="border rounded p-2 bg-dark text-white small"
-                             style="max-height:200px;overflow-y:auto;font-family:monospace;font-size:.78rem;white-space:pre-wrap"></div>
+                             style="max-height:600px;overflow-y:auto;font-family:monospace;font-size:.78rem;white-space:pre-wrap"></div>
                     </div>
                 </div>
             </div>
